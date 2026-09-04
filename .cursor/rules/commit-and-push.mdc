@@ -1,0 +1,25 @@
+---
+description: Any code change in this repo must be committed and pushed to the GitHub remote.
+alwaysApply: true
+---
+
+# Commit and push every code change
+
+After you change application code, tests, config, or docs in this repository:
+
+1. Run relevant tests/build.
+2. Stage the changed files (`git add` the paths you touched; never secrets or `data/`).
+3. Create a commit with a concise why-focused message.
+4. `git push` to `origin` on the current branch.
+
+Do not leave local-only commits. If push fails, fix auth/remote and retry in the same session.
+
+```text
+# ❌ BAD
+# finish a feature and stop at uncommitted files
+
+# ✅ GOOD
+git add backend/app/domain/prompts.py backend/tests/test_prompts.py
+git commit -m "Keep first-frame prompts in Chinese numerals so Qwen slots match the UI."
+git push
+```
