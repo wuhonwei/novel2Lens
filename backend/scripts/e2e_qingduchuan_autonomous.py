@@ -260,15 +260,46 @@ def main() -> int:
         if path_issues:
             print(f"path_issues {len(path_issues)}", flush=True)
 
+        # Comfy may still hold VRAM; wait until Ollama can answer before storyboard.
+        print("waiting for LLM VRAM after Comfy…", flush=True)
+        llm_ready = False
+        for _ in range(60):
+            try:
+                probe = httpx.post(
+                    "http://127.0.0.1:11434/v1/chat/completions",
+                    json={
+                        "model": "qwen2.5:32b",
+                        "messages": [{"role": "user", "content": "ok"}],
+                        "stream": False,
+                    },
+                    timeout=120.0,
+                )
+                if probe.status_code == 200:
+                    llm_ready = True
+                    break
+                print(f"  llm probe {probe.status_code}: {probe.text[:160]}", flush=True)
+            except Exception as exc:  # noqa: BLE001
+                print(f"  llm probe err: {exc}", flush=True)
+            time.sleep(5.0)
+        report["llm_ready_before_storyboard"] = llm_ready
+        if not llm_ready:
+            raise RuntimeError("LLM still OOM after Comfy; cannot storyboard")
+
         step = time.perf_counter()
         print("3) storyboard every chapter…", flush=True)
         chapter_results: list[dict] = []
         for ch in sorted(chapters, key=lambda c: c.get("index", 0)):
             title = ch.get("title") or ch["id"]
             print(f"  chapter{ch.get('index')} {title}…", flush=True)
-            board = client.post(f"/api/projects/{pid}/chapters/{ch['id']}/storyboard")
-            if board.status_code != 200:
-                msg = f"{board.status_code}: {board.text[:1200]}"
+            board = None
+            for attempt in range(1, 4):
+                board = client.post(f"/api/projects/{pid}/chapters/{ch['id']}/storyboard")
+                if board.status_code == 200:
+                    break
+                print(f"    attempt {attempt} → {board.status_code}: {board.text[:240]}", flush=True)
+                time.sleep(8.0 * attempt)
+            if board is None or board.status_code != 200:
+                msg = f"{board.status_code if board else '?'}: {(board.text if board else '')[:1200]}"
                 report["errors"].append(f"storyboard {title}: {msg}")
                 chapter_results.append({"title": title, "ok": False, "error": msg})
                 continue

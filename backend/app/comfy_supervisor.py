@@ -117,6 +117,23 @@ class ComfySupervisor:
         except Exception:
             pass
 
+    def release_for_llm(self) -> None:
+        """Immediately free Comfy VRAM (and stop process) so local LLMs can load."""
+        self.free_models()
+        if self.stop_when_idle:
+            try:
+                self._stop_process()
+            except Exception:
+                pass
+        # Wait until the port is down so CUDA can reclaim memory.
+        deadline = time.monotonic() + 60.0
+        while time.monotonic() < deadline:
+            if not self._is_up():
+                break
+            time.sleep(0.5)
+        self._idle_handled = True
+        self._last_activity_at = None
+
     def note_activity(self) -> None:
         self._last_activity_at = time.monotonic()
         self._idle_handled = False
@@ -131,10 +148,4 @@ class ComfySupervisor:
         elapsed = time.monotonic() - self._last_activity_at
         if elapsed < self.idle_seconds:
             return
-        self.free_models()
-        if self.stop_when_idle:
-            try:
-                self._stop_process()
-            except Exception:
-                pass
-        self._idle_handled = True
+        self.release_for_llm()

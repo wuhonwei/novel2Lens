@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -81,6 +82,15 @@ def _stop_image_worker() -> None:
 def _reject_if_image_busy(db: Session) -> None:
     if llm_supervisor.image_busy or has_active_jobs(db):
         raise HTTPException(409, "参考图生成中，请稍后再试")
+
+
+def _prepare_llm(db: Session) -> None:
+    """Block if image jobs active; free Comfy VRAM so Ollama/Flash-Next can load."""
+    _reject_if_image_busy(db)
+    try:
+        comfy_supervisor.release_for_llm()
+    except Exception:
+        logging.getLogger(__name__).exception("release_for_llm failed")
 
 
 @asynccontextmanager
@@ -303,7 +313,7 @@ async def api_prescan(project_id: str, replace: bool = False):
     db = db_session()
     try:
         project = get_project(db, project_id)
-        _reject_if_image_busy(db)
+        _prepare_llm(db)
         try:
             result = await prescan_project(db, project, replace=replace)
         except Exception as exc:
@@ -319,7 +329,7 @@ async def api_generate_assets(project_id: str, replace: bool = True):
     db = db_session()
     try:
         project = get_project(db, project_id)
-        _reject_if_image_busy(db)
+        _prepare_llm(db)
         if not (project.source_text or "").strip():
             raise HTTPException(400, "项目没有正文，请先上传或粘贴小说 TXT")
         try:
@@ -337,7 +347,7 @@ async def api_extract(project_id: str, chapter_id: str, overwrite: bool = False)
     try:
         project = get_project(db, project_id)
         chapter = get_chapter(db, project_id, chapter_id)
-        _reject_if_image_busy(db)
+        _prepare_llm(db)
         try:
             result = await extract_assets(db, project, chapter, overwrite=overwrite)
         except ValueError as exc:
@@ -369,7 +379,7 @@ async def api_storyboard(project_id: str, chapter_id: str, overwrite: bool = Fal
     try:
         project = get_project(db, project_id)
         chapter = get_chapter(db, project_id, chapter_id)
-        _reject_if_image_busy(db)
+        _prepare_llm(db)
         try:
             result = await generate_storyboard(db, project, chapter, overwrite=overwrite)
         except ValueError as exc:
