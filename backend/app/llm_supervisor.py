@@ -91,6 +91,8 @@ class LlmSupervisor:
 
     def set_image_busy(self, busy: bool) -> None:
         self._image_busy = bool(busy)
+        if self._image_busy:
+            self.stop_llm()
 
     def stop_llm(self) -> None:
         try:

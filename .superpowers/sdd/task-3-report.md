@@ -47,3 +47,21 @@ Set-Location D:\Develop\novel2Lens\backend
 python -m pytest tests/test_supervisors.py -v
 python -m pytest -v
 ```
+
+## Review Fixes (Important)
+
+**Status:** DONE  
+**Commit:** `fb532bc`
+
+### Changes
+
+1. **`LlmSupervisor.set_image_busy(True)`** now calls `stop_llm()` so callers cannot forget to release the LLM mutex. Setting `False` only clears the flag — no auto-start.
+2. **`test_tick_idle_skips_free_while_jobs_active`**: after idle elapsed, `tick_idle(has_active_jobs=True)` skips `/free`; `tick_idle(has_active_jobs=False)` frees once.
+3. Renamed **`test_llm_blocks_when_image_busy`** → **`test_set_image_busy_stops_llm`**; added **`test_set_image_busy_false_does_not_start_llm`**.
+
+### Verification
+
+| Run | Result |
+|-----|--------|
+| `pytest tests/test_supervisors.py -v` | 9 passed |
+| `pytest -v` (full suite) | 44 passed |

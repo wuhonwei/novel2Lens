@@ -1,9 +1,54 @@
-def test_llm_blocks_when_image_busy():
+def test_set_image_busy_stops_llm():
+    stops = []
     from app.llm_supervisor import LlmSupervisor
 
-    s = LlmSupervisor(stop_cmd=lambda: None, start_cmd=lambda: None)
+    s = LlmSupervisor(stop_cmd=lambda: stops.append("stop"), start_cmd=lambda: None)
     s.set_image_busy(True)
     assert s.image_busy is True
+    assert stops == ["stop"]
+
+
+def test_set_image_busy_false_does_not_start_llm():
+    starts = []
+    from app.llm_supervisor import LlmSupervisor
+
+    s = LlmSupervisor(stop_cmd=lambda: None, start_cmd=lambda: starts.append("start"), is_up=lambda: False)
+    s.set_image_busy(True)
+    s.set_image_busy(False)
+    assert s.image_busy is False
+    assert starts == []
+
+
+def test_tick_idle_skips_free_while_jobs_active():
+    calls = []
+    from app.comfy_supervisor import ComfySupervisor
+
+    sup = ComfySupervisor(
+        base_url="http://127.0.0.1:8189",
+        root=r"D:\Develop\ComfyUI",
+        python=r"D:\Develop\ComfyUI\venv\Scripts\python.exe",
+        idle_seconds=1,
+        stop_when_idle=False,
+        client_factory=lambda url: type(
+            "C",
+            (),
+            {
+                "health": lambda self: {"ok": True},
+                "free_memory": lambda self: calls.append("free"),
+            },
+        )(),
+        start_process=lambda: None,
+        stop_process=lambda: None,
+        is_up=lambda: True,
+    )
+    sup.note_activity()
+    import time
+
+    time.sleep(1.2)
+    sup.tick_idle(has_active_jobs=True)
+    assert calls == []
+    sup.tick_idle(has_active_jobs=False)
+    assert calls == ["free"]
 
 
 def test_idle_unload_calls_free(monkeypatch):
