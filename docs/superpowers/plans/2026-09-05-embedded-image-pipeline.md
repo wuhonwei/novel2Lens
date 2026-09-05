@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Embed ComfyUI text-to-image and image-edit inside novel2Lens with a serial durable job queue, hard LLM↔image mutex, on-demand Comfy with 3‑minute idle unload, and a 青渡川 end-to-end API test that simulates the frontend flow (create → import → assets → storyboard → one-click images).
+**Goal:** Embed ComfyUI text-to-image and image-edit inside novel2Lens with a serial durable job queue, hard LLM↔image mutex, on-demand Comfy with 3‑minute idle unload, and a 青渡川 end-to-end API test that simulates the frontend flow (create → import → assets → storyboard → one-click images) on **real GPU** (no FakeComfy for that flow).
 
 **Architecture:** Copy/adapt aiImage’s Comfy client + workflow compilers into `backend/app/comfy_pipeline/`. Persist `image_jobs` in SQLite; a single background `ImageWorker` runs jobs FIFO. `ComfySupervisor` starts Comfy only when needed and `/free` (+ optional process stop) after 180s idle. `LlmSupervisor` stops Flash-Next while image jobs are active and LLM routes return 409. Frontend polls active jobs / phases. No aiImage `:8000`.
 
@@ -40,7 +40,8 @@
 | `frontend/src/api.ts` + `App.tsx` + `styles.css` | queue UI, phases, edit panel, scene slots |
 | `start.ps1` | no 造像 / no Comfy / no LLM by default |
 | `backend/tests/test_image_worker.py` | serial, order, free, 409, idle |
-| `backend/scripts/e2e_qingduchuan_flow.py` | 青渡川 full flow (fake or live Comfy) |
+| `backend/scripts/e2e_qingduchuan_flow.py` | 青渡川 full flow: real LLM + real Comfy GPU |
+| `backend/tests/test_e2e_qingduchuan_flow_gpu.py` | Optional `@pytest.mark.gpu` wrapper (not in default CI) |
 
 ---
 
@@ -480,97 +481,100 @@ git commit -m "Stop auto-starting 造像, Comfy, and LLM from start.ps1."
 
 ---
 
-### Task 8: 青渡川 E2E — simulate frontend full flow
+### Task 8: 青渡川 E2E — simulate frontend full flow (**real GPU, no FakeComfy**)
 
 **Files:**
-- Create: `backend/scripts/e2e_qingduchuan_flow.py`
-- Create: `backend/tests/test_e2e_qingduchuan_flow_mocked.py` (pytest wrapper calling core with FakeComfy)
+- Create: `backend/scripts/e2e_qingduchuan_flow.py` (primary; agent runs this after implementation)
 - Novel path: `D:\Develop\aiVedioProducer\docs\novels\青渡川.txt` (same as `verify_qingduchuan.py`)
 
-**What “simulate frontend” means:** hit the **same HTTP endpoints** the UI uses, in order:
+**Hard rule:** This flow **must not** use FakeComfy. It drives the real `ImageWorker` → real ComfyUI `:8189` → real checkpoints / Qwen Edit on GPU. Unit tests in Tasks 3–4 may still use fakes; **青渡川 simulation does not**.
 
-1. `POST /api/projects` — title `青渡川`, full novel text, style 半写实江湖  
-2. `PATCH` project — `image_output_dir` under tmp/data  
-3. `POST /api/projects/{id}/generate-assets?replace=true` **or** `prescan` then confirm — book character/scene/prop descriptions  
-4. First chapter `POST .../storyboard`  
-5. `POST .../generate-images` — enqueue one-click  
-6. Poll `GET .../image-jobs?active_only=true` until empty (or timeout)  
-7. Assert: each character has `full_path` + `half_path`; each scene `far_path` + `near_path`; props `image_path`; job history has t2i-before-edit; while jobs active, `POST .../storyboard` returns **409**
+**What “simulate frontend” means:** hit the **same HTTP endpoints** the UI uses, against a **running** API (`http://127.0.0.1:8790`), in order:
 
-**Modes:**
+1. Ensure LLM available for text steps (`start-llm.ps1` if needed); after assets+storyboard, one-click images will stop LLM (hard mutex) and start Comfy on demand.
+2. `POST /api/projects` — title `青渡川`, **full** novel text from `青渡川.txt`, style 半写实江湖  
+3. `PATCH` project — set `image_output_dir` (e.g. under `data/projects/.../generated` or a dedicated folder)  
+4. `POST /api/projects/{id}/generate-assets?replace=true` (or prescan + confirm) — book character/scene/prop descriptions via **real LLM**  
+5. First chapter `POST .../storyboard` — **real LLM**  
+6. `POST .../generate-images` — enqueue one-click (real GPU)  
+7. Poll `GET .../image-jobs?active_only=true` every ~2s; print phase labels (`文生图模型加载中` / `图片编辑模型加载中` / `生成中`); timeout generous (e.g. 3–6 hours depending on asset count)  
+8. While jobs active, assert `POST .../storyboard?overwrite=true` → **409**  
+9. Assert: each character has non-empty `full_path` + `half_path` and files exist on disk with non-trivial size; each scene `far_path` + `near_path`; props `image_path`; job list ordered t2i-before-edit for the batch  
+10. Write `backend/scripts/qingduchuan_e2e_report.json` with timings, job statuses, asset paths
 
-| Flag | Behavior |
-|------|----------|
-| default / pytest | `ImageWorker` uses **FakeComfy** (no GPU): returns 1×1 PNG; still exercises queue, phases, mutex, path writes |
-| `--live` | Real ComfySupervisor + real models (manual / night run; long) |
+**Prerequisites (script must check and fail loudly):**
 
-- [ ] **Step 1: Write mocked pytest E2E**
+- Novel file exists  
+- API `:8790` healthy  
+- Comfy root / python paths configured (script may trigger ensure_running via first job; or preflight `GET` Comfy if already up)  
+- GPU / Comfy can load RealVis / Guofeng / Qwen Edit as needed  
 
-```python
-# backend/tests/test_e2e_qingduchuan_flow_mocked.py
-def test_qingduchuan_frontend_flow_mocked(tmp_path, monkeypatch):
-    """Simulate UI: create → assets → storyboard → one-click images."""
-    monkeypatch.setattr("app.config.settings.data_dir", tmp_path)
-    # short novel excerpt if full file missing; prefer full 青渡川.txt
-    novel = Path(r"D:\Develop\aiVedioProducer\docs\novels\青渡川.txt")
-    text = novel.read_text(encoding="utf-8") if novel.exists() else (
-        "第一章 雾锁渡口\n青渡川旁，林砚之立于渡口。苏晚卿撑伞而来。\n"
-    )
-    monkeypatch.setattr("app.services.chat_json", fake_chat_json)  # reuse test_api fake
-    # patch ComfySupervisor + ComfyClient to Fake that succeeds instantly
-    reset_engine(...)
-    with TestClient(app) as client:
-        created = client.post("/api/projects", json={
-            "title": "青渡川", "text": text[:50000], "style": "半写实、东方江湖、电影布光、16:9",
-        }).json()
-        pid = created["project"]["id"]
-        client.patch(f"/api/projects/{pid}", json={"image_output_dir": str(tmp_path / "out")})
-        gen = client.post(f"/api/projects/{pid}/generate-assets?replace=true")
-        assert gen.status_code == 200
-        cid = created["chapters"][0]["id"]
-        board = client.post(f"/api/projects/{pid}/chapters/{cid}/storyboard")
-        assert board.status_code == 200
-        enq = client.post(f"/api/projects/{pid}/generate-images")
-        assert enq.status_code == 200
-        batch_id = enq.json()["image_gen"]["batch_id"]
-        # while active, LLM endpoint blocked
-        blocked = client.post(f"/api/projects/{pid}/chapters/{cid}/storyboard?overwrite=true")
-        assert blocked.status_code == 409
-        # poll until done
-        for _ in range(200):
-            jobs = client.get(f"/api/projects/{pid}/image-jobs?active_only=true").json()["jobs"]
-            if not jobs:
-                break
-            time.sleep(0.05)
-        else:
-            raise AssertionError("jobs did not finish")
-        assets = client.get(f"/api/projects/{pid}").json()["assets"]
-        chars = [a for a in assets if a["kind"] == "character"]
-        scenes = [a for a in assets if a["kind"] == "scene"]
-        assert chars and all(a["full_path"] and a["half_path"] for a in chars)
-        assert scenes and all(a.get("far_path") and a.get("near_path") for a in scenes)
-```
+**Not in default `pytest -q`:** mark optional `pytest` wrapper `@pytest.mark.gpu` / `@pytest.mark.slow` so CI without GPU does not run it; **agent verification after Task 8 = run the script for real**.
 
-Use the same `fake_chat_json` as `tests/test_api.py` (import or share fixture).
-
-- [ ] **Step 2: CLI script for human/agent runs**
+- [ ] **Step 1: Implement `e2e_qingduchuan_flow.py`**
 
 ```python
 # backend/scripts/e2e_qingduchuan_flow.py
-"""Simulate frontend 青渡川 flow against a running API (or --inprocess)."""
-# argparse: --live / --base-url http://127.0.0.1:8790
-# prints step timestamps; writes report JSON next to script
+"""青渡川 full UI-equivalent flow — REAL LLM + REAL Comfy GPU (no FakeComfy)."""
+from __future__ import annotations
+import argparse, json, time
+from pathlib import Path
+import httpx
+
+NOVEL = Path(r"D:\Develop\aiVedioProducer\docs\novels\青渡川.txt")
+API = "http://127.0.0.1:8790"
+
+def main() -> None:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--base-url", default=API)
+    ap.add_argument("--poll-sec", type=float, default=2.0)
+    ap.add_argument("--timeout-sec", type=float, default=21600)  # 6h
+    args = ap.parse_args()
+    text = NOVEL.read_text(encoding="utf-8")
+    client = httpx.Client(base_url=args.base_url, timeout=600.0)
+    client.get("/api/health").raise_for_status()
+    # delete prior 青渡川 test project if any ...
+    # create → patch image_output_dir → generate-assets → storyboard
+    # generate-images → poll image-jobs until idle
+    # assert paths + 409 during run → write report JSON
+    ...
+
+if __name__ == "__main__":
+    main()
 ```
 
-- [ ] **Step 3: Run mocked E2E**
+Fill in the full step body (no FakeComfy imports, no monkeypatch of ComfyClient).
 
-Run: `cd D:\Develop\novel2Lens\backend && uv run pytest tests/test_e2e_qingduchuan_flow_mocked.py -v`  
-Expected: PASS
+- [ ] **Step 2: Optional GPU pytest (skipped by default)**
+
+```python
+# backend/tests/test_e2e_qingduchuan_flow_gpu.py
+import pytest
+pytestmark = [pytest.mark.gpu, pytest.mark.slow]
+
+@pytest.mark.skipif(not Path(r"D:\Develop\aiVedioProducer\docs\novels\青渡川.txt").exists(), reason="novel missing")
+def test_qingduchuan_real_gpu_flow():
+    # subprocess: uv run python scripts/e2e_qingduchuan_flow.py
+    # or import main(); assert report ok
+    ...
+```
+
+Default `pytest -q` must **not** require GPU. Agent post-implementation gate: **always** run the script on this machine.
+
+- [ ] **Step 3: Run real GPU E2E (agent mandatory)**
+
+```powershell
+# API already up; LLM available for text steps
+cd D:\Develop\novel2Lens\backend
+uv run python scripts/e2e_qingduchuan_flow.py --base-url http://127.0.0.1:8790
+```
+
+Expected: report JSON with all jobs `succeeded`, asset image files on disk, no FakeComfy in stack traces.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git commit -m "Add 青渡川 mocked E2E covering assets, storyboard, and image queue."
+git commit -m "Add 青渡川 real-GPU E2E simulating frontend create-to-images flow."
 ```
 
 ---
@@ -606,7 +610,7 @@ git push origin HEAD
 | Comfy on-demand; 180s idle free (+ stop) | 3, 4 |
 | Frontend phases 文生图/编辑模型加载中 | 4 phase field, 6 labels |
 | start.ps1 no 造像/Comfy/LLM | 7 |
-| 青渡川 auto test full UI-equivalent flow | 8 |
+| 青渡川 auto test full UI-equivalent flow (**real GPU**) | 8 |
 
 ## Execution handoff
 
