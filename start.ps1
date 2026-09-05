@@ -92,6 +92,23 @@ $python = Get-VenvPython
 Assert-Node
 Ensure-BackendDeps $python
 Ensure-FrontendDeps
+
+$ZaoxiangStart = "D:\Develop\aiImage\scripts\start.ps1"
+$ZaoxiangHealth = "http://127.0.0.1:8000/api/health"
+if (Test-Path $ZaoxiangStart) {
+    if (Test-HttpOk $ZaoxiangHealth) {
+        Write-Host "造像 already running: $ZaoxiangHealth"
+    } else {
+        Write-Host "Starting 造像 (aiImage + ComfyUI)..."
+        Start-Process -FilePath "powershell.exe" -ArgumentList @(
+            "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $ZaoxiangStart
+        )
+        Wait-Service "造像" $ZaoxiangHealth 180
+    }
+} else {
+    Write-Host "WARN: 造像 start script missing at $ZaoxiangStart — skip image service."
+}
+
 Write-Host "Starting Flash-Next LLM..."
 & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Root "start-llm.ps1")
 if ($LASTEXITCODE -ne 0) { throw "Flash-Next LLM failed to start." }
@@ -101,4 +118,4 @@ Wait-Service "API" $ApiUrl
 Wait-Service "UI" $UiUrl
 Start-Process $UiUrl
 Write-Host "Opened $UiUrl"
-Write-Host "Close novel2Lens Flash-Next / API / UI windows to stop."
+Write-Host "Close novel2Lens Flash-Next / API / UI / 造像 windows to stop."

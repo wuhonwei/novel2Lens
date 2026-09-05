@@ -31,6 +31,8 @@ class Project(Base):
     allow_fallback: Mapped[bool] = mapped_column(Boolean, default=True)
     thinking: Mapped[str] = mapped_column(String(20), default="medium")
     registry_scan_json: Mapped[str] = mapped_column(Text, default="{}")
+    zaoxiang_base_url: Mapped[str] = mapped_column(String(300), default="http://127.0.0.1:8000")
+    image_output_dir: Mapped[str] = mapped_column(String(500), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
@@ -147,6 +149,10 @@ def ensure_schema() -> None:
         cols = {row[1] for row in conn.execute(text("PRAGMA table_info(projects)")).fetchall()}
         if "registry_scan_json" not in cols:
             conn.execute(text("ALTER TABLE projects ADD COLUMN registry_scan_json TEXT DEFAULT '{}'"))
+        if "zaoxiang_base_url" not in cols:
+            conn.execute(text("ALTER TABLE projects ADD COLUMN zaoxiang_base_url VARCHAR(300) DEFAULT 'http://127.0.0.1:8000'"))
+        if "image_output_dir" not in cols:
+            conn.execute(text("ALTER TABLE projects ADD COLUMN image_output_dir VARCHAR(500) DEFAULT ''"))
         asset_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(assets)")).fetchall()}
         if "background_zh" not in asset_cols:
             conn.execute(text("ALTER TABLE assets ADD COLUMN background_zh TEXT DEFAULT ''"))

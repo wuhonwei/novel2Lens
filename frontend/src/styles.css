@@ -453,7 +453,7 @@ input, select { width: 100%; }
 .pill.ok { color: var(--ok); border-color: rgba(111, 191, 154, 0.45); }
 .pill.warn { color: var(--warn); border-color: rgba(201, 166, 107, 0.45); }
 
-.thumbs { display: flex; gap: 0.5rem; margin: 0.55rem 0; }
+.thumbs { display: flex; gap: 0.5rem; margin: 0.55rem 0; flex-wrap: wrap; }
 .thumbs img, .thumbs .ph {
   width: 92px;
   height: 122px;
@@ -469,6 +469,25 @@ input, select { width: 100%; }
   font-size: 0.8rem;
 }
 .thumbs .ph.wide, .thumbs img.wide { width: 160px; height: 90px; }
+.thumb-slot { display: flex; flex-direction: column; gap: 0.35rem; }
+.thumb-slot.wide-slot .ph.wide, .thumb-slot.wide-slot img.wide { width: 160px; height: 90px; }
+.thumb-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  max-width: 160px;
+}
+.file-btn.compact, button.compact, .ghost.compact {
+  font-size: 0.72rem;
+  padding: 0.2rem 0.4rem;
+}
+.ghost.compact {
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  cursor: pointer;
+  border-radius: 8px;
+}
 .scene-thumb {
   max-width: 280px;
   border-radius: 10px;

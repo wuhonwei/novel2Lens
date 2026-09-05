@@ -489,6 +489,8 @@ function BookAssets({
   const scan = bundle.project.registry_scan;
   const ready = bookAssetsReady(bundle);
   const [view, setView] = useState<"character" | "scene" | "prop">("character");
+  const [outDir, setOutDir] = useState(bundle.project.image_output_dir || "");
+  useEffect(() => setOutDir(bundle.project.image_output_dir || ""), [bundle.project.image_output_dir]);
 
   const tabs = [
     { id: "character" as const, label: "人物形象", count: characters.length, empty: "还没有人物。点上方一键生成。", assets: characters },
@@ -520,6 +522,41 @@ function BookAssets({
           >
             {ready ? "重新一键生成全书资产" : "一键生成全书资产"}
           </button>
+        </div>
+        <div className="stack" style={{ marginTop: "0.85rem" }}>
+          <label>参考图保存目录（造像生成落盘；可填绝对路径）</label>
+          <div className="row">
+            <input
+              data-testid="image-output-dir"
+              value={outDir}
+              placeholder="默认：项目 data/projects/…/generated"
+              onChange={(e) => setOutDir(e.target.value)}
+            />
+            <button
+              disabled={busy}
+              onClick={() =>
+                onRun("保存图片目录", async () =>
+                  onChange(await api.patch(bundle.project.id, { image_output_dir: outDir.trim() }))
+                )
+              }
+            >
+              保存目录
+            </button>
+            <button
+              data-testid="btn-generate-images"
+              className="primary"
+              disabled={busy || bundle.assets.length === 0}
+              onClick={() =>
+                onRun("一键生成参考图", async () => {
+                  const next = await api.generateImages(bundle.project.id);
+                  onChange(next);
+                })
+              }
+            >
+              一键生成参考图
+            </button>
+          </div>
+          <p className="hint">人物：全身 9:16 → 半身 3:4（由全身编辑）。场景 16:9，物品 1:1。需造像服务 :8000 已启动。</p>
         </div>
       </section>
 
@@ -641,6 +678,7 @@ function AutoTextarea({
 function AssetCard({ asset, projectId, onUpdated }: { asset: Asset; projectId: string; onUpdated: (a: Asset) => void }) {
   const [background, setBackground] = useState(asset.background_zh || "");
   const [desc, setDesc] = useState(asset.desc_zh);
+  const [imgBusy, setImgBusy] = useState("");
   useEffect(() => setBackground(asset.background_zh || ""), [asset.background_zh]);
   useEffect(() => setDesc(asset.desc_zh), [asset.desc_zh]);
   const kind = normalizeKind(asset.kind);
@@ -658,6 +696,25 @@ function AssetCard({ asset, projectId, onUpdated }: { asset: Asset; projectId: s
     onUpdated(await api.patchAsset(projectId, asset.id, patch));
   }
 
+  async function regen(field?: string) {
+    setImgBusy(field ? `生成${field}` : "生成参考图");
+    try {
+      onUpdated(await api.generateAssetImage(projectId, asset.id, field));
+    } catch (e) {
+      alert(e instanceof Error ? e.message : String(e));
+    } finally {
+      setImgBusy("");
+    }
+  }
+
+  async function clearImg(field: string) {
+    try {
+      onUpdated(await api.clearAssetImage(projectId, asset.id, field));
+    } catch (e) {
+      alert(e instanceof Error ? e.message : String(e));
+    }
+  }
+
   const ready =
     kind === "character" ? Boolean(asset.half_path && asset.full_path) : Boolean(asset.image_path);
 
@@ -667,6 +724,7 @@ function AssetCard({ asset, projectId, onUpdated }: { asset: Asset; projectId: s
         <div className="asset-head">
           <h3>{asset.name}</h3>
           <span className={`pill ${ready ? "ok" : "warn"}`}>{ready ? "图齐" : "缺图"}</span>
+          {imgBusy ? <span className="busy-line">{imgBusy}…</span> : null}
         </div>
         <p className="muted">
           {kind === "character" ? "人物" : kind === "scene" ? "场景" : "物品"}
@@ -702,6 +760,9 @@ function AssetCard({ asset, projectId, onUpdated }: { asset: Asset; projectId: s
         )}
         <div className="row">
           <button onClick={() => saveFields()}>保存描述</button>
+          <button className="primary" disabled={!!imgBusy} onClick={() => regen()}>
+            自动生成全部参考图
+          </button>
         </div>
       </div>
 
@@ -709,23 +770,36 @@ function AssetCard({ asset, projectId, onUpdated }: { asset: Asset; projectId: s
         <div className="thumbs">
           {kind === "character" ? (
             <>
-              {asset.half_path ? <img src={mediaUrl(asset.half_path)} alt="半身" /> : <div className="ph">半身</div>}
-              {asset.full_path ? <img src={mediaUrl(asset.full_path)} alt="全身" /> : <div className="ph">全身</div>}
+              <div className="thumb-slot">
+                {asset.full_path ? <img src={mediaUrl(asset.full_path)} alt="全身" /> : <div className="ph">全身 9:16</div>}
+                <div className="thumb-actions">
+                  <label className="file-btn compact">上传<input type="file" accept="image/*" onChange={(e) => upload("full", e.target.files?.[0])} /></label>
+                  <button type="button" className="ghost compact" disabled={!!imgBusy} onClick={() => regen("full")}>重生成</button>
+                  <button type="button" className="ghost compact" disabled={!asset.full_path || !!imgBusy} onClick={() => clearImg("full")}>删除</button>
+                </div>
+              </div>
+              <div className="thumb-slot">
+                {asset.half_path ? <img src={mediaUrl(asset.half_path)} alt="半身" /> : <div className="ph">半身 3:4</div>}
+                <div className="thumb-actions">
+                  <label className="file-btn compact">上传<input type="file" accept="image/*" onChange={(e) => upload("half", e.target.files?.[0])} /></label>
+                  <button type="button" className="ghost compact" disabled={!!imgBusy} onClick={() => regen("half")}>重生成</button>
+                  <button type="button" className="ghost compact" disabled={!asset.half_path || !!imgBusy} onClick={() => clearImg("half")}>删除</button>
+                </div>
+              </div>
             </>
-          ) : asset.image_path ? (
-            <img className="wide" src={mediaUrl(asset.image_path)} alt={asset.name} />
           ) : (
-            <div className="ph wide">参考图</div>
-          )}
-        </div>
-        <div className="row upload-row">
-          {kind === "character" ? (
-            <>
-              <label className="file-btn">半身<input type="file" accept="image/*" onChange={(e) => upload("half", e.target.files?.[0])} /></label>
-              <label className="file-btn">全身<input type="file" accept="image/*" onChange={(e) => upload("full", e.target.files?.[0])} /></label>
-            </>
-          ) : (
-            <label className="file-btn">参考图<input type="file" accept="image/*" onChange={(e) => upload("image", e.target.files?.[0])} /></label>
+            <div className="thumb-slot wide-slot">
+              {asset.image_path ? (
+                <img className="wide" src={mediaUrl(asset.image_path)} alt={asset.name} />
+              ) : (
+                <div className="ph wide">{kind === "scene" ? "场景 16:9" : "物品 1:1"}</div>
+              )}
+              <div className="thumb-actions">
+                <label className="file-btn compact">上传<input type="file" accept="image/*" onChange={(e) => upload("image", e.target.files?.[0])} /></label>
+                <button type="button" className="ghost compact" disabled={!!imgBusy} onClick={() => regen("image")}>重生成</button>
+                <button type="button" className="ghost compact" disabled={!asset.image_path || !!imgBusy} onClick={() => clearImg("image")}>删除</button>
+              </div>
+            </div>
           )}
         </div>
       </div>

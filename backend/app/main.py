@@ -14,6 +14,7 @@ from app.config import settings
 from app.db import Asset, Chapter, Project, Proposal, Shot, init_db
 from app import db as database
 from app.domain.registry import sanitize_aliases, sanitize_character_fields
+from app.image_gen import clear_asset_image, generate_all_book_images, generate_one_asset
 from app.services import (
     confirm_proposals,
     export_project,
@@ -34,6 +35,7 @@ from app.services import (
     _load,
     _uid,
 )
+from app.zaoxiang_client import ZaoxiangError
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
@@ -86,6 +88,8 @@ class SettingsIn(BaseModel):
     allow_fallback: bool | None = None
     thinking: str | None = None
     text: str | None = None
+    zaoxiang_base_url: str | None = None
+    image_output_dir: str | None = None
 
 
 class ConfirmIn(BaseModel):
@@ -403,6 +407,53 @@ async def api_upload_asset(
         db.commit()
         refresh_shot_readiness(db, project)
         return serialize_asset(asset)
+    finally:
+        db.close()
+
+
+@app.post("/api/projects/{project_id}/generate-images")
+def api_generate_all_images(project_id: str):
+    """One-click generate reference images for all book assets via 造像."""
+    db = db_session()
+    try:
+        project = get_project(db, project_id)
+        try:
+            result = generate_all_book_images(db, project)
+        except ZaoxiangError as exc:
+            raise HTTPException(502, str(exc)) from exc
+        return {**_bundle(db, project), "image_gen": result}
+    finally:
+        db.close()
+
+
+@app.post("/api/projects/{project_id}/assets/{asset_id}/generate-image")
+def api_generate_asset_image(project_id: str, asset_id: str, field: str | None = None):
+    db = db_session()
+    try:
+        project = get_project(db, project_id)
+        asset = db.get(Asset, asset_id)
+        if not asset or asset.project_id != project_id:
+            raise HTTPException(404, "资产不存在")
+        try:
+            return generate_one_asset(db, project, asset, field=field)
+        except (ZaoxiangError, ValueError) as exc:
+            raise HTTPException(502, str(exc)) from exc
+    finally:
+        db.close()
+
+
+@app.delete("/api/projects/{project_id}/assets/{asset_id}/image")
+def api_clear_asset_image(project_id: str, asset_id: str, field: str = "image"):
+    db = db_session()
+    try:
+        project = get_project(db, project_id)
+        asset = db.get(Asset, asset_id)
+        if not asset or asset.project_id != project_id:
+            raise HTTPException(404, "资产不存在")
+        try:
+            return clear_asset_image(db, project, asset, field)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
     finally:
         db.close()
 

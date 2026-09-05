@@ -162,6 +162,8 @@ def serialize_project(p: Project) -> dict[str, Any]:
         "fallback_model": p.fallback_model,
         "allow_fallback": p.allow_fallback,
         "thinking": p.thinking,
+        "zaoxiang_base_url": getattr(p, "zaoxiang_base_url", None) or "http://127.0.0.1:8000",
+        "image_output_dir": getattr(p, "image_output_dir", None) or "",
         "registry_scan": _load(getattr(p, "registry_scan_json", None) or "{}", {}),
         "created_at": p.created_at.isoformat() if p.created_at else None,
     }

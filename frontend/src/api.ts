@@ -91,6 +91,8 @@ export type Project = {
   fallback_model: string;
   allow_fallback: boolean;
   thinking: string;
+  zaoxiang_base_url?: string;
+  image_output_dir?: string;
   registry_scan?: {
     passes?: Array<Record<string, unknown>>;
     complete?: boolean;
@@ -223,6 +225,14 @@ export const api = {
     data.set("file", file);
     return req<Asset>(`/api/projects/${pid}/assets/${aid}/upload`, { method: "POST", body: data });
   },
+  generateImages: (pid: string) =>
+    req<Bundle & { image_gen?: Record<string, unknown> }>(`/api/projects/${pid}/generate-images`, { method: "POST" }),
+  generateAssetImage: (pid: string, aid: string, field?: string) => {
+    const qs = field ? `?field=${encodeURIComponent(field)}` : "";
+    return req<Asset>(`/api/projects/${pid}/assets/${aid}/generate-image${qs}`, { method: "POST" });
+  },
+  clearAssetImage: (pid: string, aid: string, field: string) =>
+    req<Asset>(`/api/projects/${pid}/assets/${aid}/image?field=${encodeURIComponent(field)}`, { method: "DELETE" }),
   export: (pid: string) => req<{ document: unknown; markdown: string; path: string }>(`/api/projects/${pid}/export`, { method: "POST" }),
 };
 
