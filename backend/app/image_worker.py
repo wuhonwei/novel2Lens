@@ -253,6 +253,19 @@ class ImageWorker:
             en_lock = identity_lock_en(gender=gender, age_tier=age_tier)
             if en_lock:
                 t2i_prompt = f"{en_lock}. {t2i_prompt}"
+            # Costume color hard-prefix — Guofeng otherwise defaults to white/gold armor beauty.
+            if "黑色" in prompt or "黑衣" in prompt:
+                t2i_prompt = (
+                    "all-black outfit only, solid black robes, black cloth, masked face, "
+                    "no white clothes, no gold fantasy armor, no glamorous armor. "
+                    + t2i_prompt
+                )
+            elif "官服" in prompt:
+                t2i_prompt = (
+                    "ancient Chinese magistrate official robes, formal guanfu, "
+                    "middle-aged male official, not fantasy armor. "
+                    + t2i_prompt
+                )
             # Keep guofeng_cg for 国风3D males/elders; gender-specific CGI suffixes handle bias.
             style_for_suffix = style
             t2i_prompt = enrich_character_prompt(
@@ -264,6 +277,24 @@ class ImageWorker:
             )
         else:
             style_for_suffix = style
+            if subject_type == "prop":
+                # English object anchors first — Guofeng often ignores bare Chinese prop names.
+                prop_en = {
+                    "玉佩": "Chinese carved jade pendant bi disc, nephrite jade ornament",
+                    "文献": "bound ancient Chinese rice-paper documents scroll stack",
+                    "木盒": "carved rosewood wooden box",
+                    "火折子": "ancient Chinese fire starter tube flint lighter",
+                    "千年古松": "miniature ancient pine tree bonsai",
+                    "密道": "narrow wooden secret tunnel doorway entrance",
+                }
+                for zh, en in prop_en.items():
+                    if zh in prompt:
+                        t2i_prompt = f"{en}. {prompt}"
+                        break
+                else:
+                    t2i_prompt = prompt
+            else:
+                t2i_prompt = prompt
 
         try:
             backend = pick_t2i_backend(
@@ -329,7 +360,7 @@ class ImageWorker:
                 )
                 positive = (
                     f"single prop product shot, centered object, plain studio background, "
-                    f"{prompt}"
+                    f"{t2i_prompt}"
                 )
 
         if backend == "ideogram4":

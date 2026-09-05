@@ -414,13 +414,21 @@ def _shot_ref_paths(project: Project, shot, assets: list[Asset]) -> tuple[list[s
         if ref.get("mode") == "text":
             continue
         stored = (ref.get("path") or "").strip()
-        if not stored or not ref.get("uploaded"):
+        role = str(ref.get("image_role") or ref.get("asset_name") or "reference")
+        # Prefer half portrait when available — clearer identity for multi-character Qwen edits.
+        asset = by_id.get(str(ref.get("asset_id") or ""))
+        if asset and normalize_kind(getattr(asset, "kind", "") or "") == "character":
+            half = (getattr(asset, "half_path", None) or "").strip()
+            if half:
+                stored = half
+                role = "人物半身图"
+        if not stored:
             continue
         abs_path = settings.data_dir / stored
         if not abs_path.is_file():
             return [], [], f"缺少参考图文件: {stored}"
         paths.append(str(abs_path))
-        labels.append(str(ref.get("image_role") or ref.get("asset_name") or "reference"))
+        labels.append(role)
         if len(paths) >= 3:
             break
     if not paths:
