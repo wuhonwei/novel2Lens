@@ -132,22 +132,57 @@ def test_pass1_chinese_keys_force_character_kind():
 def test_sanitize_look_drops_emotion_action_and_occupation():
     from app.domain.registry import sanitize_look_text, sanitize_appearance
 
-    text = sanitize_look_text(
-        "十七岁清瘦，眉眼清俊，洗白长衫，眼神从迷茫转为坚定，动作沉稳，笑靥如花，老船工"
-    )
-    assert "眉眼清俊" in text
-    assert "洗白长衫" in text
-    assert "迷茫" not in text
-    assert "沉稳" not in text
-    assert "笑靥如花" not in text
-    assert "老船工" not in text
+    cases = {
+        "十七岁清瘦，眉眼清俊，洗白长衫，眼神从迷茫转为坚定，动作沉稳，笑靥如花，老船工，皮笑肉不笑，眉眼温柔，神情严肃": [
+            "眉眼清俊",
+            "洗白长衫",
+        ],
+        "饱经风霜的老船工，皱纹深如沟壑，身穿藏青色短打，头发花白挽起": [
+            "皱纹深如沟壑",
+            "藏青色短打",
+            "头发花白挽起",
+        ],
+        "年轻女子，穿着旗袍，眉眼温柔，气质温婉": ["年轻女子", "旗袍"],
+        "身穿官服，头戴乌纱帽，面容严肃，气质威严": ["官服", "乌纱帽"],
+        "身穿黑色长衫，戴帽遮脸，眼神阴冷": ["黑色长衫", "戴帽遮脸"],
+        "中年妇女，体态微丰，身穿素色布衣，系围裙，头发挽起，动作": ["中年妇女", "体态微丰", "素色布衣"],
+    }
+    for raw, must_have in cases.items():
+        text = sanitize_look_text(raw)
+        for m in must_have:
+            assert m in text, (raw, text)
+        for bad in (
+            "迷茫",
+            "沉稳",
+            "笑靥",
+            "老船工",
+            "皮笑肉不笑",
+            "温柔",
+            "严肃",
+            "神情",
+            "气质",
+            "威严",
+            "温婉",
+            "阴冷",
+            "动作",
+            "官员",
+        ):
+            assert bad not in text, (bad, text)
 
     app = sanitize_appearance(
-        {"eyes": "眼神坚定", "face": "眉眼清俊", "clothing": "藏青短打"}
+        {
+            "eyes": "眼神坚定",
+            "face": "鹅蛋脸，眉眼温柔，笑容明媚，傲慢",
+            "clothing": "藏青短打",
+            "expression": "神情严肃",
+            "body": "精悍，灵活，常年劳作",
+        }
     )
-    assert "face" in app
     assert "clothing" in app
-    assert "eyes" not in app or "坚定" not in app.get("eyes", "")
+    assert "藏青短打" in app["clothing"]
+    blob = str(app)
+    for bad in ("坚定", "严肃", "温柔", "明媚", "神情", "笑容", "傲慢", "精悍", "灵活", "常年劳作"):
+        assert bad not in blob, (bad, blob)
     from app.domain.registry import sanitize_aliases, sanitize_character_fields, apply_registry_delta
 
     cleaned = sanitize_aliases(

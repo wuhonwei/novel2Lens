@@ -135,6 +135,7 @@ LOOK_BANNED_TERMS = frozenset(
         "老船工",
         "船工",
         "船夫",
+        "渔民",
         "遗孤",
         "孤儿",
         "店小二",
@@ -144,9 +145,17 @@ LOOK_BANNED_TERMS = frozenset(
         "农夫",
         "渔夫",
         "商人",
+        "盐商",
         "掌柜",
         "捕快",
         "将军",
+        "官员",
+        "知县",
+        "杀手",
+        "打手",
+        "随从",
+        "采药人",
+        "老板娘",
         "少爷",
         "小姐",
         "夫人",
@@ -161,14 +170,183 @@ LOOK_BANNED_TERMS = frozenset(
     }
 )
 
+# Emotion / expression / manner words — never allowed in look_zh.
+LOOK_EMOTION_WORDS = frozenset(
+    {
+        "温柔",
+        "温和",
+        "温婉",
+        "和善",
+        "和蔼",
+        "严肃",
+        "威严",
+        "坚定",
+        "迷茫",
+        "沉稳",
+        "慈祥",
+        "阴鸷",
+        "冷酷",
+        "凶狠",
+        "凶悍",
+        "冷漠",
+        "柔情",
+        "深情",
+        "含情",
+        "悲悯",
+        "哀伤",
+        "喜悦",
+        "愤怒",
+        "倔强",
+        "坚毅",
+        "果敢",
+        "柔弱",
+        "狠厉",
+        "平静",
+        "淡然",
+        "漠然",
+        "悲戚",
+        "忧伤",
+        "欢喜",
+        "狞笑",
+        "假笑",
+        "干笑",
+        "皮笑肉不笑",
+        "笑靥如花",
+        "面带微笑",
+        "微微一笑",
+        "嫣然一笑",
+        "莞尔",
+        "冷笑",
+        "苦笑",
+        "憨笑",
+        "狂笑",
+        "含笑",
+        "带笑",
+        "笑容",
+        "微笑",
+        "杀意",
+        "杀气",
+        "戾气",
+        "柔和",
+        "严厉",
+        "慈爱",
+        "怜爱",
+        "悲凉",
+        "凄楚",
+        "落寞",
+        "惘然",
+        "恍惚",
+        "坚定不移",
+        "从容",
+        "镇定",
+        "慌张",
+        "紧张",
+        "放松",
+        "警惕",
+        "戒备",
+        "惊恐",
+        "恐惧",
+        "害怕",
+        "审视",
+        "精明",
+        "狡黠",
+        "阴险",
+        "贪婪",
+        "猥琐",
+        "优雅",
+        "雍容",  # borderline manner — user wants pure visual; 体态微胖 is enough
+        "矍铄",
+        "精神矍铄",
+        "官威",
+        "气质",
+        "麻利",
+        "痛苦",
+        "悲苦",
+        "哀愁",
+        "明媚",
+        "灿烂",
+        "妩媚",
+        "妖娆",
+        "阴冷",
+        "冷硬",
+        "傲慢",
+        "狡诈",
+        "无助",
+        "刚毅",
+        "深邃",
+        "无神",
+        "精悍",
+        "灵活",
+        "锐利",
+        "油腻",
+        "热心",
+        "热心肠",
+        "霸道",
+        "心狠",
+        "孤僻",
+        "厚道",
+        "坚韧",
+        "文弱",
+    }
+)
+
+LOOK_EXPRESSION_MARKERS = (
+    "神情",
+    "神色",
+    "神态",
+    "表情",
+    "面色里",
+    "目光里",
+    "眼神里",
+    "眼里",
+    "眼中",
+)
+
+LOOK_FRAGMENT_REJECT = frozenset(
+    {
+        "眼神",
+        "目光",
+        "眉眼",
+        "眉目",
+        "眉宇",
+        "面容",
+        "面色",
+        "脸上",
+        "面上",
+        "眼睛",
+        "眼里",
+        "眼中",
+        "带着",
+        "脸上带着",
+        "充满",
+        "透着",
+        "显得",
+        "但",
+        "而",
+        "的",
+        "地",
+        "得",
+        "动作",
+        "双手",
+        "常年劳作",
+    }
+)
+
 # Clauses matching these are non-visual (emotion / action / plot).
 LOOK_BANNED_PATTERNS = (
-    re.compile(r".*(迷茫|坚定|沉稳|果敢|柔弱|狠厉|冷漠|温柔|倔强|坚毅|哀伤|悲悯|愤怒|喜悦).*(转|变|为|成|而|地|的).*"),
-    re.compile(r".*(眼神|目光|神情|神色|神态).*(迷茫|坚定|沉稳|温柔|冷|狠|怒|喜|哀|惊).*"),
-    re.compile(r".*(转为|变得|显得|透着|带着).*(坚定|迷茫|沉稳|温柔|杀意|悲).*"),
-    re.compile(r"(笑靥如花|面带微笑|微微一笑|嫣然一笑|莞尔|冷笑|苦笑)"),
-    re.compile(r".*(动作|举止|步伐|步态|行事).*(沉稳|稳健|轻盈|敏捷|迟缓).*"),
-    re.compile(r".*(寻找|寻母|寻父|复仇|逃亡|赶路|说话|对白|性格).*"),
+    re.compile(r"(神情|神色|神态|表情)"),
+    re.compile(r"(皮笑肉不笑|笑靥如花|面带微笑|微微一笑|嫣然一笑|莞尔|冷笑|苦笑|憨笑|含笑|带笑|笑容|微笑)"),
+    re.compile(r"(眉眼|眉目|眉宇|眼神|目光|双眸|眼睛|眼波).{0,8}(温柔|温和|温婉|严肃|坚定|迷茫|沉稳|慈祥|和蔼|和善|冷漠|柔情|深情|含情|阴冷|冷硬|狡诈|无助|锐利|深邃|无神|凶|狠|悲|喜|怒|厉|柔|精明)"),
+    re.compile(r"(温柔|温和|温婉|严肃|坚定|迷茫|沉稳|慈祥|和善|阴冷|狡诈).{0,4}(的)?(眉眼|眉目|眼神|目光|神情|神色|表情|面容|面色)"),
+    re.compile(r"(脸上|面上|满脸|一脸).{0,6}(笑|泪|怒|悲|严肃|慈祥|和善)"),
+    re.compile(r"气质.{0,6}"),
+    re.compile(r"(精神)?矍铄"),
+    re.compile(r"手脚麻利|便于行动|常年劳作"),
+    re.compile(r"(后期|文中|推断)"),
+    re.compile(r"^动作|动作$|^(双手|双脚)$"),
+    re.compile(r".*(转为|变得|显得|透着|带着).*(坚定|迷茫|沉稳|温柔|温和|严肃|杀意|悲|柔|怒|笑|阴冷|傲慢).*"),
+    re.compile(r".*(动作|举止|步伐|步态|行事|言行).*(沉稳|稳健|轻盈|敏捷|迟缓|从容|麻利).*"),
+    re.compile(r".*(寻找|寻母|寻父|复仇|逃亡|赶路|说话|对白|性格|脾气).*"),
 )
 
 
@@ -191,10 +369,16 @@ def _look_clause_banned(clause: str) -> bool:
     s = clause.strip()
     if not s:
         return True
-    if s in LOOK_BANNED_TERMS or s in NON_ALIAS_TERMS:
+    if s in LOOK_BANNED_TERMS or s in NON_ALIAS_TERMS or s in LOOK_EMOTION_WORDS:
         return True
     for term in LOOK_BANNED_TERMS:
-        if term == s or (len(term) >= 2 and term in s and len(s) <= len(term) + 2):
+        if term in s:
+            return True
+    for marker in LOOK_EXPRESSION_MARKERS:
+        if marker in s:
+            return True
+    for word in LOOK_EMOTION_WORDS:
+        if word in s:
             return True
     for pat in LOOK_BANNED_PATTERNS:
         if pat.search(s):
@@ -202,23 +386,47 @@ def _look_clause_banned(clause: str) -> bool:
     return False
 
 
+def _scrub_emotion_tokens(clause: str) -> str:
+    scrubbed = clause
+    for word in sorted(LOOK_EMOTION_WORDS | LOOK_BANNED_TERMS, key=len, reverse=True):
+        if word in scrubbed:
+            scrubbed = scrubbed.replace(word, "")
+    scrubbed = re.sub(r"(神情|神色|神态|表情)", "", scrubbed)
+    scrubbed = re.sub(r"气质.{0,8}", "", scrubbed)
+    scrubbed = re.sub(r"(精神)?矍铄", "", scrubbed)
+    scrubbed = re.sub(r"手脚麻利|便于行动|常年劳作", "", scrubbed)
+    scrubbed = re.sub(r"(后期|文中未详述|文中提及|依[^，；;。]{0,12}推断)", "", scrubbed)
+    scrubbed = re.sub(r"脸上带着|面上带着|满脸", "", scrubbed)
+    scrubbed = re.sub(r"充满", "", scrubbed)
+    scrubbed = re.sub(r"(手脚|动作|双手|双脚)$", "", scrubbed)
+    scrubbed = re.sub(r"^(手脚|动作|双手|双脚)", "", scrubbed)
+    scrubbed = re.sub(r"[的地得而且并与但却]+$", "", scrubbed.strip(" 、,，"))
+    scrubbed = re.sub(r"^[的地得而且并与但却]+", "", scrubbed.strip(" 、,，"))
+    return scrubbed.strip(" 、,，")
+
 def sanitize_look_text(text: str | None) -> str:
     """Keep only visual appearance clauses for portrait generation."""
     raw = (text or "").strip()
     if not raw:
         return ""
-    # Split on common Chinese / English separators while keeping content pieces
-    parts = re.split(r"[；;。！？!\n]+|(?<=[^\d])，(?=[^\d])|,", raw)
+    parts = re.split(r"[；;。！？!\n、]+|(?<=[^\d])，(?=[^\d])|,", raw)
     kept: list[str] = []
     for part in parts:
         clause = part.strip(" 、,，")
-        if not clause or _look_clause_banned(clause):
+        if not clause:
             continue
-        # Drop bare occupation words glued with commas already split
-        if clause in LOOK_BANNED_TERMS:
+        scrubbed = _scrub_emotion_tokens(clause)
+        if not scrubbed or len(scrubbed) < 2:
             continue
-        if clause not in kept:
-            kept.append(clause)
+        if scrubbed in LOOK_FRAGMENT_REJECT:
+            continue
+        if _look_clause_banned(scrubbed):
+            continue
+        # Reject near-empty fragments like "眉眼"/"眼神"/"面容" after emotion strip
+        if re.fullmatch(r"(眉眼|眉目|眉宇|眼神|目光|面容|面色|眼睛|脸上|面上)", scrubbed):
+            continue
+        if scrubbed not in kept:
+            kept.append(scrubbed)
     return "，".join(kept)
 
 
@@ -228,7 +436,7 @@ def sanitize_appearance(appearance: dict[str, Any] | None) -> dict[str, Any]:
         if value in (None, ""):
             continue
         cleaned = sanitize_look_text(str(value))
-        if cleaned:
+        if cleaned and cleaned not in {"无", "没有", "暂无"}:
             out[key] = cleaned
     return out
 
