@@ -16,6 +16,7 @@ export type Asset = {
   image_path: string;
   voice_path: string;
   portrait_ready: boolean;
+  created_chapter_id?: string;
 };
 
 export type Chapter = {

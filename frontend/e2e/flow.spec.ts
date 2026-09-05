@@ -9,7 +9,9 @@ test("list, open 青川渡, tabs, settings, assets upload, export, back, create,
   await expect(openBtn).toBeVisible({ timeout: 120_000 });
   await openBtn.click();
   await expect(page.getByRole("button", { name: /雾锁渡口/ })).toBeVisible();
+  await expect(page.getByTestId("coach-panel")).toBeVisible();
 
+  await page.getByRole("button", { name: "模型 / 画风" }).click();
   await page.getByTestId("btn-save-settings").click();
   await page.getByTestId("overwrite").check();
   await page.getByTestId("tab-资产").click();
@@ -36,6 +38,7 @@ test("list, open 青川渡, tabs, settings, assets upload, export, back, create,
   await page.getByTestId("new-text").fill("第一章 测试\n只有一句。");
   await page.getByTestId("btn-create").click();
   await expect(page.getByText("第一章 测试")).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByTestId("coach-panel")).toBeVisible();
   await page.getByTestId("btn-back").click();
   page.once("dialog", () => {});
   await page.getByTestId("btn-delete-按钮删除样例").click();
