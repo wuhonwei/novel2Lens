@@ -14,3 +14,6 @@ frontend/blob-report/
 !.env.example
 .DS_Store
 Thumbs.db
+backend/scripts/look_*.txt
+backend/scripts/qingduchuan_e2e_run.log
+backend/scripts/qingduchuan_look_report.json
