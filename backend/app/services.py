@@ -60,7 +60,7 @@ def _dump(value: Any) -> str:
 def serialize_asset(asset: Asset) -> dict[str, Any]:
     return {
         "id": asset.id,
-        "kind": asset.kind,
+        "kind": normalize_kind(asset.kind),
         "name": asset.name,
         "aliases": _load(asset.aliases_json, []),
         "refer_as": asset.refer_as,
@@ -76,7 +76,9 @@ def serialize_asset(asset: Asset) -> dict[str, Any]:
         "image_path": asset.image_path,
         "voice_path": asset.voice_path,
         "created_chapter_id": asset.created_chapter_id,
-        "portrait_ready": bool(asset.half_path and asset.full_path) if asset.kind == "character" else bool(asset.image_path),
+        "portrait_ready": bool(asset.half_path and asset.full_path)
+        if normalize_kind(asset.kind) == "character"
+        else bool(asset.image_path),
     }
 
 
@@ -230,7 +232,7 @@ def _apply_registry_rows_to_db(
                 appearance_json=_dump(row.get("appearance") or {}),
                 desc_zh=row.get("desc_zh") or "",
                 desc_en=row.get("desc_en") or "",
-                confirmed=False,
+                confirmed=True,
                 created_chapter_id=chapter_id,
             )
             db.add(asset)
@@ -246,6 +248,7 @@ def _apply_registry_rows_to_db(
             asset.desc_zh = row.get("desc_zh") or asset.desc_zh
             if row.get("desc_en"):
                 asset.desc_en = row["desc_en"]
+            asset.confirmed = True
     db.flush()
     return created_n, updated_n
 
@@ -254,13 +257,49 @@ def _pass1_rows(data: Any) -> list[dict[str, Any]]:
     if not isinstance(data, dict):
         return []
     rows: list[dict[str, Any]] = []
-    for key, kind in (("characters", "character"), ("scenes", "scene"), ("props", "prop")):
-        for row in data.get(key) or []:
+    key_map = (
+        ("characters", "character"),
+        ("character", "character"),
+        ("people", "character"),
+        ("persons", "character"),
+        ("人物", "character"),
+        ("角色", "character"),
+        ("人物形象", "character"),
+        ("scenes", "scene"),
+        ("scene", "scene"),
+        ("locations", "scene"),
+        ("场景", "scene"),
+        ("地点", "scene"),
+        ("核心场景", "scene"),
+        ("props", "prop"),
+        ("prop", "prop"),
+        ("items", "prop"),
+        ("objects", "prop"),
+        ("物品", "prop"),
+        ("道具", "prop"),
+        ("核心物品", "prop"),
+    )
+    seen_keys: set[str] = set()
+    for key, kind in key_map:
+        if key in seen_keys:
+            continue
+        bucket = data.get(key)
+        if not isinstance(bucket, list):
+            continue
+        seen_keys.add(key)
+        for row in bucket:
             if not isinstance(row, dict):
                 continue
             item = dict(row)
-            item["kind"] = kind
+            item["kind"] = kind  # array membership wins over model-supplied kind
             rows.append(item)
+    # Flat list fallbacks
+    for key in ("assets", "registry", "entries", "登记表"):
+        for row in data.get(key) or []:
+            if isinstance(row, dict) and (row.get("name") or "").strip():
+                item = dict(row)
+                item["kind"] = normalize_kind(row.get("kind"))
+                rows.append(item)
     return rows
 
 
@@ -268,18 +307,27 @@ def _audit_rows(data: Any) -> list[dict[str, Any]]:
     if not isinstance(data, dict):
         return []
     rows: list[dict[str, Any]] = []
-    for key in ("missing", "new_items"):
+    for key in ("missing", "new_items", "supplements", "additions", "补充", "新增"):
         for row in data.get(key) or []:
             if isinstance(row, dict) and (row.get("name") or "").strip():
-                rows.append(row)
+                item = dict(row)
+                item["kind"] = normalize_kind(row.get("kind"))
+                rows.append(item)
+    # Also accept pass1-shaped audit payloads
+    if not rows:
+        rows = _pass1_rows(data)
     return rows
 
 
-async def full_registry_scan(db: Session, project: Project) -> dict[str, Any]:
-    """Two-phase book registry: discover, then audit/supplement until complete."""
+async def full_registry_scan(db: Session, project: Project, *, replace: bool = False) -> dict[str, Any]:
+    """Two-phase book registry: discover, then audit/supplement until complete.
+
+    Assets are book-scoped (TXT-level), auto-confirmed — no per-chapter confirm.
+    """
     novel = (project.source_text or "")[:NOVEL_SCAN_CHARS]
-    chapter = db.query(Chapter).filter(Chapter.project_id == project.id).order_by(Chapter.index).first()
-    chapter_id = chapter.id if chapter else ""
+    if replace:
+        db.query(Asset).filter(Asset.project_id == project.id).delete()
+        db.flush()
     assets = db.query(Asset).filter(Asset.project_id == project.id).all()
     passes: list[dict[str, Any]] = []
     used_fallback = False
@@ -296,7 +344,7 @@ async def full_registry_scan(db: Session, project: Project) -> dict[str, Any]:
         ],
     )
     used_fallback = used_fallback or fallback
-    created, updated = _apply_registry_rows_to_db(db, project, chapter_id, _pass1_rows(data), assets)
+    created, updated = _apply_registry_rows_to_db(db, project, "", _pass1_rows(data), assets)
     assets = db.query(Asset).filter(Asset.project_id == project.id).all()
     passes.append(
         {
@@ -330,7 +378,7 @@ async def full_registry_scan(db: Session, project: Project) -> dict[str, Any]:
         )
         used_fallback = used_fallback or fallback
         rows = _audit_rows(data)
-        created, updated = _apply_registry_rows_to_db(db, project, chapter_id, rows, assets)
+        created, updated = _apply_registry_rows_to_db(db, project, "", rows, assets)
         assets = db.query(Asset).filter(Asset.project_id == project.id).all()
         complete_flag = bool(isinstance(data, dict) and data.get("complete")) and not rows
         completeness = registry_completeness(_asset_dicts(assets))
@@ -350,9 +398,11 @@ async def full_registry_scan(db: Session, project: Project) -> dict[str, Any]:
             break
 
     assets = db.query(Asset).filter(Asset.project_id == project.id).all()
-    # Normalize kinds on all assets (fix legacy Chinese / mis-tags)
+    # Normalize kinds + auto-confirm book registry (no chapter gate)
     for asset in assets:
         asset.kind = normalize_kind(asset.kind)
+        asset.confirmed = True
+        asset.created_chapter_id = asset.created_chapter_id or ""
 
     final = registry_completeness(_asset_dicts(assets))
     scan_meta = {
@@ -366,6 +416,9 @@ async def full_registry_scan(db: Session, project: Project) -> dict[str, Any]:
     for ch in db.query(Chapter).filter(Chapter.project_id == project.id):
         ch.prescan_done = True
         ch.used_fallback_llm = used_fallback
+        # Book assets ready → chapters can storyboard without per-chapter confirm
+        if ch.status in ("pending", "proposals"):
+            ch.status = "assets_confirmed"
     db.commit()
     return {
         "used_fallback_llm": used_fallback,
@@ -376,8 +429,8 @@ async def full_registry_scan(db: Session, project: Project) -> dict[str, Any]:
     }
 
 
-async def prescan_project(db: Session, project: Project) -> dict[str, Any]:
-    return await full_registry_scan(db, project)
+async def prescan_project(db: Session, project: Project, replace: bool = False) -> dict[str, Any]:
+    return await full_registry_scan(db, project, replace=replace)
 
 
 async def _call_llm(project: Project, messages: list[dict[str, str]]) -> tuple[Any, bool]:
@@ -732,17 +785,18 @@ def compile_shot_prompts(project: Project, shot: Shot, assets: list[Asset]) -> N
 async def generate_storyboard(
     db: Session, project: Project, chapter: Chapter, overwrite: bool = False
 ) -> list[dict[str, Any]]:
-    if chapter.status != "assets_confirmed" and not overwrite:
-        raise ValueError("请先确认本章资产提案。")
+    assets = db.query(Asset).filter(Asset.project_id == project.id).all()
+    book_ready = any(a.confirmed and normalize_kind(a.kind) == "character" for a in assets)
+    if chapter.status not in ("assets_confirmed", "storyboarded") and not book_ready and not overwrite:
+        raise ValueError("请先一键生成全书资产（人物/场景/物品）。")
     if overwrite:
         db.query(Shot).filter(Shot.chapter_id == chapter.id).delete()
     elif db.query(Shot).filter(Shot.chapter_id == chapter.id).count():
         raise ValueError("本章已有分镜。若要重跑请勾选覆盖。")
 
-    assets = db.query(Asset).filter(Asset.project_id == project.id).all()
-    chars = [a for a in assets if a.kind == "character"]
-    scenes = [a for a in assets if a.kind == "scene"]
-    props = [a for a in assets if a.kind == "prop"]
+    chars = [a for a in assets if normalize_kind(a.kind) == "character"]
+    scenes = [a for a in assets if normalize_kind(a.kind) == "scene"]
+    props = [a for a in assets if normalize_kind(a.kind) == "prop"]
     user = SHOT_USER.format(
         style=project.style or "（未填画风）",
         characters=_registry(chars),

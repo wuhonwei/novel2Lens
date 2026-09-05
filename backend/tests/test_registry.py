@@ -78,3 +78,19 @@ def test_apply_registry_delta_creates_and_supplements():
     assert updated2 == 1
     assert "藏青短打" in base[0]["desc_zh"]
     assert base[0]["appearance"]["hair"] == "花白"
+
+
+def test_pass1_chinese_keys_force_character_kind():
+    from app.services import _pass1_rows
+
+    rows = _pass1_rows(
+        {
+            "人物": [{"name": "林砚之", "kind": "prop", "notes": "少年"}],
+            "场景": [{"name": "渡口"}],
+            "物品": [{"name": "玉佩"}],
+        }
+    )
+    by_name = {r["name"]: r["kind"] for r in rows}
+    assert by_name["林砚之"] == "character"
+    assert by_name["渡口"] == "scene"
+    assert by_name["玉佩"] == "prop"

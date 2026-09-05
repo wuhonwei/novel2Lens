@@ -14,11 +14,13 @@ test("list, open 青川渡, tabs, settings, assets upload, export, back, create,
   await page.getByRole("button", { name: "模型 / 画风" }).click();
   await page.getByTestId("btn-save-settings").click();
   await page.getByTestId("overwrite").check();
-  await page.getByTestId("tab-资产").click();
+  await page.getByTestId("tab-全书资产").click();
   await page.getByTestId("tab-分镜").click();
   await expect(page.getByText("镜 1")).toBeVisible();
   await page.getByTestId("tab-原文").click();
-  await page.getByTestId("tab-资产").click();
+  await page.getByTestId("tab-全书资产").click();
+  await expect(page.getByTestId("btn-one-click-assets")).toBeVisible();
+  await expect(page.getByTestId("section-人物形象")).toBeVisible();
 
   const fileInputs = page.locator('input[type="file"][accept="image/*"]');
   const png = Buffer.from(

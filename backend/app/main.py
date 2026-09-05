@@ -171,16 +171,7 @@ async def create_project(body: ProjectIn):
         rebuild_chapters(db, project)
         db.commit()
         db.refresh(project)
-        result = None
-        if (project.source_text or "").strip():
-            try:
-                result = await full_registry_scan(db, project)
-            except Exception as exc:
-                raise HTTPException(502, f"全书资产扫描失败：{exc}") from exc
-        bundle = _bundle(db, project)
-        if result is not None:
-            bundle["result"] = result
-        return bundle
+        return _bundle(db, project)
     finally:
         db.close()
 
@@ -196,11 +187,7 @@ async def upload_project(title: str = Form("未命名小说"), style: str = Form
         db.flush()
         rebuild_chapters(db, project)
         db.commit()
-        try:
-            result = await full_registry_scan(db, project)
-        except Exception as exc:
-            raise HTTPException(502, f"全书资产扫描失败：{exc}") from exc
-        return {**_bundle(db, project), "result": result}
+        return _bundle(db, project)
     finally:
         db.close()
 
@@ -247,12 +234,29 @@ def delete_project(project_id: str):
 
 
 @app.post("/api/projects/{project_id}/prescan")
-async def api_prescan(project_id: str):
+async def api_prescan(project_id: str, replace: bool = False):
     db = db_session()
     try:
         project = get_project(db, project_id)
         try:
-            result = await prescan_project(db, project)
+            result = await prescan_project(db, project, replace=replace)
+        except Exception as exc:
+            raise HTTPException(502, str(exc)) from exc
+        return {**_bundle(db, project), "result": result}
+    finally:
+        db.close()
+
+
+@app.post("/api/projects/{project_id}/generate-assets")
+async def api_generate_assets(project_id: str, replace: bool = True):
+    """One-click book-level asset generation (characters / scenes / props)."""
+    db = db_session()
+    try:
+        project = get_project(db, project_id)
+        if not (project.source_text or "").strip():
+            raise HTTPException(400, "项目没有正文，请先上传或粘贴小说 TXT")
+        try:
+            result = await full_registry_scan(db, project, replace=replace)
         except Exception as exc:
             raise HTTPException(502, str(exc)) from exc
         return {**_bundle(db, project), "result": result}

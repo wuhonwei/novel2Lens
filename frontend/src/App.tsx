@@ -1,13 +1,22 @@
 import { useEffect, useMemo, useState } from "react";
-import { api, mediaUrl, normalizeKind, type Asset, type Bundle, type Chapter, type Project, type Proposal, type Shot } from "./api";
-import { deriveGuide, pipelineSteps, statusLabel, stepProgressIndex, type FlowGuide, type TabName } from "./flow";
+import { api, mediaUrl, normalizeKind, type Asset, type Bundle, type Project, type Shot } from "./api";
+import {
+  assetsByKind,
+  bookAssetsReady,
+  deriveGuide,
+  pipelineSteps,
+  statusLabel,
+  stepProgressIndex,
+  type FlowGuide,
+  type TabName,
+} from "./flow";
 
 const CAMERAS = ["固定", "缓慢推近", "缓慢拉远", "慢摇左", "慢摇右", "微仰", "微俯", "轻度跟随左一", "轻度跟随中", "轻度跟随右一"];
 
 export default function App() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [bundle, setBundle] = useState<Bundle | null>(null);
-  const [tab, setTab] = useState<TabName>("原文");
+  const [tab, setTab] = useState<TabName>("全书资产");
   const [chapterId, setChapterId] = useState("");
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
@@ -31,7 +40,6 @@ export default function App() {
     () => (bundle?.shots || []).filter((s) => s.chapter_id === (chapter?.id || "")).sort((a, b) => a.order_index - b.order_index),
     [bundle, chapter],
   );
-  const chapterProposals = (bundle?.proposals || []).filter((p) => p.chapter_id === chapter?.id);
   const guide = useMemo(
     () => (bundle ? deriveGuide(bundle, chapter, chapterShots) : null),
     [bundle, chapter, chapterShots],
@@ -55,7 +63,7 @@ export default function App() {
   }
 
   async function actOnGuide(g: FlowGuide) {
-    if (!bundle || !chapter) {
+    if (!bundle) {
       if (g.tab) setTab(g.tab);
       return;
     }
@@ -65,18 +73,22 @@ export default function App() {
       await run("保存设置", async () => setBundle(await api.patch(p.id, bundle.project)));
       return;
     }
-    if (g.step === "extract") {
-      await run("抽取资产", async () => {
-        setBundle(await api.extract(p.id, chapter.id, overwrite));
-        setTab("资产");
+    if (g.step === "generate_assets") {
+      await run("一键生成全书资产", async () => {
+        setBundle(await api.generateAssets(p.id, true));
+        setTab("全书资产");
       });
       return;
     }
-    if (g.step === "confirm" || g.step === "upload") {
-      setTab("资产");
+    if (g.step === "upload") {
+      setTab("全书资产");
       return;
     }
     if (g.step === "storyboard") {
+      if (!chapter) {
+        setTab("原文");
+        return;
+      }
       await run("生成分镜", async () => {
         setBundle(await api.storyboard(p.id, chapter.id, overwrite));
         setTab("分镜");
@@ -94,7 +106,7 @@ export default function App() {
       });
       return;
     }
-    if (g.step === "next_chapter") {
+    if (g.step === "next_chapter" && chapter) {
       const next = bundle.chapters
         .slice()
         .sort((a, b) => a.index - b.index)
@@ -117,10 +129,10 @@ export default function App() {
           </header>
 
           <ol className="home-steps">
-            <li><strong>1. 导入小说</strong><span>粘贴或上传全文后自动两遍扫描：人物 / 场景 / 物品</span></li>
-            <li><strong>2. 按章确认与补图</strong><span>章节提案确认；人物半身+全身，场景/物品各一张</span></li>
-            <li><strong>3. 出分镜并导出</strong><span>首帧双提示词 + H3 脚本，导出 JSON</span></li>
-            <li><strong>4. 下一章继续</strong><span>按章节推进，登记表复用已确认资产</span></li>
+            <li><strong>1. 导入小说</strong><span>粘贴或上传整本 TXT，按章切分</span></li>
+            <li><strong>2. 一键生成全书资产</strong><span>人物形象 / 核心场景 / 核心物品，无需按章确认</span></li>
+            <li><strong>3. 上传参考图</strong><span>人物半身+全身；场景/物品各一张</span></li>
+            <li><strong>4. 按章出分镜并导出</strong><span>首帧双提示词 + H3 脚本</span></li>
           </ol>
 
           {error && <p className="error banner-error">{error}</p>}
@@ -129,7 +141,7 @@ export default function App() {
           <section className="panel create-panel">
             <div className="panel-head">
               <h2>新建项目</h2>
-              <p className="hint">导入后会自动两遍扫描全书人物、核心场景与核心物品；不全则补扫直到齐全。</p>
+              <p className="hint">导入后进入项目，点「一键生成全书资产」扫描人物 / 场景 / 物品。</p>
             </div>
             <div className="stack">
               <label>书名</label>
@@ -144,19 +156,19 @@ export default function App() {
                   className="primary"
                   disabled={!!busy}
                   onClick={() =>
-                    run("创建并扫描资产", async () => {
+                    run("创建", async () => {
                       const data = await api.create({ title: title || "未命名小说", text, style });
                       setBundle(data);
                       setChapterId(data.chapters[0]?.id || "");
-                      setTab(text.trim() ? "资产" : "原文");
+                      setTab("全书资产");
                       await refreshList();
                     })
                   }
                 >
-                  粘贴创建并自动扫描
+                  粘贴创建并进入
                 </button>
                 <label className="file-btn">
-                  上传 txt 并自动扫描
+                  上传 txt 进入
                   <input
                     data-testid="file-novel"
                     type="file"
@@ -164,11 +176,11 @@ export default function App() {
                     onChange={(e) => {
                       const file = e.target.files?.[0];
                       if (!file) return;
-                      run("上传并扫描资产", async () => {
+                      run("上传", async () => {
                         const data = await api.upload(title || file.name.replace(/\.[^.]+$/, ""), style, file);
                         setBundle(data);
                         setChapterId(data.chapters[0]?.id || "");
-                        setTab("资产");
+                        setTab("全书资产");
                         await refreshList();
                       });
                     }}
@@ -228,7 +240,7 @@ export default function App() {
   }
 
   const p = bundle.project;
-  const progress = guide ? stepProgressIndex(guide) : 0;
+  const progress = guide ? stepProgressIndex(guide.step) : 0;
 
   return (
     <div className="shell">
@@ -319,8 +331,18 @@ export default function App() {
               <button data-testid="btn-save-settings" className="primary" onClick={() => run("保存设置", async () => setBundle(await api.patch(p.id, bundle.project)))}>
                 保存设置
               </button>
-              <button data-testid="btn-prescan" disabled={!!busy} onClick={() => run("全书重扫", async () => setBundle(await api.prescan(p.id)))}>
-                重新全书扫描
+              <button
+                data-testid="btn-prescan"
+                className="primary"
+                disabled={!!busy}
+                onClick={() =>
+                  run("一键生成全书资产", async () => {
+                    setBundle(await api.generateAssets(p.id, true));
+                    setTab("全书资产");
+                  })
+                }
+              >
+                一键生成全书资产
               </button>
               <button
                 data-testid="btn-export"
@@ -360,7 +382,7 @@ export default function App() {
           <main className="main-pane">
             <div className="toolbar">
               <div className="tabs">
-                {(["原文", "资产", "分镜"] as const).map((name) => (
+                {(["原文", "全书资产", "分镜"] as const).map((name) => (
                   <button key={name} data-testid={`tab-${name}`} className={tab === name ? "active" : ""} onClick={() => setTab(name)}>
                     {name}
                   </button>
@@ -368,22 +390,22 @@ export default function App() {
               </div>
               <div className="row">
                 <button
-                  data-testid="btn-extract"
-                  className={guide?.step === "extract" ? "primary" : ""}
-                  disabled={!!busy || !chapter}
+                  data-testid="btn-generate-assets"
+                  className={guide?.step === "generate_assets" ? "primary" : ""}
+                  disabled={!!busy}
                   onClick={() =>
-                    run("抽取资产", async () => {
-                      setBundle(await api.extract(p.id, chapter!.id, overwrite));
-                      setTab("资产");
+                    run("一键生成全书资产", async () => {
+                      setBundle(await api.generateAssets(p.id, true));
+                      setTab("全书资产");
                     })
                   }
                 >
-                  抽取本章资产
+                  一键生成全书资产
                 </button>
                 <button
                   data-testid="btn-storyboard"
                   className={guide?.step === "storyboard" ? "primary" : ""}
-                  disabled={!!busy || !chapter}
+                  disabled={!!busy || !chapter || !bookAssetsReady(bundle)}
                   onClick={() =>
                     run("生成分镜", async () => {
                       setBundle(await api.storyboard(p.id, chapter!.id, overwrite));
@@ -400,14 +422,14 @@ export default function App() {
               <section className="panel">
                 <div className="panel-head">
                   <h2>{chapter.title}</h2>
-                  <p className="hint">先通读本章，再点「抽取本章资产」。模型会对照全书已有登记表做消歧。</p>
+                  <p className="hint">全书资产在「全书资产」页一键生成；本章只需生成分镜。</p>
                 </div>
                 <article className="original">{chapter.text}</article>
               </section>
             )}
 
-            {tab === "资产" && (
-              <Assets
+            {tab === "全书资产" && (
+              <BookAssets
                 bundle={bundle}
                 busy={!!busy}
                 keepId={keepId}
@@ -416,8 +438,6 @@ export default function App() {
                 setDropId={setDropId}
                 onChange={setBundle}
                 onRun={run}
-                proposals={chapterProposals}
-                chapter={chapter}
               />
             )}
 
@@ -426,7 +446,7 @@ export default function App() {
                 {chapterShots.length === 0 ? (
                   <section className="panel empty">
                     <h2>本章还没有分镜</h2>
-                    <p className="hint">请先确认资产，再点击上方「生成本章分镜」。生成后可在此改运镜与提示词。</p>
+                    <p className="hint">先点「一键生成全书资产」，再点「生成本章分镜」。无需按章确认资产。</p>
                   </section>
                 ) : (
                   chapterShots.map((shot) => (
@@ -453,8 +473,8 @@ export default function App() {
   );
 }
 
-function Assets({
-  bundle, busy, keepId, dropId, setKeepId, setDropId, onChange, onRun, proposals, chapter,
+function BookAssets({
+  bundle, busy, keepId, dropId, setKeepId, setDropId, onChange, onRun,
 }: {
   bundle: Bundle;
   busy: boolean;
@@ -464,78 +484,75 @@ function Assets({
   setDropId: (v: string) => void;
   onChange: (b: Bundle) => void;
   onRun: (label: string, job: () => Promise<void>) => void;
-  proposals: Proposal[];
-  chapter?: Chapter;
 }) {
-  const [drafts, setDrafts] = useState<Proposal[]>(proposals);
-  useEffect(() => setDrafts(proposals.map((p) => ({ ...p, accept: true }))), [proposals]);
+  const { characters, scenes, props } = assetsByKind(bundle);
+  const scan = bundle.project.registry_scan;
+  const ready = bookAssetsReady(bundle);
 
   return (
     <div className="stack">
-      {drafts.length > 0 ? (
-        <section className="panel attention" data-testid="proposal-banner">
-          <div className="panel-head">
-            <h2>待确认 · 本章资产提案</h2>
-            <p className="hint">取消勾选可丢弃。确认后提案才会写入资产库；之后才能生成分镜。</p>
-          </div>
-          {drafts.map((item, i) => (
-            <div className="proposal" key={item.id || i}>
-              <label className="check">
-                <input
-                  type="checkbox"
-                  checked={item.accept !== false}
-                  onChange={(e) => {
-                    const copy = [...drafts];
-                    copy[i] = { ...copy[i], accept: e.target.checked };
-                    setDrafts(copy);
-                  }}
-                />
-                <span>
-                  <strong>{String(item.name || "未命名")}</strong>
-                  <span className="muted"> · {String(item.kind)} / {String(item.action)}</span>
-                </span>
-              </label>
-              <div className="muted proposal-body">{String(item.desc_zh || JSON.stringify(item.appearance || {}))}</div>
-            </div>
-          ))}
+      <section className="panel attention" data-testid="book-assets-hero">
+        <div className="panel-head">
+          <h2>全书资产（正本 TXT）</h2>
+          <p className="hint">
+            对整本小说扫描人物形象、核心场景、核心物品。生成后自动写入，无需按章确认。
+            {scan?.passes?.length
+              ? ` 已扫描 ${scan.passes.length} 遍：人物 ${scan.counts?.character ?? characters.length} / 场景 ${scan.counts?.scene ?? scenes.length} / 物品 ${scan.counts?.prop ?? props.length}。`
+              : " 尚未生成。"}
+          </p>
+        </div>
+        <div className="row actions">
           <button
-            data-testid="btn-confirm"
+            data-testid="btn-one-click-assets"
             className="primary"
-            disabled={busy || !chapter}
-            onClick={() => onRun("确认资产", async () => onChange(await api.confirm(bundle.project.id, chapter!.id, drafts)))}
+            disabled={busy}
+            onClick={() =>
+              onRun("一键生成全书资产", async () => onChange(await api.generateAssets(bundle.project.id, true)))
+            }
           >
-            确认写入本章资产
+            {ready ? "重新一键生成全书资产" : "一键生成全书资产"}
           </button>
-        </section>
-      ) : (
-        <section className="panel">
-          <div className="panel-head">
-            <h2>资产库</h2>
-            <p className="hint">
-              {bundle.project.registry_scan?.passes?.length
-                ? `全书已扫描 ${bundle.project.registry_scan.passes.length} 遍（人物 ${bundle.project.registry_scan.counts?.character ?? 0} / 场景 ${bundle.project.registry_scan.counts?.scene ?? 0} / 物品 ${bundle.project.registry_scan.counts?.prop ?? 0}）。`
-                : ""}
-              {chapter?.status === "pending"
-                ? "可再按章抽取补充提案。人物：半身+全身；场景/物品：一张参考图。"
-                : "编辑描述并上传参考图。人物：半身 + 全身；场景/物品：一张参考图。"}
-            </p>
-          </div>
-        </section>
-      )}
+        </div>
+      </section>
+
+      <AssetSection
+        title="人物形象"
+        empty="还没有人物。点上方一键生成。"
+        assets={characters}
+        projectId={bundle.project.id}
+        bundle={bundle}
+        onChange={onChange}
+      />
+      <AssetSection
+        title="核心场景"
+        empty="还没有核心场景。"
+        assets={scenes}
+        projectId={bundle.project.id}
+        bundle={bundle}
+        onChange={onChange}
+      />
+      <AssetSection
+        title="核心物品"
+        empty="还没有核心物品。"
+        assets={props}
+        projectId={bundle.project.id}
+        bundle={bundle}
+        onChange={onChange}
+      />
 
       <section className="panel">
         <div className="panel-head">
           <h2>合并角色（可选）</h2>
-          <p className="hint">若发现两个资产其实是同一人，保留一份并合并昵称；分镜里的「左一」文案不会改成角色名。</p>
+          <p className="hint">若两个条目其实是同一人，保留一份并合并昵称。</p>
         </div>
         <div className="row">
           <select value={keepId} onChange={(e) => setKeepId(e.target.value)}>
             <option value="">保留资产</option>
-            {bundle.assets.map((a) => <option key={a.id} value={a.id}>{normalizeKind(a.kind)}:{a.name}</option>)}
+            {characters.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
           </select>
           <select value={dropId} onChange={(e) => setDropId(e.target.value)}>
             <option value="">合并进来并删除</option>
-            {bundle.assets.map((a) => <option key={a.id} value={a.id}>{normalizeKind(a.kind)}:{a.name}</option>)}
+            {characters.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
           </select>
           <button
             data-testid="btn-merge"
@@ -546,20 +563,42 @@ function Assets({
           </button>
         </div>
       </section>
-
-      <div className="asset-grid">
-        {bundle.assets.map((asset) => (
-          <AssetCard
-            key={asset.id}
-            asset={asset}
-            projectId={bundle.project.id}
-            onUpdated={(next) => {
-              onChange({ ...bundle, assets: bundle.assets.map((a) => (a.id === next.id ? next : a)) });
-            }}
-          />
-        ))}
-      </div>
     </div>
+  );
+}
+
+function AssetSection({
+  title, empty, assets, projectId, bundle, onChange,
+}: {
+  title: string;
+  empty: string;
+  assets: Asset[];
+  projectId: string;
+  bundle: Bundle;
+  onChange: (b: Bundle) => void;
+}) {
+  return (
+    <section className="panel" data-testid={`section-${title}`}>
+      <div className="panel-head">
+        <h2>{title}<span className="muted"> · {assets.length}</span></h2>
+      </div>
+      {assets.length === 0 ? (
+        <p className="hint">{empty}</p>
+      ) : (
+        <div className="asset-grid">
+          {assets.map((asset) => (
+            <AssetCard
+              key={asset.id}
+              asset={asset}
+              projectId={projectId}
+              onUpdated={(next) => {
+                onChange({ ...bundle, assets: bundle.assets.map((a) => (a.id === next.id ? next : a)) });
+              }}
+            />
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -577,14 +616,13 @@ function AssetCard({ asset, projectId, onUpdated }: { asset: Asset; projectId: s
     kind === "character" ? Boolean(asset.half_path && asset.full_path) : Boolean(asset.image_path);
 
   return (
-    <article className={`asset-card ${ready ? "ready" : "need-img"}`}>
+    <article className={`asset-card ${ready ? "ready" : "need-img"}`} data-kind={kind}>
       <div className="asset-head">
         <h3>{asset.name}</h3>
         <span className={`pill ${ready ? "ok" : "warn"}`}>{ready ? "图齐" : "缺图"}</span>
       </div>
       <p className="muted">
         {kind === "character" ? "人物" : kind === "scene" ? "场景" : "物品"}
-        {asset.variant_reason ? ` / ${asset.variant_reason}` : ""}
         {asset.refer_as ? ` · ${asset.refer_as}` : ""}
         {asset.age_band ? ` · ${asset.age_band}` : ""}
       </p>
@@ -603,7 +641,7 @@ function AssetCard({ asset, projectId, onUpdated }: { asset: Asset; projectId: s
         ) : asset.image_path ? (
           <img className="wide" src={mediaUrl(asset.image_path)} alt={asset.name} />
         ) : (
-          <div className="ph wide">场景/物品参考图</div>
+          <div className="ph wide">参考图</div>
         )}
       </div>
       <div className="row upload-row">

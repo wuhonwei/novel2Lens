@@ -154,7 +154,10 @@ export const api = {
       body: JSON.stringify(body),
     }),
   remove: (id: string) => req<{ ok: boolean }>(`/api/projects/${id}`, { method: "DELETE" }),
-  prescan: (id: string) => req<Bundle>(`/api/projects/${id}/prescan`, { method: "POST" }),
+  prescan: (id: string, replace = false) =>
+    req<Bundle>(`/api/projects/${id}/prescan?replace=${replace}`, { method: "POST" }),
+  generateAssets: (id: string, replace = true) =>
+    req<Bundle>(`/api/projects/${id}/generate-assets?replace=${replace}`, { method: "POST" }),
   extract: (pid: string, cid: string, overwrite = false) =>
     req<Bundle>(`/api/projects/${pid}/chapters/${cid}/extract?overwrite=${overwrite}`, { method: "POST" }),
   confirm: (pid: string, cid: string, items: unknown[]) =>

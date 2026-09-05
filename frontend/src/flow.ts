@@ -1,12 +1,11 @@
 import type { Asset, Bundle, Chapter, Shot } from "./api";
 import { normalizeKind } from "./api";
 
-export type TabName = "原文" | "资产" | "分镜";
+export type TabName = "原文" | "全书资产" | "分镜";
 
 export type FlowStepId =
   | "style"
-  | "extract"
-  | "confirm"
+  | "generate_assets"
   | "upload"
   | "storyboard"
   | "review"
@@ -24,8 +23,7 @@ export type FlowGuide = {
 
 const PIPELINE = [
   { id: "style", label: "画风" },
-  { id: "extract", label: "抽资产" },
-  { id: "confirm", label: "确认" },
+  { id: "generate_assets", label: "全书资产" },
   { id: "upload", label: "上传图" },
   { id: "storyboard", label: "分镜" },
   { id: "review", label: "校对" },
@@ -34,12 +32,6 @@ const PIPELINE = [
 
 export function pipelineSteps() {
   return PIPELINE;
-}
-
-function chapterAssets(bundle: Bundle, chapter: Chapter): Asset[] {
-  return bundle.assets.filter(
-    (a) => !a.created_chapter_id || a.created_chapter_id === chapter.id || a.confirmed,
-  );
 }
 
 function missingRefCount(assets: Asset[]): number {
@@ -54,6 +46,18 @@ function missingRefCount(assets: Asset[]): number {
   return n;
 }
 
+export function bookAssetsReady(bundle: Bundle): boolean {
+  const chars = bundle.assets.filter((a) => normalizeKind(a.kind) === "character");
+  return chars.length > 0 && chars.every((a) => a.confirmed);
+}
+
+export function assetsByKind(bundle: Bundle) {
+  const characters = bundle.assets.filter((a) => normalizeKind(a.kind) === "character");
+  const scenes = bundle.assets.filter((a) => normalizeKind(a.kind) === "scene");
+  const props = bundle.assets.filter((a) => normalizeKind(a.kind) === "prop");
+  return { characters, scenes, props };
+}
+
 export function deriveGuide(bundle: Bundle, chapter: Chapter | undefined, shots: Shot[]): FlowGuide {
   const styleOk = Boolean((bundle.project.style || "").trim());
   if (!styleOk) {
@@ -61,139 +65,112 @@ export function deriveGuide(bundle: Bundle, chapter: Chapter | undefined, shots:
       step: "style",
       index: 0,
       title: "第 1 步 · 填写项目画风",
-      tip: "画风会注入所有资产描述和首帧提示词。未填写时，分镜无法标记为「首帧就绪」。",
+      tip: "画风会注入资产描述和首帧提示词。",
       cta: "保存画风设置",
+    };
+  }
+
+  if (!bookAssetsReady(bundle)) {
+    return {
+      step: "generate_assets",
+      index: 1,
+      title: "第 2 步 · 一键生成全书资产",
+      tip: "对整本 TXT 扫描两遍以上：人物形象、核心场景、核心物品。无需按章确认。",
+      cta: "一键生成全书资产",
+      tab: "全书资产",
+    };
+  }
+
+  const missing = missingRefCount(bundle.assets);
+  if (missing > 0 && (!chapter || chapter.status !== "storyboarded")) {
+    return {
+      step: "upload",
+      index: 2,
+      title: "第 3 步 · 上传参考图（建议）",
+      tip: `还有 ${missing} 个全书资产缺图。人物需半身+全身，场景/物品各一张。可先生成分镜，缺图镜会标「首帧未就绪」。`,
+      cta: "去全书资产补图",
+      tab: "全书资产",
     };
   }
 
   if (!chapter) {
     return {
-      step: "extract",
-      index: 1,
-      title: "选择章节",
-      tip: "左侧选择要处理的章节，然后按步骤推进。",
+      step: "storyboard",
+      index: 3,
+      title: "选择章节生成分镜",
+      tip: "左侧选择章节，直接生成分镜（资产已按全书登记）。",
       cta: "选择章节",
       tab: "原文",
     };
   }
 
-  const status = chapter.status;
-  const assets = chapterAssets(bundle, chapter);
-  const missing = missingRefCount(assets.filter((a) => a.confirmed));
-  const hasProposals = bundle.proposals.some((p) => p.chapter_id === chapter.id);
-
-  if (status === "pending" || (status === "proposals" && !hasProposals && assets.length === 0)) {
-    return {
-      step: "extract",
-      index: 1,
-      title: "第 2 步 · 抽取本章资产",
-      tip: `阅读「${chapter.title}」，让模型提出人物 / 场景 / 物品提案。不会立刻写入，需你确认。`,
-      cta: "抽取本章资产",
-      tab: "原文",
-    };
-  }
-
-  if (status === "proposals" || hasProposals) {
-    return {
-      step: "confirm",
-      index: 2,
-      title: "第 3 步 · 确认资产提案",
-      tip: "勾选要保留的提案：新建、合并昵称、复制变体或补充特征。确认后才进入分镜。",
-      cta: "去确认资产",
-      tab: "资产",
-    };
-  }
-
-  if (status === "assets_confirmed") {
-    if (missing > 0) {
-      return {
-        step: "upload",
-        index: 3,
-        title: "第 4 步 · 上传参考图（建议）",
-        tip: `还有 ${missing} 个资产缺图。角色需半身+全身，场景/物品各一张。可先生成分镜脚本，缺图镜会标「首帧未就绪」。`,
-        cta: "去上传参考图",
-        tab: "资产",
-      };
-    }
+  if (chapter.status !== "storyboarded") {
     return {
       step: "storyboard",
-      index: 4,
-      title: "第 5 步 · 生成本章分镜",
-      tip: "根据已确认资产切镜：站位、朝向、首帧双提示词与 H3 视频脚本。",
+      index: 3,
+      title: "第 4 步 · 生成本章分镜",
+      tip: `使用全书资产表切镜：「${chapter.title}」。无需再确认本章资产。`,
       cta: "生成本章分镜",
       tab: "原文",
     };
   }
 
-  if (status === "storyboarded") {
-    const unready = shots.filter((s) => s.first_frame_unready).length;
-    if (unready > 0 || missing > 0) {
-      return {
-        step: "review",
-        index: 5,
-        title: "第 6 步 · 补图与校对分镜",
-        tip: unready
-          ? `有 ${unready} 个分镜首帧未就绪：补传参考图或改提示词后可「按站位重编译」。`
-          : "检查运镜、旁白与位置化台词；确认无角色名泄漏到 H3 句。",
-        cta: unready || missing ? "去资产补图" : "查看分镜",
-        tab: unready || missing ? "资产" : "分镜",
-      };
-    }
-
-    const chapters = [...bundle.chapters].sort((a, b) => a.index - b.index);
-    const next = chapters.find((c) => c.index > chapter.index && c.status !== "storyboarded");
-    if (next) {
-      return {
-        step: "next_chapter",
-        index: 6,
-        title: "本章已完成 · 进入下一章",
-        tip: `「${chapter.title}」已出分镜。下一章「${next.title}」尚未完成，继续逐章推进。`,
-        cta: `处理 ${next.title}`,
-        tab: "原文",
-      };
-    }
-
+  const unready = shots.filter((s) => s.first_frame_unready).length;
+  if (unready > 0 || missing > 0) {
     return {
-      step: "export",
-      index: 6,
-      title: "第 7 步 · 导出策划包",
-      tip: "导出 novel2lens.json + shots.md，供后续 Qwen 首帧与 H3 视频使用。",
-      cta: "导出 JSON",
+      step: "review",
+      index: 4,
+      title: "第 5 步 · 校对分镜与补图",
+      tip: unready
+        ? `有 ${unready} 个镜头首帧未就绪（多半缺参考图）。补图后可再导出。`
+        : "分镜已生成，可微调提示词后导出。",
+      cta: unready || missing ? "去全书资产补图" : "查看分镜",
+      tab: unready || missing ? "全书资产" : "分镜",
+    };
+  }
+
+  const next = bundle.chapters.find((c) => c.index > chapter.index && c.status !== "storyboarded");
+  if (next) {
+    return {
+      step: "next_chapter",
+      index: 5,
+      title: "下一章",
+      tip: `「${chapter.title}」已完成。可继续「${next.title}」分镜。`,
+      cta: `进入 ${next.title}`,
+      tab: "原文",
     };
   }
 
   return {
-    step: "extract",
-    index: 1,
-    title: "继续本章流程",
-    tip: "按左侧章节状态推进：抽取 → 确认 → 上传图 → 分镜 → 导出。",
-    cta: "抽取本章资产",
-    tab: "原文",
+    step: "export",
+    index: 5,
+    title: "导出策划包",
+    tip: "全书资产与分镜就绪，导出 JSON / Markdown。",
+    cta: "导出 JSON",
   };
 }
 
-export function stepProgressIndex(guide: FlowGuide): number {
+export function stepProgressIndex(step: FlowStepId): number {
   const map: Record<FlowStepId, number> = {
     style: 0,
-    extract: 1,
-    confirm: 2,
-    upload: 3,
-    storyboard: 4,
-    review: 5,
-    export: 6,
-    next_chapter: 6,
+    generate_assets: 1,
+    upload: 2,
+    storyboard: 3,
+    review: 4,
+    export: 5,
+    next_chapter: 5,
   };
-  return map[guide.step];
+  return map[step] ?? 0;
 }
 
 export function statusLabel(status: string): string {
   switch (status) {
     case "pending":
-      return "待抽取";
-    case "proposals":
-      return "待确认";
-    case "assets_confirmed":
       return "待分镜";
+    case "proposals":
+      return "待分镜";
+    case "assets_confirmed":
+      return "可分镜";
     case "storyboarded":
       return "已分镜";
     default:

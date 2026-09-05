@@ -131,16 +131,12 @@ def test_full_planner_pipeline(tmp_path, monkeypatch):
         pid = created["project"]["id"]
         cid = created["chapters"][0]["id"]
 
-        extracted = client.post(f"/api/projects/{pid}/chapters/{cid}/extract")
-        assert extracted.status_code == 200, extracted.text
-        proposals = extracted.json()["proposals"]
-        assert len(proposals) == 4
-
-        items = [{**p, "accept": True} for p in proposals]
-        confirmed = client.post(f"/api/projects/{pid}/chapters/{cid}/confirm", json={"items": items}).json()
-        assert len(confirmed["assets"]) == 4
-        people = [a for a in confirmed["assets"] if a["kind"] == "character"]
-        scene = next(a for a in confirmed["assets"] if a["kind"] == "scene")
+        gen = client.post(f"/api/projects/{pid}/generate-assets?replace=true")
+        assert gen.status_code == 200, gen.text
+        assets = gen.json()["assets"]
+        assert any(a["kind"] == "character" for a in assets)
+        people = [a for a in assets if a["kind"] == "character"]
+        scene = next(a for a in assets if a["kind"] == "scene")
 
         board = client.post(f"/api/projects/{pid}/chapters/{cid}/storyboard").json()
         assert board["shots"]
