@@ -116,6 +116,7 @@ export default function App() {
           imageBatchRef.current = null;
           setImageBatch(null);
         }
+        // Keep polling while local batch tracking is still open even if first poll raced.
         syncInterval(jobs);
       } catch {
         /* keep last known jobs */
@@ -556,7 +557,11 @@ export default function App() {
                 onBatchQueued={noteImageBatch}
                 onJobsSeen={(jobs) => {
                   setImageJobs(jobs);
-                  if (jobs.length) imageJobsActiveRef.current = true;
+                  if (jobs.length) {
+                    imageJobsActiveRef.current = true;
+                    // Seed prev count so the next poll can detect completion.
+                    if (prevActiveCountRef.current === 0) prevActiveCountRef.current = jobs.length;
+                  }
                   pollImageJobsRef.current?.();
                 }}
               />
@@ -972,9 +977,19 @@ function AssetCard({
             type="button"
             className="thumb-open"
             title={`查看大图 · ${label}`}
-            onClick={() => setPreview({ src: mediaUrl(path), label: `${asset.name} · ${label}` })}
+            onClick={() =>
+              setPreview({
+                src: mediaUrl(path, asset.media_version),
+                label: `${asset.name} · ${label}`,
+              })
+            }
           >
-            <img className={wide ? "wide" : undefined} src={mediaUrl(path)} alt={label} />
+            <img
+              key={`${field}-${asset.media_version || 0}`}
+              className={wide ? "wide" : undefined}
+              src={mediaUrl(path, asset.media_version)}
+              alt={label}
+            />
           </button>
         ) : (
           <div className={`ph ${wide ? "wide" : ""}`}>{label}</div>

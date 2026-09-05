@@ -8,6 +8,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.db import Asset, Chapter, Project, Proposal, Shot, project_dir
+from app.config import settings
 from app.domain.chapters import split_chapters
 from app.domain.export import build_export_document, build_shots_markdown
 from app.domain.prompts import compile_first_frame, compile_h3
@@ -71,6 +72,32 @@ def _effective_far_path(asset: Asset) -> str:
     return asset.image_path or ""
 
 
+def _asset_media_version(asset: Asset) -> int:
+    """Max mtime of stored asset images — used by UI to bust browser cache after regen."""
+    fields = (
+        asset.half_path,
+        asset.full_path,
+        getattr(asset, "far_path", "") or "",
+        getattr(asset, "near_path", "") or "",
+        asset.image_path,
+    )
+    latest = 0
+    root = Path(settings.data_dir)
+    for rel in fields:
+        rel = (rel or "").strip()
+        if not rel:
+            continue
+        path = Path(rel)
+        if not path.is_absolute():
+            path = root / rel
+        try:
+            if path.is_file():
+                latest = max(latest, int(path.stat().st_mtime))
+        except OSError:
+            continue
+    return latest
+
+
 def serialize_asset(asset: Asset) -> dict[str, Any]:
     kind = normalize_kind(asset.kind)
     far_path = _effective_far_path(asset)
@@ -95,6 +122,7 @@ def serialize_asset(asset: Asset) -> dict[str, Any]:
         "near_path": near_path,
         "image_path": asset.image_path,
         "voice_path": asset.voice_path,
+        "media_version": _asset_media_version(asset),
         "created_chapter_id": asset.created_chapter_id,
         "portrait_ready": bool(asset.half_path and asset.full_path)
         if kind == "character"

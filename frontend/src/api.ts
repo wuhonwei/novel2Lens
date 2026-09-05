@@ -18,6 +18,7 @@ export type Asset = {
   near_path: string;
   image_path: string;
   voice_path: string;
+  media_version?: number;
   portrait_ready: boolean;
   created_chapter_id?: string;
 };
@@ -281,6 +282,10 @@ export const api = {
   export: (pid: string) => req<{ document: unknown; markdown: string; path: string }>(`/api/projects/${pid}/export`, { method: "POST" }),
 };
 
-export function mediaUrl(path: string) {
-  return path ? `/media/${path}` : "";
+export function mediaUrl(path: string, version?: number | string | null) {
+  if (!path) return "";
+  const base = `/media/${path}`;
+  if (version === undefined || version === null || version === "") return base;
+  const sep = base.includes("?") ? "&" : "?";
+  return `${base}${sep}v=${encodeURIComponent(String(version))}`;
 }
