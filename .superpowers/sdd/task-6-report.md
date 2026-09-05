@@ -35,7 +35,7 @@ npm run build
 ## Review fix (idle polling + edit modal clamp)
 
 **Status:** DONE  
-**Commit:** `9f258d9`
+**Commit:** `470d775`
 
 ### Changes
 
