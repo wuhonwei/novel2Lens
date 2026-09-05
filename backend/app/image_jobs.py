@@ -24,7 +24,8 @@ def serialize_job(job: ImageJob) -> dict[str, Any]:
     return {
         "id": job.id,
         "project_id": job.project_id,
-        "asset_id": job.asset_id,
+        "asset_id": job.asset_id or "",
+        "shot_id": getattr(job, "shot_id", "") or "",
         "kind": job.kind,
         "target_field": job.target_field,
         "status": job.status,
@@ -93,17 +94,19 @@ def next_queued_job(db: Session) -> ImageJob | None:
 def _make_job(
     *,
     project: Project,
-    asset: Asset,
+    asset: Asset | None,
     kind: str,
     target_field: str,
     prompt: str,
     payload: dict[str, Any],
     batch_id: str = "",
+    shot_id: str = "",
 ) -> ImageJob:
     return ImageJob(
         id=_uid(),
         project_id=project.id,
-        asset_id=asset.id,
+        asset_id=(asset.id if asset else "") or "",
+        shot_id=shot_id or "",
         kind=kind,
         target_field=target_field,
         status="queued",
@@ -127,12 +130,13 @@ def _t2i_payload(asset: Asset, project: Project, field: str, aspect: str) -> dic
         "aspect": aspect,
         "subject_type": subject,
         "no_background": kind == "character",
+        # Product rule: all asset T2I slots use Guofeng SDXL (not Ideogram).
+        "prefer_backend": "sdxl_guofeng",
     }
     if kind == "character":
         gender, age_tier = character_persona(asset)
         payload["gender"] = gender
         payload["age_tier"] = age_tier
-        # Keep Guofeng for 国风3D; gender/age locks handle female bias (do NOT force RealVis).
     return payload
 
 
@@ -379,3 +383,192 @@ def enqueue_one_click(db: Session, project: Project) -> dict[str, Any]:
         db.add(job)
     db.commit()
     return {"batch_id": batch_id, "job_ids": [j.id for j in jobs], "jobs": [serialize_job(j) for j in jobs]}
+
+
+def _shot_ref_paths(project: Project, shot, assets: list[Asset]) -> tuple[list[str], list[str], str]:
+    """Return (abs_paths, labels, error). Error non-empty if unready or missing files."""
+    from app.config import settings
+    from app.domain.shot_refs import build_shot_references
+    from app.services import _load
+
+    if shot.first_frame_unready:
+        return [], [], "首帧参考图未齐备"
+    by_id = {a.id: a for a in assets}
+    scene = by_id.get(shot.scene_asset_id) if shot.scene_asset_id else None
+    prop_ids = _load(getattr(shot, "prop_asset_ids_json", None) or "[]", [])
+    props = [by_id[pid] for pid in prop_ids if pid in by_id]
+    refs = build_shot_references(
+        scene=scene,
+        lines=_load(shot.lines_json, []),
+        slots=_load(shot.slots_json, []),
+        props=props,
+        half_lock=bool(shot.half_lock),
+        assets_by_id=by_id,
+        text_fallbacks=_load(getattr(shot, "text_fallbacks_json", None) or "[]", []),
+    )
+    paths: list[str] = []
+    labels: list[str] = []
+    for ref in refs:
+        if ref.get("mode") == "text":
+            continue
+        stored = (ref.get("path") or "").strip()
+        if not stored or not ref.get("uploaded"):
+            continue
+        abs_path = settings.data_dir / stored
+        if not abs_path.is_file():
+            return [], [], f"缺少参考图文件: {stored}"
+        paths.append(str(abs_path))
+        labels.append(str(ref.get("image_role") or ref.get("asset_name") or "reference"))
+        if len(paths) >= 3:
+            break
+    if not paths:
+        return [], [], "本镜没有可用参考图"
+    prompt = (shot.prompt_zh or "").strip()
+    if not prompt:
+        return [], [], "本镜缺少首帧提示词"
+    return paths, labels, ""
+
+
+def enqueue_shot_first_frame(
+    db: Session, project: Project, shot, *, batch_id: str = "", assets: list[Asset] | None = None
+) -> ImageJob:
+    assets = assets if assets is not None else db.query(Asset).filter(Asset.project_id == project.id).all()
+    paths, labels, err = _shot_ref_paths(project, shot, assets)
+    if err:
+        raise ValueError(err)
+    payload = {
+        "aspect": "16:9",
+        "ref_paths": paths,
+        "ref_labels": labels,
+        "shot_id": shot.id,
+        "quality": "standard",
+    }
+    job = _make_job(
+        project=project,
+        asset=None,
+        kind="edit",
+        target_field="first_frame",
+        prompt=shot.prompt_zh or "",
+        payload=payload,
+        batch_id=batch_id,
+        shot_id=shot.id,
+    )
+    db.add(job)
+    db.commit()
+    db.refresh(job)
+    return job
+
+
+def enqueue_chapter_first_frames(db: Session, project: Project, chapter_id: str) -> dict[str, Any]:
+    from app.db import Shot
+    from datetime import timedelta
+
+    assets = db.query(Asset).filter(Asset.project_id == project.id).all()
+    shots = (
+        db.query(Shot)
+        .filter(Shot.project_id == project.id, Shot.chapter_id == chapter_id)
+        .order_by(Shot.order_index.asc())
+        .all()
+    )
+    if not shots:
+        raise ValueError("本章还没有分镜")
+    batch_id = _uid()
+    jobs: list[ImageJob] = []
+    errors: list[str] = []
+    base_ts = _utcnow()
+    for i, shot in enumerate(shots):
+        try:
+            paths, labels, err = _shot_ref_paths(project, shot, assets)
+            if err:
+                errors.append(f"镜{shot.order_index}: {err}")
+                continue
+            payload = {
+                "aspect": "16:9",
+                "ref_paths": paths,
+                "ref_labels": labels,
+                "shot_id": shot.id,
+                "quality": "standard",
+            }
+            job = _make_job(
+                project=project,
+                asset=None,
+                kind="edit",
+                target_field="first_frame",
+                prompt=shot.prompt_zh or "",
+                payload=payload,
+                batch_id=batch_id,
+                shot_id=shot.id,
+            )
+            job.created_at = base_ts + timedelta(microseconds=i)
+            job.updated_at = job.created_at
+            jobs.append(job)
+            db.add(job)
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"镜{shot.order_index}: {exc}")
+    if not jobs:
+        raise ValueError("没有可入队的首帧任务：" + "；".join(errors[:6]))
+    db.commit()
+    return {
+        "batch_id": batch_id,
+        "queued": len(jobs),
+        "skipped": len(errors),
+        "errors": errors,
+        "jobs": [serialize_job(j) for j in jobs],
+    }
+
+
+def enqueue_project_first_frames(db: Session, project: Project) -> dict[str, Any]:
+    from app.db import Chapter, Shot
+    from datetime import timedelta
+
+    assets = db.query(Asset).filter(Asset.project_id == project.id).all()
+    chapters = db.query(Chapter).filter(Chapter.project_id == project.id).order_by(Chapter.index.asc()).all()
+    shots = (
+        db.query(Shot)
+        .filter(Shot.project_id == project.id)
+        .order_by(Shot.chapter_id.asc(), Shot.order_index.asc())
+        .all()
+    )
+    if not shots:
+        raise ValueError("项目还没有分镜")
+    batch_id = _uid()
+    jobs: list[ImageJob] = []
+    errors: list[str] = []
+    base_ts = _utcnow()
+    title_by = {c.id: c.title for c in chapters}
+    for i, shot in enumerate(shots):
+        paths, labels, err = _shot_ref_paths(project, shot, assets)
+        if err:
+            errors.append(f"{title_by.get(shot.chapter_id, '')}镜{shot.order_index}: {err}")
+            continue
+        payload = {
+            "aspect": "16:9",
+            "ref_paths": paths,
+            "ref_labels": labels,
+            "shot_id": shot.id,
+            "quality": "standard",
+        }
+        job = _make_job(
+            project=project,
+            asset=None,
+            kind="edit",
+            target_field="first_frame",
+            prompt=shot.prompt_zh or "",
+            payload=payload,
+            batch_id=batch_id,
+            shot_id=shot.id,
+        )
+        job.created_at = base_ts + timedelta(microseconds=i)
+        job.updated_at = job.created_at
+        jobs.append(job)
+        db.add(job)
+    if not jobs:
+        raise ValueError("没有可入队的首帧任务：" + "；".join(errors[:8]))
+    db.commit()
+    return {
+        "batch_id": batch_id,
+        "queued": len(jobs),
+        "skipped": len(errors),
+        "errors": errors,
+        "jobs": [serialize_job(j) for j in jobs],
+    }

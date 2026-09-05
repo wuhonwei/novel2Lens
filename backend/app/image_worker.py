@@ -202,11 +202,24 @@ class ImageWorker:
                 check.close()
 
             project = db.get(Project, job.project_id)
-            asset = db.get(Asset, job.asset_id)
-            if not project or not asset:
-                raise RuntimeError("project or asset missing")
-            write_asset_image(project, asset, job.target_field, png)
-            refresh_shot_readiness(db, project)
+            if not project:
+                raise RuntimeError("project missing")
+            payload_shot_id = (payload.get("shot_id") or getattr(job, "shot_id", "") or "").strip()
+            if job.target_field == "first_frame" or payload_shot_id:
+                from app.db import Shot
+                from app.image_gen import write_shot_first_frame
+
+                shot = db.get(Shot, payload_shot_id or job.asset_id)
+                if not shot or shot.project_id != project.id:
+                    raise RuntimeError("shot missing for first_frame")
+                write_shot_first_frame(project, shot, png)
+                db.commit()
+            else:
+                asset = db.get(Asset, job.asset_id)
+                if not asset:
+                    raise RuntimeError("project or asset missing")
+                write_asset_image(project, asset, job.target_field, png)
+                refresh_shot_readiness(db, project)
             job.status = "succeeded"
             job.phase = ""
             job.error = ""
@@ -264,8 +277,13 @@ class ImageWorker:
         except ValueError:
             backend = "sdxl_realvis"
 
-        # prefer_backend only when explicitly set (no longer auto-forced for males)
-        if prefer_backend == "sdxl_realvis" and (
+        # prefer_backend: Guofeng for all asset T2I; RealVis only when explicitly forced.
+        if prefer_backend == "sdxl_guofeng" and (
+            "Guofeng4.2XL.safetensors" in (live_ckpts or set())
+            or (self.models_dir / "checkpoints" / "Guofeng4.2XL.safetensors").exists()
+        ):
+            backend = "sdxl_guofeng"
+        elif prefer_backend == "sdxl_realvis" and (
             "RealVisXL_V5.0_fp16.safetensors" in (live_ckpts or set())
             or (self.models_dir / "checkpoints" / "RealVisXL_V5.0_fp16.safetensors").exists()
         ):
@@ -333,7 +351,10 @@ class ImageWorker:
         return images[0]
 
     def _run_edit(self, db: Session, client: Any, job: ImageJob, payload: dict[str, Any]) -> bytes:
+        from app.comfy_pipeline.qa import assess_image_bytes
+
         ref_paths = list(payload.get("ref_paths") or [])
+        ref_labels = list(payload.get("ref_labels") or [])
         ref_field = (payload.get("ref_field") or "").strip()
         if not ref_paths and ref_field:
             asset = db.get(Asset, job.asset_id)
@@ -356,6 +377,16 @@ class ImageWorker:
             if not abs_path.is_file():
                 raise RuntimeError(f"参考图不存在: {stored}")
             ref_paths = [str(abs_path)]
+            if not ref_labels:
+                ref_labels = [
+                    {
+                        "full": "character full-body reference",
+                        "far": "scene wide plate",
+                        "half": "character half-body",
+                        "near": "scene near plate",
+                        "image": "prop reference",
+                    }.get(ref_field, f"reference {ref_field}")
+                ]
 
         if not ref_paths:
             raise RuntimeError("edit job has no reference images")
@@ -368,8 +399,8 @@ class ImageWorker:
 
         aspect = payload.get("aspect") or "3:4"
         width, height = resolve_size(aspect, "sdxl")
-        edit_prompt = job.prompt or ""
-        # Character half-body edits must keep opaque white — never transparency grid.
+        edit_prompt = (job.prompt or "").strip()
+        edit_negative = ""
         if (job.target_field or "") in ("half",) or "半身" in edit_prompt:
             if "纯白" not in edit_prompt:
                 edit_prompt = (
@@ -379,19 +410,48 @@ class ImageWorker:
                 "checkerboard, checkered background, transparency grid, alpha checker, "
                 "transparent background, png transparency pattern, grey and white squares"
             )
-        else:
-            edit_negative = ""
-        wf = compile_qwen_edit(
-            prompt=edit_prompt,
-            negative=edit_negative,
-            ref_names=names,
-            seed=next_seed(None, 0, False),
-            width=width,
-            height=height,
+
+        labeled = []
+        for i in range(len(names)):
+            label = (ref_labels[i] if i < len(ref_labels) else f"参考图{i + 1}").strip()
+            labeled.append(f"image {i + 1} ({label})")
+        wrapped = (
+            f"Using {', '.join(labeled)}, create one new image: {edit_prompt}. "
+            "Preserve identity and key details from the references as instructed. "
+            f"Output image aspect ratio {aspect}, resolution {width}x{height}."
         )
-        pid = client.queue_prompt(wf)
-        hist = client.wait_history(pid, timeout_seconds=self.job_timeout)
-        images = client.collect_images(hist)
-        if not images:
-            raise RuntimeError("Comfy edit returned no images")
-        return images[0]
+
+        last_err = ""
+        last_png: bytes | None = None
+        for attempt in range(2):
+            use_lightning = attempt < 1
+            steps = 4 if use_lightning else 28
+            cfg = 1.0 if use_lightning else 3.5
+            wf = compile_qwen_edit(
+                prompt=wrapped,
+                negative=edit_negative or (payload.get("negative") or ""),
+                ref_names=names,
+                seed=next_seed(None, attempt, True),
+                steps=steps,
+                cfg=cfg,
+                use_lightning=use_lightning,
+                width=width,
+                height=height,
+            )
+            pid = client.queue_prompt(wf)
+            hist = client.wait_history(pid, timeout_seconds=self.job_timeout)
+            images = client.collect_images(hist)
+            if not images:
+                last_err = "Comfy edit returned no images"
+                continue
+            last_png = images[0]
+            qa = assess_image_bytes(
+                last_png,
+                require_fullbody=bool(payload.get("require_fullbody")),
+            )
+            if qa.get("ok") or qa.get("passed"):
+                return last_png
+            last_err = f"qa_failed:{','.join(qa.get('reasons') or [])}"
+        if last_png is not None:
+            return last_png
+        raise RuntimeError(last_err or "Comfy edit failed")

@@ -572,6 +572,18 @@ input, select { width: 100%; }
   border: 1px solid var(--line);
   margin: 0.4rem 0 0.7rem;
 }
+.shot-first-frame {
+  margin: 0.6rem 0 0.8rem;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  max-width: 480px;
+}
+.shot-first-frame img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
 .shot-refs {
   margin: 0.55rem 0 0.85rem;
   padding: 0.7rem 0.75rem;

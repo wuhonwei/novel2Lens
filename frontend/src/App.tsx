@@ -532,6 +532,48 @@ export default function App() {
                 >
                   生成本章分镜
                 </button>
+                <button
+                  data-testid="btn-chapter-first-frames"
+                  disabled={!!busy || imageJobs.length > 0 || !chapter || chapterShots.length === 0}
+                  onClick={() =>
+                    run("生成本章首帧", async () => {
+                      const next = await api.generateChapterFirstFrames(p.id, chapter!.id);
+                      const jobs = next.jobs || [];
+                      const bid = next.batch_id || jobs[0]?.batch_id || "";
+                      if (bid) noteImageBatch(bid, jobs.length || next.queued || 1);
+                      if (jobs.length) {
+                        setImageJobs(jobs);
+                        imageJobsActiveRef.current = true;
+                        if (prevActiveCountRef.current === 0) prevActiveCountRef.current = jobs.length;
+                      }
+                      setBundle(next);
+                      setTab("分镜");
+                    })
+                  }
+                >
+                  一键生成本章首帧
+                </button>
+                <button
+                  data-testid="btn-project-first-frames"
+                  disabled={!!busy || imageJobs.length > 0 || !(bundle.shots?.length)}
+                  onClick={() =>
+                    run("生成全部首帧", async () => {
+                      const next = await api.generateProjectFirstFrames(p.id);
+                      const jobs = next.jobs || [];
+                      const bid = next.batch_id || jobs[0]?.batch_id || "";
+                      if (bid) noteImageBatch(bid, jobs.length || next.queued || 1);
+                      if (jobs.length) {
+                        setImageJobs(jobs);
+                        imageJobsActiveRef.current = true;
+                        if (prevActiveCountRef.current === 0) prevActiveCountRef.current = jobs.length;
+                      }
+                      setBundle(next);
+                      setTab("分镜");
+                    })
+                  }
+                >
+                  一键生成全部首帧
+                </button>
               </div>
             </div>
 
@@ -1320,7 +1362,14 @@ function ShotCard({
         <span className={`pill ${shot.first_frame_unready ? "warn" : "ok"}`}>
           {shot.first_frame_unready ? "首帧未就绪" : "首帧就绪"}
         </span>
+        {shot.first_frame_path ? <span className="pill ok">已出图</span> : null}
       </div>
+
+      {shot.first_frame_path ? (
+        <div className="shot-first-frame">
+          <img src={mediaUrl(shot.first_frame_path)} alt={`镜${shot.order_index}首帧`} />
+        </div>
+      ) : null}
 
       <div className="shot-refs">
         <div className="shot-refs-head">

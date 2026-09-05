@@ -92,6 +92,7 @@ export type Shot = {
   source_excerpt: string;
   character_count: number;
   first_frame_unready: boolean;
+  first_frame_path?: string;
   prompt_zh: string;
   prompt_en: string;
   h3_prompt: string;
@@ -260,6 +261,18 @@ export const api = {
       `/api/projects/${pid}/generate-images`,
       { method: "POST" },
     ),
+  generateChapterFirstFrames: (pid: string, cid: string) =>
+    req<Bundle & { batch_id?: string; queued?: number; jobs?: ImageJob[]; errors?: string[] }>(
+      `/api/projects/${pid}/chapters/${cid}/generate-first-frames`,
+      { method: "POST" },
+    ),
+  generateProjectFirstFrames: (pid: string) =>
+    req<Bundle & { batch_id?: string; queued?: number; jobs?: ImageJob[]; errors?: string[] }>(
+      `/api/projects/${pid}/generate-first-frames`,
+      { method: "POST" },
+    ),
+  generateShotFirstFrame: (pid: string, sid: string) =>
+    req<Bundle & { job?: ImageJob }>(`/api/projects/${pid}/shots/${sid}/generate-first-frame`, { method: "POST" }),
   generateAssetImage: (pid: string, aid: string, field?: string) => {
     const qs = field ? `?field=${encodeURIComponent(field)}` : "";
     return req<{ ok: boolean; job: ImageJob; jobs: ImageJob[]; asset: Asset }>(

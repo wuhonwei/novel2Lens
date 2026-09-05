@@ -21,8 +21,11 @@ from app.image_jobs import (
     cancel_batch,
     enqueue_asset_all_slots,
     enqueue_asset_field,
+    enqueue_chapter_first_frames,
     enqueue_manual_edit,
     enqueue_one_click,
+    enqueue_project_first_frames,
+    enqueue_shot_first_frame,
     has_active_jobs,
     list_active_jobs,
     mark_stale_running_failed,
@@ -500,6 +503,52 @@ def api_generate_all_images(project_id: str):
                 "image_output_dir": str(resolve_image_output_dir(project)),
             },
         }
+    finally:
+        db.close()
+
+
+@app.post("/api/projects/{project_id}/chapters/{chapter_id}/generate-first-frames")
+def api_generate_chapter_first_frames(project_id: str, chapter_id: str):
+    db = db_session()
+    try:
+        project = get_project(db, project_id)
+        get_chapter(db, project_id, chapter_id)
+        try:
+            result = enqueue_chapter_first_frames(db, project, chapter_id)
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        return {**_bundle(db, project), **result}
+    finally:
+        db.close()
+
+
+@app.post("/api/projects/{project_id}/generate-first-frames")
+def api_generate_project_first_frames(project_id: str):
+    db = db_session()
+    try:
+        project = get_project(db, project_id)
+        try:
+            result = enqueue_project_first_frames(db, project)
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        return {**_bundle(db, project), **result}
+    finally:
+        db.close()
+
+
+@app.post("/api/projects/{project_id}/shots/{shot_id}/generate-first-frame")
+def api_generate_shot_first_frame(project_id: str, shot_id: str):
+    db = db_session()
+    try:
+        project = get_project(db, project_id)
+        shot = db.get(Shot, shot_id)
+        if not shot or shot.project_id != project_id:
+            raise HTTPException(404, "分镜不存在")
+        try:
+            job = enqueue_shot_first_frame(db, project, shot)
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        return {**_bundle(db, project), "job": serialize_job(job)}
     finally:
         db.close()
 

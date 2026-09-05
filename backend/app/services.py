@@ -207,6 +207,7 @@ def serialize_shot(shot: Shot, chapter_title: str = "", assets: list[Asset] | No
         "text_fallbacks": text_fallbacks,
         "lines": lines,
         "half_lock": shot.half_lock,
+        "first_frame_path": getattr(shot, "first_frame_path", "") or "",
         "references": references,
     }
 

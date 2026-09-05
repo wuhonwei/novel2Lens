@@ -47,17 +47,18 @@ def list_image_output_files(project: Project) -> list[dict[str, str]]:
 
 def _style_for(kind: str, project_style: str) -> str:
     blob = project_style or ""
+    guofengish = any(
+        x in blob for x in ("国风", "国漫", "古风", "江湖", "武侠", "仙侠")
+    ) or ("3D" in blob.upper() and ("东方" in blob or "国" in blob))
     if kind == "character":
-        if any(x in blob for x in ("国风", "古风", "江湖", "武侠", "仙侠")) or (
-            "3D" in blob.upper() and ("东方" in blob or "国" in blob)
-        ):
+        if guofengish:
             return "guofeng_cg"
         if "动漫" in blob or "anime" in blob.lower():
             return "anime"
         return "realistic"
     if kind == "scene":
-        return "scenery"
-    return "product"
+        return "guofeng" if guofengish else "scenery"
+    return "guofeng" if guofengish else "product"
 
 
 def _look_prompt(asset: Asset) -> str:
@@ -115,9 +116,9 @@ def build_field_prompt(project: Project, asset: Asset, field: str) -> str:
             )
         if field == "half":
             return (
-                f"保持人物身份、性别、年龄感、五官、发型与服饰完全一致（{identity}），"
-                f"{period}。"
-                "生成正面半身胸像，头肩构图，面部清晰，"
+                f"保持与参考全身图同一人物身份、五官、发型、妆造与整套服饰完全一致"
+                f"（{identity}；外貌：{look}），{period}。"
+                "同一套古装/江湖服饰，不要换装。生成正面半身胸像，头肩构图，面部清晰，"
                 "纯白色不透明实底背景，不要透明，不要棋盘格，不要全身。"
             )
     if kind == "scene" and field == "far":
@@ -193,3 +194,18 @@ def clear_asset_image(db: Session, project: Project, asset: Asset, field: str) -
 
 def abs_media_path(stored: str) -> Path:
     return settings.data_dir / stored
+
+
+def write_shot_first_frame(project: Project, shot: Any, data: bytes) -> str:
+    out_root = resolve_image_output_dir(project)
+    folder = out_root / "shots" / shot.id
+    folder.mkdir(parents=True, exist_ok=True)
+    dest = folder / "first_frame.png"
+    dest.write_bytes(data)
+    mirror_dir = project_dir(project.id) / "shots" / shot.id
+    mirror_dir.mkdir(parents=True, exist_ok=True)
+    mirror = mirror_dir / "first_frame.png"
+    mirror.write_bytes(data)
+    stored = f"projects/{project.id}/shots/{shot.id}/first_frame.png"
+    shot.first_frame_path = stored
+    return stored

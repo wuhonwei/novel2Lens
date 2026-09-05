@@ -91,7 +91,8 @@ class ImageJob(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     project_id: Mapped[str] = mapped_column(String(36), index=True)
-    asset_id: Mapped[str] = mapped_column(String(36), index=True)
+    asset_id: Mapped[str] = mapped_column(String(36), index=True, default="")
+    shot_id: Mapped[str] = mapped_column(String(36), index=True, default="")
     kind: Mapped[str] = mapped_column(String(20))  # t2i | edit
     target_field: Mapped[str] = mapped_column(String(20))
     status: Mapped[str] = mapped_column(String(20), default="queued")
@@ -141,6 +142,7 @@ class Shot(Base):
     text_fallbacks_json: Mapped[str] = mapped_column(Text, default="[]")
     lines_json: Mapped[str] = mapped_column(Text, default="[]")
     half_lock: Mapped[bool] = mapped_column(Boolean, default=False)
+    first_frame_path: Mapped[str] = mapped_column(String(400), default="")
 
     project: Mapped[Project] = relationship(back_populates="shots")
 
@@ -185,6 +187,11 @@ def ensure_schema() -> None:
             conn.execute(text("ALTER TABLE shots ADD COLUMN prop_asset_ids_json TEXT DEFAULT '[]'"))
         if "text_fallbacks_json" not in shot_cols:
             conn.execute(text("ALTER TABLE shots ADD COLUMN text_fallbacks_json TEXT DEFAULT '[]'"))
+        if "first_frame_path" not in shot_cols:
+            conn.execute(text("ALTER TABLE shots ADD COLUMN first_frame_path VARCHAR(400) DEFAULT ''"))
+        job_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(image_jobs)")).fetchall()}
+        if "shot_id" not in job_cols:
+            conn.execute(text("ALTER TABLE image_jobs ADD COLUMN shot_id VARCHAR(36) DEFAULT ''"))
 
 
 def init_db() -> None:
