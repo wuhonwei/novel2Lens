@@ -10,11 +10,24 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from app.comfy_supervisor import ComfySupervisor
 from app.config import settings
 from app.db import Asset, Chapter, Project, Proposal, Shot, init_db
 from app import db as database
 from app.domain.registry import sanitize_aliases, sanitize_character_fields
-from app.image_gen import clear_asset_image, generate_all_book_images, generate_one_asset
+from app.image_gen import clear_asset_image, list_image_output_files, resolve_image_output_dir
+from app.image_jobs import (
+    cancel_batch,
+    enqueue_asset_field,
+    enqueue_manual_edit,
+    enqueue_one_click,
+    has_active_jobs,
+    list_active_jobs,
+    mark_stale_running_failed,
+    serialize_job,
+)
+from app.image_worker import ImageWorker
+from app.llm_supervisor import LlmSupervisor
 from app.services import (
     confirm_proposals,
     export_project,
@@ -35,12 +48,53 @@ from app.services import (
     _load,
     _uid,
 )
-from app.zaoxiang_client import ZaoxiangError
+
+llm_supervisor = LlmSupervisor()
+comfy_supervisor = ComfySupervisor(
+    base_url=settings.comfy_base_url,
+    root=settings.comfy_root,
+    python=settings.comfy_python,
+    idle_seconds=settings.image_idle_unload_seconds,
+    stop_when_idle=settings.stop_comfy_when_idle,
+)
+image_worker: ImageWorker | None = None
+
+
+def _start_image_worker() -> None:
+    global image_worker
+    if image_worker is None:
+        image_worker = ImageWorker(
+            session_factory=database.SessionLocal,
+            comfy=comfy_supervisor,
+            llm=llm_supervisor,
+        )
+    image_worker.start()
+
+
+def _stop_image_worker() -> None:
+    global image_worker
+    if image_worker is not None:
+        image_worker.stop()
+
+
+def _reject_if_image_busy(db: Session) -> None:
+    if llm_supervisor.image_busy or has_active_jobs(db):
+        raise HTTPException(409, "参考图生成中，请稍后再试")
+
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     init_db()
-    yield
+    db = database.SessionLocal()
+    try:
+        mark_stale_running_failed(db)
+    finally:
+        db.close()
+    _start_image_worker()
+    try:
+        yield
+    finally:
+        _stop_image_worker()
 
 
 app = FastAPI(title="novel2Lens", version="0.1.0", lifespan=lifespan)
@@ -152,6 +206,7 @@ def _bundle(db: Session, project: Project) -> dict:
         "assets": [serialize_asset(a) for a in assets],
         "shots": [serialize_shot(s, title_by.get(s.chapter_id, ""), assets) for s in shots],
         "proposals": [{"id": p.id, "chapter_id": p.chapter_id, **(_load(p.payload_json, {}))} for p in proposals],
+        "active_image_jobs": list_active_jobs(db, project.id, active_only=True),
     }
 
 
@@ -247,6 +302,7 @@ async def api_prescan(project_id: str, replace: bool = False):
     db = db_session()
     try:
         project = get_project(db, project_id)
+        _reject_if_image_busy(db)
         try:
             result = await prescan_project(db, project, replace=replace)
         except Exception as exc:
@@ -262,6 +318,7 @@ async def api_generate_assets(project_id: str, replace: bool = True):
     db = db_session()
     try:
         project = get_project(db, project_id)
+        _reject_if_image_busy(db)
         if not (project.source_text or "").strip():
             raise HTTPException(400, "项目没有正文，请先上传或粘贴小说 TXT")
         try:
@@ -279,6 +336,7 @@ async def api_extract(project_id: str, chapter_id: str, overwrite: bool = False)
     try:
         project = get_project(db, project_id)
         chapter = get_chapter(db, project_id, chapter_id)
+        _reject_if_image_busy(db)
         try:
             result = await extract_assets(db, project, chapter, overwrite=overwrite)
         except ValueError as exc:
@@ -310,6 +368,7 @@ async def api_storyboard(project_id: str, chapter_id: str, overwrite: bool = Fal
     try:
         project = get_project(db, project_id)
         chapter = get_chapter(db, project_id, chapter_id)
+        _reject_if_image_busy(db)
         try:
             result = await generate_storyboard(db, project, chapter, overwrite=overwrite)
         except ValueError as exc:
@@ -413,15 +472,23 @@ async def api_upload_asset(
 
 @app.post("/api/projects/{project_id}/generate-images")
 def api_generate_all_images(project_id: str):
-    """One-click generate reference images for all book assets via 造像."""
+    """Enqueue one-click reference images (t2i then edit); returns immediately."""
     db = db_session()
     try:
         project = get_project(db, project_id)
-        try:
-            result = generate_all_book_images(db, project)
-        except ZaoxiangError as exc:
-            raise HTTPException(502, str(exc)) from exc
-        return {**_bundle(db, project), "image_gen": result}
+        result = enqueue_one_click(db, project)
+        return {
+            **_bundle(db, project),
+            "batch_id": result["batch_id"],
+            "jobs": result["jobs"],
+            "image_gen": {
+                "ok": True,
+                "queued": len(result["job_ids"]),
+                "batch_id": result["batch_id"],
+                "job_ids": result["job_ids"],
+                "image_output_dir": str(resolve_image_output_dir(project)),
+            },
+        }
     finally:
         db.close()
 
@@ -435,9 +502,110 @@ def api_generate_asset_image(project_id: str, asset_id: str, field: str | None =
         if not asset or asset.project_id != project_id:
             raise HTTPException(404, "资产不存在")
         try:
-            return generate_one_asset(db, project, asset, field=field)
-        except (ZaoxiangError, ValueError) as exc:
-            raise HTTPException(502, str(exc)) from exc
+            from app.domain.registry import normalize_kind
+
+            kind = normalize_kind(asset.kind)
+            if field is None:
+                if kind == "character":
+                    field = "full"
+                elif kind == "scene":
+                    field = "far"
+                else:
+                    field = "image"
+            job = enqueue_asset_field(db, project, asset, field)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        return {"ok": True, "job": serialize_job(job), "asset": serialize_asset(asset)}
+    finally:
+        db.close()
+
+
+@app.post("/api/projects/{project_id}/assets/{asset_id}/edit-image")
+async def api_edit_image(
+    project_id: str,
+    asset_id: str,
+    prompt: str = Form(...),
+    target_field: str = Form(...),
+    aspect: str = Form("3:4"),
+    files: list[UploadFile] = File(default=[]),
+    ref_paths: str = Form(""),
+):
+    db = db_session()
+    try:
+        project = get_project(db, project_id)
+        asset = db.get(Asset, asset_id)
+        if not asset or asset.project_id != project_id:
+            raise HTTPException(404, "资产不存在")
+        paths: list[str] = []
+        if ref_paths.strip():
+            import json as _json
+
+            try:
+                parsed = _json.loads(ref_paths)
+                if isinstance(parsed, list):
+                    paths.extend(str(p) for p in parsed)
+                else:
+                    paths.extend(p.strip() for p in ref_paths.split(",") if p.strip())
+            except _json.JSONDecodeError:
+                paths.extend(p.strip() for p in ref_paths.split(",") if p.strip())
+        out_root = resolve_image_output_dir(project)
+        upload_dir = out_root / "_edit_uploads" / asset.id
+        upload_dir.mkdir(parents=True, exist_ok=True)
+        for i, uf in enumerate(files or []):
+            data = await uf.read()
+            if not data:
+                continue
+            name = uf.filename or f"ref_{i}.png"
+            dest = upload_dir / name
+            dest.write_bytes(data)
+            paths.append(str(dest))
+        try:
+            job = enqueue_manual_edit(
+                db,
+                project,
+                asset,
+                target_field=target_field,
+                prompt=prompt,
+                ref_paths=paths,
+                aspect=aspect,
+            )
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        return {"ok": True, "job": serialize_job(job)}
+    finally:
+        db.close()
+
+
+@app.get("/api/projects/{project_id}/image-jobs")
+def api_list_image_jobs(project_id: str, active_only: bool = True):
+    db = db_session()
+    try:
+        get_project(db, project_id)
+        return {"jobs": list_active_jobs(db, project_id, active_only=active_only)}
+    finally:
+        db.close()
+
+
+@app.post("/api/projects/{project_id}/image-batches/{batch_id}/cancel")
+def api_cancel_batch(project_id: str, batch_id: str):
+    db = db_session()
+    try:
+        get_project(db, project_id)
+        n = cancel_batch(db, batch_id)
+        return {"ok": True, "cancelled": n}
+    finally:
+        db.close()
+
+
+@app.get("/api/projects/{project_id}/image-output-files")
+def api_list_output_dir_files(project_id: str):
+    db = db_session()
+    try:
+        project = get_project(db, project_id)
+        return {
+            "image_output_dir": str(resolve_image_output_dir(project)),
+            "files": list_image_output_files(project),
+        }
     finally:
         db.close()
 

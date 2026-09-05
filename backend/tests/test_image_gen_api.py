@@ -1,40 +1,40 @@
 from fastapi.testclient import TestClient
 
 from app import db as database
+from app.comfy_supervisor import ComfySupervisor
 from app.db import Asset, reset_engine
+from app.image_worker import ImageWorker
+from app.llm_supervisor import LlmSupervisor
 from app.main import app
 from app.services import _uid
+from tests.test_image_worker import FakeComfy
 
 
-def test_generate_one_asset_character_mocked(tmp_path, monkeypatch):
+def test_generate_one_asset_character_enqueues_and_worker_writes(tmp_path, monkeypatch):
     monkeypatch.setattr("app.config.settings.data_dir", tmp_path)
     reset_engine(f"sqlite:///{tmp_path / 't.sqlite'}")
+    monkeypatch.setattr("app.main._start_image_worker", lambda: None)
+    monkeypatch.setattr("app.main._stop_image_worker", lambda: None)
 
-    class FakeZX:
-        def __init__(self, *a, **k):
-            pass
-
-        def health(self):
-            return {"ok": True}
-
-        def create_generate(self, payload):
-            assert payload["aspect"] == "9:16"
-            return {"id": "g1"}
-
-        def create_edit(self, **kwargs):
-            assert kwargs["aspect"] == "3:4"
-            return {"id": "e1"}
-
-        def wait_job(self, job_id, **k):
-            return {"id": job_id, "status": "succeeded", "images": [{"id": f"img-{job_id}", "role": "success"}]}
-
-        def first_success_image_id(self, job):
-            return job["images"][0]["id"]
-
-        def download_image(self, image_id):
-            return b"\x89PNG\r\n\x1a\n" + image_id.encode()
-
-    monkeypatch.setattr("app.image_gen.ZaoxiangClient", FakeZX)
+    fake = FakeComfy()
+    llm = LlmSupervisor(stop_cmd=lambda: None, start_cmd=lambda: None, is_up=lambda: False)
+    comfy = ComfySupervisor(
+        base_url="http://127.0.0.1:8189",
+        root=str(tmp_path / "comfy"),
+        python="python",
+        idle_seconds=9999,
+        stop_when_idle=False,
+        client_factory=lambda _url: fake,
+        start_process=lambda: None,
+        stop_process=lambda: None,
+        is_up=lambda: True,
+    )
+    worker = ImageWorker(
+        session_factory=database.SessionLocal,
+        comfy=comfy,
+        llm=llm,
+        models_dir=tmp_path / "models",
+    )
 
     with TestClient(app) as client:
         created = client.post(
@@ -59,13 +59,25 @@ def test_generate_one_asset_character_mocked(tmp_path, monkeypatch):
         finally:
             db.close()
 
-        out = client.post(f"/api/projects/{pid}/assets/{aid}/generate-image")
+        out = client.post(f"/api/projects/{pid}/assets/{aid}/generate-image?field=full")
         assert out.status_code == 200, out.text
         body = out.json()
-        assert body["full_path"]
-        assert body["half_path"]
-        assert (tmp_path / body["full_path"]).exists()
-        assert (tmp_path / body["half_path"]).exists()
+        assert body["job"]["kind"] == "t2i"
+        assert body["job"]["target_field"] == "full"
+        assert body["job"]["status"] == "queued"
+
+        # half depends on full — enqueue half after full is written
+        worker.drain_once()
+        half = client.post(f"/api/projects/{pid}/assets/{aid}/generate-image?field=half")
+        assert half.status_code == 200, half.text
+        worker.drain_once()
+
+        bundle = client.get(f"/api/projects/{pid}").json()
+        asset_out = next(a for a in bundle["assets"] if a["id"] == aid)
+        assert asset_out["full_path"]
+        assert asset_out["half_path"]
+        assert (tmp_path / asset_out["full_path"]).exists()
+        assert (tmp_path / asset_out["half_path"]).exists()
 
         cleared = client.delete(f"/api/projects/{pid}/assets/{aid}/image?field=half")
         assert cleared.status_code == 200
