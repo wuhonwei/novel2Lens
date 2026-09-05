@@ -41,6 +41,7 @@ SHOT_SYSTEM = """你是分镜导演。只输出 JSON 对象：{"shots":[...]} �
 - 运镜只允许：固定、缓慢推近、缓慢拉远、慢摇左、慢摇右、微仰、微俯、轻度跟随左一、轻度跟随中、轻度跟随右一。默认固定。
 - dialogue / voice_direction / action 按位置写，禁止出现角色名（对白里引用人名除外）。
 - 人物 name 必须能在资产表里对上（用登记名，不要新发明角色）。
+- 每个人物必须指定 portrait：只能是 "full"（全身图）或 "half"（半身图）二选一；同一人物在同一镜禁止两者都用。全身动作/站位/递物用 full；近景对话/面部特写用 half。默认 full。
 - scene_name 必须是资产表里的场景名，没有则 null，并把环境写进 background。
 - prop_names：本镜画面里需要认出来的核心物品（资产表里的物品名），没有则 []。桌椅杯碟不要。
 - source_excerpt 引用本章原句。
@@ -48,7 +49,7 @@ SHOT_SYSTEM = """你是分镜导演。只输出 JSON 对象：{"shots":[...]} �
 
 每个 shot 字段：
 duration_s, scene_name, prop_names, background, camera, camera_detail, narration, action, source_excerpt,
-characters: [{"name","position","facing","transient","action","dialogue","voice_direction"}]
+characters: [{"name","position","facing","portrait","transient","action","dialogue","voice_direction"}]
 """
 
 SHOT_USER = """项目画风：{style}

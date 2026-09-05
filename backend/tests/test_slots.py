@@ -20,15 +20,25 @@ def test_scene_plus_two_people_fills_three_slots():
     assert slots[2].position == "右一"
 
 
-def test_single_person_scene_can_lock_face_with_half_body():
+def test_single_person_uses_only_one_portrait_never_both():
     slots = pack_qwen_slots(
         has_scene=True,
-        characters=[SlotSubject(asset_id="c1", position="中", image_key="full")],
-        half_lock=True,
+        characters=[SlotSubject(asset_id="c1", position="中", image_key="half")],
+        half_lock=True,  # legacy flag must not add a second portrait slot
     )
-    assert [s.kind for s in slots] == ["scene", "character", "character"]
-    assert slots[1].image_key == "full"
-    assert slots[2].image_key == "half"
+    assert [s.kind for s in slots] == ["scene", "character"]
+    assert slots[1].image_key == "half"
+    assert sum(1 for s in slots if s.kind == "character") == 1
+
+
+def test_scene_plus_one_half_leaves_room_for_prop():
+    slots = pack_qwen_slots(
+        has_scene=True,
+        characters=[SlotSubject(asset_id="c1", position="中", image_key="half")],
+        prop=SlotSubject(asset_id="p1", image_key="prop"),
+    )
+    assert [s.kind for s in slots] == ["scene", "character", "prop"]
+    assert slots[1].image_key == "half"
 
 
 def test_no_scene_three_people():
@@ -57,6 +67,7 @@ def test_rejects_three_named_people_when_scene_present():
     ]
     try:
         pack_qwen_slots(has_scene=True, characters=chars)
-        raise AssertionError("expected ValueError")
     except ValueError as exc:
         assert "2" in str(exc)
+        return
+    raise AssertionError("expected ValueError")

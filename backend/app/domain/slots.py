@@ -33,6 +33,14 @@ def max_named_characters(has_scene: bool) -> int:
     return 2 if has_scene else 3
 
 
+def normalize_portrait_key(raw: str | None) -> str:
+    """Return 'half' or 'full'. Never both for one person in one shot."""
+    key = (raw or "").strip().lower()
+    if key in {"half", "bust", "半身", "半身图", "胸像"}:
+        return "half"
+    return "full"
+
+
 @dataclass
 class SlotSubject:
     asset_id: str
@@ -59,9 +67,11 @@ def pack_qwen_slots(
     *,
     has_scene: bool,
     characters: list[SlotSubject],
-    half_lock: bool = False,
+    half_lock: bool = False,  # kept for callers; ignored — one portrait per person
     prop: SlotSubject | None = None,
 ) -> list[PackedSlot]:
+    """Pack at most 3 reference images. Each character uses exactly one of half|full."""
+    del half_lock  # legacy flag; dual half+full packing removed
     cap = max_named_characters(has_scene)
     if len(characters) > cap:
         raise ValueError(f"具名出镜人物不能超过 {cap} 人（有场景时最多 2 人）")
@@ -73,6 +83,7 @@ def pack_qwen_slots(
         n += 1
 
     for char in characters:
+        key = normalize_portrait_key(char.image_key)
         slots.append(
             PackedSlot(
                 index=n,
@@ -80,32 +91,13 @@ def pack_qwen_slots(
                 asset_id=char.asset_id,
                 position=char.position,
                 facing=char.facing,
-                image_key=char.image_key or "full",
+                image_key=key,
                 refer_as=char.refer_as,
             )
         )
         n += 1
 
-    if has_scene and len(characters) == 1 and half_lock and n <= 3:
-        slots.append(
-            PackedSlot(
-                index=n,
-                kind="character",
-                asset_id=characters[0].asset_id,
-                position=characters[0].position,
-                facing=characters[0].facing,
-                image_key="half",
-                refer_as=characters[0].refer_as,
-            )
-        )
-        n += 1
-
-    if (
-        prop
-        and not has_scene
-        and len(characters) <= 2
-        and n <= 3
-    ):
+    if prop and n <= 3:
         slots.append(
             PackedSlot(
                 index=n,

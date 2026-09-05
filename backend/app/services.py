@@ -27,6 +27,7 @@ from app.domain.slots import (
     FACINGS,
     SlotSubject,
     max_named_characters,
+    normalize_portrait_key,
     pack_qwen_slots,
 )
 from app.extract_prompts import (
@@ -799,23 +800,44 @@ def _match_name(assets: list[Asset], name: str, kind: str | None = None) -> Asse
 def _shot_unready(
     project: Project,
     scene: Asset | None,
-    chars: list[Asset],
-    half_lock: bool,
+    char_reqs: list[tuple[Asset, str]],
     props: list[Asset] | None = None,
 ) -> bool:
     if not (project.style or "").strip():
         return True
     if scene and not scene.image_path:
         return True
-    for ch in chars:
-        if not (ch.half_path and ch.full_path):
+    for ch, image_key in char_reqs:
+        key = normalize_portrait_key(image_key)
+        if key == "half" and not ch.half_path:
             return True
-    if half_lock and chars and not chars[0].half_path:
-        return True
+        if key == "full" and not ch.full_path:
+            return True
     for prop in props or []:
         if not prop.image_path:
             return True
     return False
+
+
+def _pick_portrait(raw_shot: dict[str, Any], person: dict[str, Any], named_count: int) -> str:
+    explicit = person.get("portrait") or person.get("image_key")
+    if explicit:
+        return normalize_portrait_key(str(explicit))
+    cam = str(raw_shot.get("camera") or "")
+    blob = " ".join(
+        str(x or "")
+        for x in (
+            person.get("action"),
+            person.get("transient"),
+            raw_shot.get("action"),
+            raw_shot.get("camera_detail"),
+        )
+    )
+    if named_count == 1 and (
+        "推近" in cam or "特写" in blob or "近景" in blob or "面部" in blob or "脸" in blob
+    ):
+        return "half"
+    return "full"
 
 
 def compile_shot_prompts(project: Project, shot: Shot, assets: list[Asset]) -> None:
@@ -825,30 +847,32 @@ def compile_shot_prompts(project: Project, shot: Shot, assets: list[Asset]) -> N
     prop_ids = _load(getattr(shot, "prop_asset_ids_json", None) or "[]", [])
     prop_assets = [by_id[pid] for pid in prop_ids if pid in by_id]
     chars: list[SlotSubject] = []
-    char_assets: list[Asset] = []
+    char_reqs: list[tuple[Asset, str]] = []
     for line in lines:
         asset = by_id.get(line.get("asset_id") or "")
         if not asset:
             continue
-        char_assets.append(asset)
+        image_key = normalize_portrait_key(line.get("image_key") or line.get("portrait"))
+        line["image_key"] = image_key
+        char_reqs.append((asset, image_key))
         chars.append(
             SlotSubject(
                 asset_id=asset.id,
                 position=line.get("position") or "中",
                 facing=line.get("facing") or "面向镜头",
-                image_key="full",
+                image_key=image_key,
                 refer_as=asset.refer_as or "人",
             )
         )
+    shot.lines_json = _dump(lines)
+    shot.half_lock = bool(len(chars) == 1 and chars and chars[0].image_key == "half")
     has_scene = bool(scene)
-    half_lock = bool(shot.half_lock and has_scene and len(chars) == 1)
     prop_subject = None
     if prop_assets:
         prop_subject = SlotSubject(asset_id=prop_assets[0].id, kind="prop", image_key="prop")
     packed = pack_qwen_slots(
         has_scene=has_scene,
         characters=chars,
-        half_lock=half_lock,
         prop=prop_subject,
     )
     if scene:
@@ -902,7 +926,7 @@ def compile_shot_prompts(project: Project, shot: Shot, assets: list[Asset]) -> N
             }
         )
     shot.slots_json = _dump(slot_dump)
-    shot.first_frame_unready = _shot_unready(project, scene, char_assets, half_lock, prop_assets)
+    shot.first_frame_unready = _shot_unready(project, scene, char_reqs, prop_assets)
 
 
 async def generate_storyboard(
@@ -950,12 +974,15 @@ async def generate_storyboard(
                 continue
             pos = person.get("position") if person.get("position") in ("左一", "中", "右一") else "中"
             facing = person.get("facing") if person.get("facing") in FACINGS else "面向镜头"
+            image_key = _pick_portrait(raw, person, len(named))
             lines.append(
                 {
                     "asset_id": asset.id,
                     "name": asset.name,
                     "position": pos,
                     "facing": facing,
+                    "image_key": image_key,
+                    "portrait": image_key,
                     "transient": person.get("transient") or "",
                     "action": person.get("action") or "",
                     "dialogue": person.get("dialogue") or "",
@@ -969,7 +996,7 @@ async def generate_storyboard(
                 lines[0]["facing"], lines[1]["facing"] = "朝右", "朝左"
         if len(lines) == 1 and lines[0]["position"] not in ("左一", "中", "右一"):
             lines[0]["position"] = "中"
-        half_lock = bool(scene) and len(lines) == 1
+        half_lock = bool(len(lines) == 1 and lines and lines[0].get("image_key") == "half")
         prop_names = raw.get("prop_names") or raw.get("props") or []
         if isinstance(prop_names, str):
             prop_names = [prop_names]
@@ -1009,7 +1036,7 @@ async def generate_storyboard(
 
 
 def update_shot(db: Session, project: Project, shot: Shot, patch: dict[str, Any]) -> dict[str, Any]:
-    for key in ("duration_s", "camera", "camera_detail", "narration", "action", "source_excerpt", "background", "half_lock", "prompt_zh", "prompt_en", "h3_prompt"):
+    for key in ("duration_s", "camera", "camera_detail", "narration", "action", "source_excerpt", "background", "prompt_zh", "prompt_en", "h3_prompt"):
         if key in patch and patch[key] is not None:
             setattr(shot, key, patch[key])
     if "lines" in patch and patch["lines"] is not None:
@@ -1019,6 +1046,13 @@ def update_shot(db: Session, project: Project, shot: Shot, patch: dict[str, Any]
         shot.scene_asset_id = patch["scene_asset_id"] or ""
     if "prop_asset_ids" in patch and patch["prop_asset_ids"] is not None:
         shot.prop_asset_ids_json = _dump(patch["prop_asset_ids"])
+    if "half_lock" in patch and patch["half_lock"] is not None:
+        lines = _load(shot.lines_json, [])
+        if len(lines) == 1:
+            lines[0]["image_key"] = "half" if patch["half_lock"] else "full"
+            lines[0]["portrait"] = lines[0]["image_key"]
+            shot.lines_json = _dump(lines)
+        shot.half_lock = bool(patch["half_lock"])
     assets = db.query(Asset).filter(Asset.project_id == project.id).all()
     if patch.get("recompile", True):
         compile_shot_prompts(project, shot, assets)

@@ -40,10 +40,7 @@ def _slot_zh(slot: PackedSlot, actions: dict[str, str] | None = None) -> str:
     act = (actions or {}).get(pos, "")
     extra = f"，{act}" if act else ""
     if slot.image_key == "half":
-        return (
-            f"图{n}是{pos}人物的半身像，仅用于锁定面部；"
-            f"体态与服装以全身参考为准。"
-        )
+        return f"图{n}是{pos}，{facing}，半身即图{n}人物{extra}。"
     return f"图{n}是{pos}，{facing}，全身即图{n}人物{extra}。"
 
 
@@ -58,8 +55,8 @@ def _slot_en(slot: PackedSlot, actions: dict[str, str] | None = None) -> str:
     extra = f", {act}" if act else ""
     if slot.image_key == "half":
         return (
-            f"image {slot.index} is a bust portrait of the {POS_EN.get(pos, pos)} person "
-            "for face lock only; body and clothes follow the full-body reference."
+            f"image {slot.index} is the {POS_EN.get(pos, pos)} person, {facing}, "
+            f"upper body as in image {slot.index}{extra}."
         )
     return (
         f"image {slot.index} is the {POS_EN.get(pos, pos)} person, {facing}, "
@@ -76,8 +73,6 @@ def compile_first_frame(
     actions: dict[str, str] | None = None,
 ) -> FirstFramePrompts:
     has_scene = any(s.kind == "scene" for s in slots)
-    people = [s for s in slots if s.kind == "character" and s.image_key != "half"]
-    half_lock = any(s.kind == "character" and s.image_key == "half" for s in slots)
 
     person_zh = "".join(_slot_zh(s, actions) for s in slots if s.kind != "scene")
     person_en = " ".join(_slot_en(s, actions) for s in slots if s.kind != "scene")
@@ -89,16 +84,14 @@ def compile_first_frame(
             f"在图一的背景下，{person_zh}"
             f"画面中可辨认人物恰好{character_count}人，禁止增加面孔；远处只允许不可辨认剪影。"
             "不要文字、水印、字幕。"
+            "同一人物只使用其选定的一张人物参考图（半身或全身二选一），禁止同时套用半身与全身。"
         )
-        if half_lock:
-            zh += "外貌以半身像面部为准，体态服装以全身图为准。"
         en = (
             f"16:9. Style: {style}. Use image 1 as the environment plate; keep layout and lighting. "
             f"In the setting of image 1, {person_en} "
-            f"Exactly {character_count} identifiable people. No extra faces. No text, no watermark."
+            f"Exactly {character_count} identifiable people. No extra faces. No text, no watermark. "
+            "Each person uses only one portrait reference (half or full), never both."
         )
-        if half_lock:
-            en += " Face from the bust portrait; body and clothes from the full-body figure."
         return FirstFramePrompts(zh=zh, en=en)
 
     bg = background.strip() or "符合画风的环境"
@@ -107,11 +100,13 @@ def compile_first_frame(
         f"{person_zh}"
         f"画面中可辨认人物恰好{character_count}人，禁止增加面孔；远处只允许不可辨认剪影。"
         "不要文字、水印、字幕。"
+        "同一人物只使用其选定的一张人物参考图（半身或全身二选一），禁止同时套用半身与全身。"
     )
     en = (
         f"16:9. Style: {style}. Paint the background from this description: {bg}. "
         f"{person_en} "
-        f"Exactly {character_count} identifiable people. No extra faces. No text, no watermark."
+        f"Exactly {character_count} identifiable people. No extra faces. No text, no watermark. "
+        "Each person uses only one portrait reference (half or full), never both."
     )
     return FirstFramePrompts(zh=zh, en=en)
 

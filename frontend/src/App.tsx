@@ -828,12 +828,14 @@ function cnNum(n: number) {
 function fallbackShotRefs(shot: Shot, assets: Asset[]): ShotReference[] {
   const byId = Object.fromEntries(assets.map((a) => [a.id, a]));
   const out: ShotReference[] = [];
+  const seenChars = new Set<string>();
   const push = (
     image_key: "scene" | "full" | "half" | "prop",
     asset: Asset | undefined,
     opts: { slot?: number; position?: string; note?: string } = {},
   ) => {
     if (!asset) return;
+    if ((image_key === "half" || image_key === "full") && seenChars.has(asset.id)) return;
     const path =
       image_key === "half" ? asset.half_path : image_key === "full" ? asset.full_path : asset.image_path;
     const role =
@@ -844,6 +846,7 @@ function fallbackShotRefs(shot: Shot, assets: Asset[]): ShotReference[] {
           : image_key === "half"
             ? "人物半身图"
             : "核心物品参考图";
+    if (image_key === "half" || image_key === "full") seenChars.add(asset.id);
     out.push({
       slot_index: opts.slot ?? null,
       kind: asset.kind,
@@ -865,7 +868,7 @@ function fallbackShotRefs(shot: Shot, assets: Asset[]): ShotReference[] {
     push(key, asset, {
       slot: Number(slot.index) || undefined,
       position: String(slot.position || ""),
-      note: key === "half" ? "锁脸" : key === "scene" ? "场景底板" : "",
+      note: key === "half" ? "本镜用半身" : key === "full" ? "本镜用全身" : key === "scene" ? "场景底板" : "",
     });
   }
   if (shot.scene_asset_id && !out.some((r) => r.image_key === "scene")) {
@@ -873,12 +876,11 @@ function fallbackShotRefs(shot: Shot, assets: Asset[]): ShotReference[] {
   }
   for (const line of shot.lines || []) {
     const asset = byId[line.asset_id];
-    if (!out.some((r) => r.asset_id === line.asset_id && r.image_key === "full")) {
-      push("full", asset, { position: line.position, note: "体态服装" });
-    }
-    if (!out.some((r) => r.asset_id === line.asset_id && r.image_key === "half")) {
-      push("half", asset, { position: line.position, note: "面部锁定" });
-    }
+    const key = (line.image_key === "half" || line.portrait === "half" ? "half" : "full") as "half" | "full";
+    push(key, asset, {
+      position: line.position,
+      note: key === "half" ? "本镜用半身" : "本镜用全身",
+    });
   }
   for (const pid of shot.prop_asset_ids || []) {
     if (!out.some((r) => r.asset_id === pid && r.image_key === "prop")) {
