@@ -17,6 +17,30 @@ SAMPLE = """第一章 雾锁渡口
 
 async def fake_chat_json(messages, **_kwargs):
     system = messages[0]["content"]
+    joined = "\n".join(m.get("content", "") for m in messages)
+    if "完整性审计" in system or "查漏补缺" in system or "完整性审计员" in system:
+        return {"complete": True, "missing": [], "new_items": []}, False
+    if "登记员" in system or "第一遍全书扫描" in system or "登记总表" in joined:
+        return {
+            "characters": [
+                {
+                    "name": "林砚之",
+                    "aliases": ["砚之"],
+                    "refer_as": "少年",
+                    "age_band": "十七岁",
+                    "notes": "十七岁清俊少年，苍白，洗白长衫",
+                    "appearance": {"face": "眉眼清俊", "clothing": "发白长衫"},
+                },
+                {
+                    "name": "陈守义",
+                    "aliases": ["陈伯"],
+                    "refer_as": "老者",
+                    "notes": "花白头发，藏青短打",
+                },
+            ],
+            "scenes": [{"name": "青川渡口", "notes": "湿冷白雾中的青石渡口"}],
+            "props": [{"name": "苏字玉佩", "notes": "刻着苏字的半块玉佩"}],
+        }, False
     if "资产导演" in system:
         return {
             "proposals": [

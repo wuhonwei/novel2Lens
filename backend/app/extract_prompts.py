@@ -13,6 +13,7 @@ ASSET_SYSTEM = """你是小说影视化资产导演。只输出一个 JSON 对�
 - 核心物品：只为反复出现且影响认图的信物/武器/载具。桌椅杯碟不要。
 - 外貌分项尽量从文本抽取，没有的字段留空字符串，不要编造现代服装。
 - desc_zh 给人去画图；desc_en 同步英文，供生图模型。
+- kind 只能是 character | scene | prop（英文）。人物才有半身/全身图；场景和物品只有一张参考图。
 - refer_as 用 少年/老者/女子/男子 等，供「左一的{refer_as}」，不要用人名。
 """
 
@@ -62,8 +63,54 @@ SHOT_USER = """项目画风：{style}
 {chapter}
 """
 
-PRESCAN_SYSTEM = """你是长篇小说的人物/场景登记员。只输出 JSON。
-通读材料，列出可能的人物（含别名）、核心场景、核心物品。不要写分镜。
-格式：{"characters":[{"name","aliases":[],"refer_as","age_band","notes"}],"scenes":[{"name","notes"}],"props":[{"name","notes"}]}
-不要龙套。别名写全（小名、称呼）。
+PRESCAN_PASS1_SYSTEM = """你是长篇小说的影视资产登记员。这是第一遍全书扫描。只输出 JSON，不要 markdown。
+任务：通读全文，建立「人物形象 / 核心场景 / 核心物品」总表。不要写分镜。
+
+硬规则：
+- characters：凡有姓名或稳定称呼的出场人物都要列入（含别名：陈伯=陈守义）。
+- 每个 character 尽量写 refer_as（少年/老者/女子…）、age_band、notes（外貌衣着身材，尽量从原文摘）。
+- scenes：只列反复出现或主场地点（渡口、茅草屋、主街），过场一句带过的路边不要。
+- props：只列影响认图的核心信物/武器/特殊载具；桌椅杯碟不要。
+- 不要编造原文没有的现代服装。
+
+格式：
+{"characters":[{"name","aliases":[],"refer_as","age_band","notes","appearance":{"face","hair","eyes","skin","body","clothing"}}],"scenes":[{"name","notes"}],"props":[{"name","notes"}]}
 """
+
+PRESCAN_AUDIT_SYSTEM = """你是影视资产完整性审计员。这是查漏补缺扫描。只输出 JSON，不要 markdown。
+对照「已有登记表」和小说原文：
+1) 找出漏掉的人物/核心场景/核心物品 → new_items
+2) 找出已有条目但外貌/描述不全的 → missing（action 用 supplement，补 desc_zh / appearance / aliases）
+3) 若已经齐全，complete=true，missing 与 new_items 皆为空数组。
+
+硬规则：
+- kind 只能用 character | scene | prop（不要用人名当 kind，不要写半身/全身）。
+- 人物必须有可画的外貌或衣着描述才算齐全。
+- 场景/物品必须有可视化 notes/desc_zh。
+- 不要重复已完整的条目。
+
+格式：
+{"complete":false,"missing":[{"kind","name","action":"supplement","aliases":[],"refer_as","age_band","desc_zh","appearance":{}}],"new_items":[{"kind","name","aliases":[],"refer_as","age_band","desc_zh","notes","appearance":{}}]}
+"""
+
+PRESCAN_PASS1_USER = """项目画风：{style}
+
+请做第一遍全书扫描，建立人物形象 / 核心场景 / 核心物品登记总表。
+
+全文：
+{novel}
+"""
+
+PRESCAN_AUDIT_USER = """项目画风：{style}
+
+这是第 {pass_no} 遍查漏补缺（完整性审计）。对照已有登记表与原文，补全缺失人物/场景/物品与外貌描述。
+
+已有登记表：
+{registry}
+
+全文：
+{novel}
+"""
+
+# backward-compatible alias
+PRESCAN_SYSTEM = PRESCAN_PASS1_SYSTEM

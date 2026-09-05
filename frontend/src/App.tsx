@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { api, mediaUrl, type Asset, type Bundle, type Chapter, type Project, type Proposal, type Shot } from "./api";
+import { api, mediaUrl, normalizeKind, type Asset, type Bundle, type Chapter, type Project, type Proposal, type Shot } from "./api";
 import { deriveGuide, pipelineSteps, statusLabel, stepProgressIndex, type FlowGuide, type TabName } from "./flow";
 
 const CAMERAS = ["固定", "缓慢推近", "缓慢拉远", "慢摇左", "慢摇右", "微仰", "微俯", "轻度跟随左一", "轻度跟随中", "轻度跟随右一"];
@@ -117,10 +117,10 @@ export default function App() {
           </header>
 
           <ol className="home-steps">
-            <li><strong>1. 导入小说</strong><span>粘贴或上传 txt/md，自动按章切分</span></li>
-            <li><strong>2. 抽资产并确认</strong><span>人物 / 场景 / 物品提案需你点确认</span></li>
-            <li><strong>3. 上传参考图</strong><span>半身+全身 / 场景底板，系统外生图后回传</span></li>
-            <li><strong>4. 出分镜并导出</strong><span>首帧双提示词 + H3 脚本，导出 JSON</span></li>
+            <li><strong>1. 导入小说</strong><span>粘贴或上传全文后自动两遍扫描：人物 / 场景 / 物品</span></li>
+            <li><strong>2. 按章确认与补图</strong><span>章节提案确认；人物半身+全身，场景/物品各一张</span></li>
+            <li><strong>3. 出分镜并导出</strong><span>首帧双提示词 + H3 脚本，导出 JSON</span></li>
+            <li><strong>4. 下一章继续</strong><span>按章节推进，登记表复用已确认资产</span></li>
           </ol>
 
           {error && <p className="error banner-error">{error}</p>}
@@ -129,7 +129,7 @@ export default function App() {
           <section className="panel create-panel">
             <div className="panel-head">
               <h2>新建项目</h2>
-              <p className="hint">先写好画风，再导入正文。画风会贯穿后续所有提示词。</p>
+              <p className="hint">导入后会自动两遍扫描全书人物、核心场景与核心物品；不全则补扫直到齐全。</p>
             </div>
             <div className="stack">
               <label>书名</label>
@@ -144,19 +144,19 @@ export default function App() {
                   className="primary"
                   disabled={!!busy}
                   onClick={() =>
-                    run("创建", async () => {
+                    run("创建并扫描资产", async () => {
                       const data = await api.create({ title: title || "未命名小说", text, style });
                       setBundle(data);
                       setChapterId(data.chapters[0]?.id || "");
-                      setTab("原文");
+                      setTab(text.trim() ? "资产" : "原文");
                       await refreshList();
                     })
                   }
                 >
-                  粘贴创建并进入流程
+                  粘贴创建并自动扫描
                 </button>
                 <label className="file-btn">
-                  上传 txt / md
+                  上传 txt 并自动扫描
                   <input
                     data-testid="file-novel"
                     type="file"
@@ -164,11 +164,11 @@ export default function App() {
                     onChange={(e) => {
                       const file = e.target.files?.[0];
                       if (!file) return;
-                      run("上传", async () => {
+                      run("上传并扫描资产", async () => {
                         const data = await api.upload(title || file.name.replace(/\.[^.]+$/, ""), style, file);
                         setBundle(data);
                         setChapterId(data.chapters[0]?.id || "");
-                        setTab("原文");
+                        setTab("资产");
                         await refreshList();
                       });
                     }}
@@ -319,8 +319,8 @@ export default function App() {
               <button data-testid="btn-save-settings" className="primary" onClick={() => run("保存设置", async () => setBundle(await api.patch(p.id, bundle.project)))}>
                 保存设置
               </button>
-              <button data-testid="btn-prescan" disabled={!!busy} onClick={() => run("预扫描", async () => setBundle(await api.prescan(p.id)))}>
-                全书预扫描（可选）
+              <button data-testid="btn-prescan" disabled={!!busy} onClick={() => run("全书重扫", async () => setBundle(await api.prescan(p.id)))}>
+                重新全书扫描
               </button>
               <button
                 data-testid="btn-export"
@@ -512,9 +512,12 @@ function Assets({
           <div className="panel-head">
             <h2>资产库</h2>
             <p className="hint">
+              {bundle.project.registry_scan?.passes?.length
+                ? `全书已扫描 ${bundle.project.registry_scan.passes.length} 遍（人物 ${bundle.project.registry_scan.counts?.character ?? 0} / 场景 ${bundle.project.registry_scan.counts?.scene ?? 0} / 物品 ${bundle.project.registry_scan.counts?.prop ?? 0}）。`
+                : ""}
               {chapter?.status === "pending"
-                ? "本章尚未抽取。回到原文或点「抽取本章资产」。"
-                : "编辑描述并上传参考图。角色：半身 + 全身；场景/物品：一张底板。"}
+                ? "可再按章抽取补充提案。人物：半身+全身；场景/物品：一张参考图。"
+                : "编辑描述并上传参考图。人物：半身 + 全身；场景/物品：一张参考图。"}
             </p>
           </div>
         </section>
@@ -528,11 +531,11 @@ function Assets({
         <div className="row">
           <select value={keepId} onChange={(e) => setKeepId(e.target.value)}>
             <option value="">保留资产</option>
-            {bundle.assets.map((a) => <option key={a.id} value={a.id}>{a.kind}:{a.name}</option>)}
+            {bundle.assets.map((a) => <option key={a.id} value={a.id}>{normalizeKind(a.kind)}:{a.name}</option>)}
           </select>
           <select value={dropId} onChange={(e) => setDropId(e.target.value)}>
             <option value="">合并进来并删除</option>
-            {bundle.assets.map((a) => <option key={a.id} value={a.id}>{a.kind}:{a.name}</option>)}
+            {bundle.assets.map((a) => <option key={a.id} value={a.id}>{normalizeKind(a.kind)}:{a.name}</option>)}
           </select>
           <button
             data-testid="btn-merge"
@@ -563,6 +566,7 @@ function Assets({
 function AssetCard({ asset, projectId, onUpdated }: { asset: Asset; projectId: string; onUpdated: (a: Asset) => void }) {
   const [desc, setDesc] = useState(asset.desc_zh);
   useEffect(() => setDesc(asset.desc_zh), [asset.desc_zh]);
+  const kind = normalizeKind(asset.kind);
 
   async function upload(field: string, file?: File) {
     if (!file) return;
@@ -570,7 +574,7 @@ function AssetCard({ asset, projectId, onUpdated }: { asset: Asset; projectId: s
   }
 
   const ready =
-    asset.kind === "character" ? Boolean(asset.half_path && asset.full_path) : Boolean(asset.image_path);
+    kind === "character" ? Boolean(asset.half_path && asset.full_path) : Boolean(asset.image_path);
 
   return (
     <article className={`asset-card ${ready ? "ready" : "need-img"}`}>
@@ -579,7 +583,7 @@ function AssetCard({ asset, projectId, onUpdated }: { asset: Asset; projectId: s
         <span className={`pill ${ready ? "ok" : "warn"}`}>{ready ? "图齐" : "缺图"}</span>
       </div>
       <p className="muted">
-        {asset.kind}
+        {kind === "character" ? "人物" : kind === "scene" ? "场景" : "物品"}
         {asset.variant_reason ? ` / ${asset.variant_reason}` : ""}
         {asset.refer_as ? ` · ${asset.refer_as}` : ""}
         {asset.age_band ? ` · ${asset.age_band}` : ""}
@@ -591,7 +595,7 @@ function AssetCard({ asset, projectId, onUpdated }: { asset: Asset; projectId: s
         <button onClick={() => api.patchAsset(projectId, asset.id, { desc_zh: desc }).then(onUpdated)}>保存描述</button>
       </div>
       <div className="thumbs">
-        {asset.kind === "character" ? (
+        {kind === "character" ? (
           <>
             {asset.half_path ? <img src={mediaUrl(asset.half_path)} alt="半身" /> : <div className="ph">半身</div>}
             {asset.full_path ? <img src={mediaUrl(asset.full_path)} alt="全身" /> : <div className="ph">全身</div>}
@@ -599,11 +603,11 @@ function AssetCard({ asset, projectId, onUpdated }: { asset: Asset; projectId: s
         ) : asset.image_path ? (
           <img className="wide" src={mediaUrl(asset.image_path)} alt={asset.name} />
         ) : (
-          <div className="ph wide">场景/物品</div>
+          <div className="ph wide">场景/物品参考图</div>
         )}
       </div>
       <div className="row upload-row">
-        {asset.kind === "character" ? (
+        {kind === "character" ? (
           <>
             <label className="file-btn">半身<input type="file" accept="image/*" onChange={(e) => upload("half", e.target.files?.[0])} /></label>
             <label className="file-btn">全身<input type="file" accept="image/*" onChange={(e) => upload("full", e.target.files?.[0])} /></label>

@@ -11,6 +11,12 @@ from app.db import Asset, Chapter, Project, Proposal, Shot, project_dir
 from app.domain.chapters import split_chapters
 from app.domain.export import build_export_document, build_shots_markdown
 from app.domain.prompts import compile_first_frame, compile_h3
+from app.domain.registry import (
+    apply_registry_delta,
+    is_registry_complete,
+    normalize_kind,
+    registry_completeness,
+)
 from app.domain.slots import (
     CAMERAS,
     FACINGS,
@@ -19,10 +25,21 @@ from app.domain.slots import (
     max_named_characters,
     pack_qwen_slots,
 )
-from app.extract_prompts import ASSET_SYSTEM, ASSET_USER, PRESCAN_SYSTEM, SHOT_SYSTEM, SHOT_USER
+from app.extract_prompts import (
+    ASSET_SYSTEM,
+    ASSET_USER,
+    PRESCAN_AUDIT_SYSTEM,
+    PRESCAN_AUDIT_USER,
+    PRESCAN_PASS1_SYSTEM,
+    PRESCAN_PASS1_USER,
+    SHOT_SYSTEM,
+    SHOT_USER,
+)
 from app.llm import chat_json
 
 APPEARANCE_KEYS = ("face", "hair", "eyes", "skin", "body", "posture", "marks", "clothing", "condition", "time")
+MAX_REGISTRY_AUDIT_PASSES = 5
+NOVEL_SCAN_CHARS = 80000
 
 
 def _uid() -> str:
@@ -112,6 +129,7 @@ def serialize_project(p: Project) -> dict[str, Any]:
         "fallback_model": p.fallback_model,
         "allow_fallback": p.allow_fallback,
         "thinking": p.thinking,
+        "registry_scan": _load(getattr(p, "registry_scan_json", None) or "{}", {}),
         "created_at": p.created_at.isoformat() if p.created_at else None,
     }
 
@@ -149,6 +167,219 @@ def _registry(assets: list[Asset]) -> str:
     return json.dumps(rows, ensure_ascii=False, indent=2)
 
 
+def _asset_dicts(assets: list[Asset]) -> list[dict[str, Any]]:
+    return [
+        {
+            "id": a.id,
+            "kind": normalize_kind(a.kind),
+            "name": a.name,
+            "aliases": _load(a.aliases_json, []),
+            "refer_as": a.refer_as,
+            "age_band": a.age_band,
+            "appearance": _load(a.appearance_json, {}),
+            "desc_zh": a.desc_zh,
+            "desc_en": a.desc_en,
+        }
+        for a in assets
+    ]
+
+
+def _find_db_asset(assets: list[Asset], name: str, kind: str) -> Asset | None:
+    needle = name.strip()
+    for asset in assets:
+        if normalize_kind(asset.kind) != kind:
+            continue
+        names = [asset.name, *_load(asset.aliases_json, [])]
+        if needle in {str(n).strip() for n in names if n}:
+            return asset
+    return None
+
+
+def _apply_registry_rows_to_db(
+    db: Session,
+    project: Project,
+    chapter_id: str,
+    rows: list[dict[str, Any]],
+    existing: list[Asset],
+) -> tuple[int, int]:
+    """Persist create/supplement rows; returns (created, updated)."""
+    working = _asset_dicts(existing)
+    created_n, updated_n = apply_registry_delta(working, rows)
+    # Sync working back onto ORM objects / create new
+    by_key: dict[tuple[str, str], Asset] = {}
+    for asset in existing:
+        by_key[(normalize_kind(asset.kind), asset.name)] = asset
+        for alias in _load(asset.aliases_json, []):
+            by_key[(normalize_kind(asset.kind), str(alias).strip())] = asset
+
+    for row in working:
+        kind = normalize_kind(row.get("kind"))
+        name = (row.get("name") or "").strip()
+        if not name:
+            continue
+        asset = _find_db_asset(existing, name, kind)
+        if asset is None:
+            asset = Asset(
+                id=_uid(),
+                project_id=project.id,
+                kind=kind,
+                name=name,
+                aliases_json=_dump(row.get("aliases") or []),
+                refer_as=row.get("refer_as") or ("人" if kind == "character" else ""),
+                age_band=row.get("age_band") or "",
+                appearance_json=_dump(row.get("appearance") or {}),
+                desc_zh=row.get("desc_zh") or "",
+                desc_en=row.get("desc_en") or "",
+                confirmed=False,
+                created_chapter_id=chapter_id,
+            )
+            db.add(asset)
+            existing.append(asset)
+        else:
+            asset.kind = kind
+            asset.aliases_json = _dump(row.get("aliases") or _load(asset.aliases_json, []))
+            if row.get("refer_as"):
+                asset.refer_as = row["refer_as"]
+            if row.get("age_band"):
+                asset.age_band = row["age_band"]
+            asset.appearance_json = _dump(row.get("appearance") or {})
+            asset.desc_zh = row.get("desc_zh") or asset.desc_zh
+            if row.get("desc_en"):
+                asset.desc_en = row["desc_en"]
+    db.flush()
+    return created_n, updated_n
+
+
+def _pass1_rows(data: Any) -> list[dict[str, Any]]:
+    if not isinstance(data, dict):
+        return []
+    rows: list[dict[str, Any]] = []
+    for key, kind in (("characters", "character"), ("scenes", "scene"), ("props", "prop")):
+        for row in data.get(key) or []:
+            if not isinstance(row, dict):
+                continue
+            item = dict(row)
+            item["kind"] = kind
+            rows.append(item)
+    return rows
+
+
+def _audit_rows(data: Any) -> list[dict[str, Any]]:
+    if not isinstance(data, dict):
+        return []
+    rows: list[dict[str, Any]] = []
+    for key in ("missing", "new_items"):
+        for row in data.get(key) or []:
+            if isinstance(row, dict) and (row.get("name") or "").strip():
+                rows.append(row)
+    return rows
+
+
+async def full_registry_scan(db: Session, project: Project) -> dict[str, Any]:
+    """Two-phase book registry: discover, then audit/supplement until complete."""
+    novel = (project.source_text or "")[:NOVEL_SCAN_CHARS]
+    chapter = db.query(Chapter).filter(Chapter.project_id == project.id).order_by(Chapter.index).first()
+    chapter_id = chapter.id if chapter else ""
+    assets = db.query(Asset).filter(Asset.project_id == project.id).all()
+    passes: list[dict[str, Any]] = []
+    used_fallback = False
+
+    # Pass 1 — discover
+    data, fallback = await _call_llm(
+        project,
+        [
+            {"role": "system", "content": PRESCAN_PASS1_SYSTEM},
+            {
+                "role": "user",
+                "content": PRESCAN_PASS1_USER.format(style=project.style or "", novel=novel),
+            },
+        ],
+    )
+    used_fallback = used_fallback or fallback
+    created, updated = _apply_registry_rows_to_db(db, project, chapter_id, _pass1_rows(data), assets)
+    assets = db.query(Asset).filter(Asset.project_id == project.id).all()
+    passes.append(
+        {
+            "pass": 1,
+            "phase": "discover",
+            "created": created,
+            "updated": updated,
+            "completeness": registry_completeness(_asset_dicts(assets)),
+        }
+    )
+
+    # Pass 2+ — audit / supplement loop
+    for audit_i in range(1, MAX_REGISTRY_AUDIT_PASSES + 1):
+        assets = db.query(Asset).filter(Asset.project_id == project.id).all()
+        if is_registry_complete(_asset_dicts(assets)) and audit_i > 1:
+            break
+        data, fallback = await _call_llm(
+            project,
+            [
+                {"role": "system", "content": PRESCAN_AUDIT_SYSTEM},
+                {
+                    "role": "user",
+                    "content": PRESCAN_AUDIT_USER.format(
+                        style=project.style or "",
+                        pass_no=audit_i + 1,
+                        registry=_registry(assets),
+                        novel=novel,
+                    ),
+                },
+            ],
+        )
+        used_fallback = used_fallback or fallback
+        rows = _audit_rows(data)
+        created, updated = _apply_registry_rows_to_db(db, project, chapter_id, rows, assets)
+        assets = db.query(Asset).filter(Asset.project_id == project.id).all()
+        complete_flag = bool(isinstance(data, dict) and data.get("complete")) and not rows
+        completeness = registry_completeness(_asset_dicts(assets))
+        passes.append(
+            {
+                "pass": audit_i + 1,
+                "phase": "audit",
+                "created": created,
+                "updated": updated,
+                "llm_complete": complete_flag,
+                "completeness": completeness,
+            }
+        )
+        if completeness["complete"] or (complete_flag and created == 0 and updated == 0):
+            break
+        if created == 0 and updated == 0 and not rows:
+            break
+
+    assets = db.query(Asset).filter(Asset.project_id == project.id).all()
+    # Normalize kinds on all assets (fix legacy Chinese / mis-tags)
+    for asset in assets:
+        asset.kind = normalize_kind(asset.kind)
+
+    final = registry_completeness(_asset_dicts(assets))
+    scan_meta = {
+        "passes": passes,
+        "complete": final["complete"],
+        "counts": final["counts"],
+        "incomplete": final["incomplete"],
+        "used_fallback_llm": used_fallback,
+    }
+    project.registry_scan_json = _dump(scan_meta)
+    for ch in db.query(Chapter).filter(Chapter.project_id == project.id):
+        ch.prescan_done = True
+        ch.used_fallback_llm = used_fallback
+    db.commit()
+    return {
+        "used_fallback_llm": used_fallback,
+        "passes": passes,
+        "complete": final["complete"],
+        "counts": final["counts"],
+        "assets": [serialize_asset(a) for a in assets],
+    }
+
+
+async def prescan_project(db: Session, project: Project) -> dict[str, Any]:
+    return await full_registry_scan(db, project)
+
+
 async def _call_llm(project: Project, messages: list[dict[str, str]]) -> tuple[Any, bool]:
     return await chat_json(
         messages,
@@ -159,43 +390,6 @@ async def _call_llm(project: Project, messages: list[dict[str, str]]) -> tuple[A
         allow_fallback=project.allow_fallback,
         thinking=project.thinking,
     )
-
-
-async def prescan_project(db: Session, project: Project) -> dict[str, Any]:
-    messages = [
-        {"role": "system", "content": PRESCAN_SYSTEM},
-        {"role": "user", "content": f"画风：{project.style}\n\n{project.source_text[:80000]}"},
-    ]
-    data, fallback = await _call_llm(project, messages)
-    chapter = db.query(Chapter).filter(Chapter.project_id == project.id).order_by(Chapter.index).first()
-    chapter_id = chapter.id if chapter else ""
-    created = []
-    for kind, key in (("character", "characters"), ("scene", "scenes"), ("prop", "props")):
-        for row in data.get(key) or []:
-            name = (row.get("name") or "").strip()
-            if not name:
-                continue
-            asset = Asset(
-                id=_uid(),
-                project_id=project.id,
-                kind=kind,
-                name=name,
-                aliases_json=_dump(row.get("aliases") or []),
-                refer_as=row.get("refer_as") or ("人" if kind == "character" else ""),
-                age_band=row.get("age_band") or "",
-                appearance_json=_dump({}),
-                desc_zh=row.get("notes") or "",
-                desc_en="",
-                confirmed=False,
-                created_chapter_id=chapter_id,
-            )
-            db.add(asset)
-            created.append(serialize_asset(asset))
-    for ch in db.query(Chapter).filter(Chapter.project_id == project.id):
-        ch.prescan_done = True
-        ch.used_fallback_llm = fallback
-    db.commit()
-    return {"used_fallback_llm": fallback, "assets": created}
 
 
 def _normalize_proposals(data: Any) -> list[dict[str, Any]]:
@@ -312,26 +506,51 @@ def confirm_proposals(
         if not row.get("accept", True):
             continue
         action = row.get("action")
-        kind = row.get("kind") or "character"
+        kind = normalize_kind(row.get("kind") or "character")
         if action == "transient":
             continue
         if action == "create":
-            asset = Asset(
-                id=_uid(),
-                project_id=project.id,
-                kind=kind,
-                name=(row.get("name") or "未命名").strip(),
-                aliases_json=_dump(row.get("aliases") or []),
-                refer_as=row.get("refer_as") or "",
-                age_band=row.get("age_band") or "",
-                appearance_json=_dump(row.get("appearance") or {}),
-                desc_zh=row.get("desc_zh") or "",
-                desc_en=row.get("desc_en") or "",
-                confirmed=True,
-                created_chapter_id=chapter.id,
-            )
-            db.add(asset)
-            assets.append(asset)
+            existing = _find_asset(assets, row.get("name"), row.get("match_asset_id"))
+            if existing and normalize_kind(existing.kind) == kind:
+                # Book scan already registered — treat as supplement + confirm.
+                aliases = _load(existing.aliases_json, [])
+                for a in row.get("aliases") or []:
+                    if a and a not in aliases and a != existing.name:
+                        aliases.append(a)
+                existing.aliases_json = _dump(aliases)
+                if row.get("refer_as"):
+                    existing.refer_as = row["refer_as"]
+                if row.get("age_band"):
+                    existing.age_band = row["age_band"]
+                existing.appearance_json = _dump(
+                    _merge_appearance(_load(existing.appearance_json, {}), row.get("appearance") or {})
+                )
+                if row.get("desc_zh"):
+                    if not existing.desc_zh:
+                        existing.desc_zh = row["desc_zh"]
+                    elif row["desc_zh"] not in existing.desc_zh:
+                        existing.desc_zh = f"{existing.desc_zh}；{row['desc_zh']}"
+                if row.get("desc_en") and not existing.desc_en:
+                    existing.desc_en = row["desc_en"]
+                existing.confirmed = True
+                existing.kind = kind
+            else:
+                asset = Asset(
+                    id=_uid(),
+                    project_id=project.id,
+                    kind=kind,
+                    name=(row.get("name") or "未命名").strip(),
+                    aliases_json=_dump(row.get("aliases") or []),
+                    refer_as=row.get("refer_as") or "",
+                    age_band=row.get("age_band") or "",
+                    appearance_json=_dump(row.get("appearance") or {}),
+                    desc_zh=row.get("desc_zh") or "",
+                    desc_en=row.get("desc_en") or "",
+                    confirmed=True,
+                    created_chapter_id=chapter.id,
+                )
+                db.add(asset)
+                assets.append(asset)
         elif action == "merge":
             target = _find_asset(assets, row.get("name"), row.get("match_asset_id"))
             if not target:
@@ -622,17 +841,30 @@ def save_upload(asset: Asset, field: str, filename: str, data: bytes) -> str:
     folder = project_dir(asset.project_id) / "assets" / asset.id
     folder.mkdir(parents=True, exist_ok=True)
     suffix = Path(filename).suffix.lower() or ".png"
+    kind = normalize_kind(asset.kind)
+    asset.kind = kind
+    # Non-characters only accept a single reference image.
+    if kind != "character" and field in ("half", "full"):
+        field = "image"
     dest = folder / f"{field}{suffix}"
     dest.write_bytes(data)
     stored = f"projects/{asset.project_id}/assets/{asset.id}/{dest.name}"
-    if field == "half":
-        asset.half_path = stored
-    elif field == "full":
-        asset.full_path = stored
-    elif field == "voice":
-        asset.voice_path = stored
+    if kind == "character":
+        if field == "half":
+            asset.half_path = stored
+        elif field == "full":
+            asset.full_path = stored
+        elif field == "voice":
+            asset.voice_path = stored
+        else:
+            asset.image_path = stored
     else:
-        asset.image_path = stored
+        if field == "voice":
+            asset.voice_path = stored
+        else:
+            asset.image_path = stored
+            asset.half_path = ""
+            asset.full_path = ""
     return stored
 
 

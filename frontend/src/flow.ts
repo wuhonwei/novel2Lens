@@ -1,4 +1,5 @@
 import type { Asset, Bundle, Chapter, Shot } from "./api";
+import { normalizeKind } from "./api";
 
 export type TabName = "原文" | "资产" | "分镜";
 
@@ -44,7 +45,7 @@ function chapterAssets(bundle: Bundle, chapter: Chapter): Asset[] {
 function missingRefCount(assets: Asset[]): number {
   let n = 0;
   for (const a of assets) {
-    if (a.kind === "character") {
+    if (normalizeKind(a.kind) === "character") {
       if (!a.half_path || !a.full_path) n += 1;
     } else if (!a.image_path) {
       n += 1;

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -16,6 +17,7 @@ from app.services import (
     confirm_proposals,
     export_project,
     extract_assets,
+    full_registry_scan,
     generate_storyboard,
     merge_assets,
     prescan_project,
@@ -160,7 +162,7 @@ def list_projects():
 
 
 @app.post("/api/projects")
-def create_project(body: ProjectIn):
+async def create_project(body: ProjectIn):
     db = db_session()
     try:
         project = Project(id=_uid(), title=body.title.strip() or "未命名小说", style=body.style, source_text=body.text)
@@ -169,7 +171,16 @@ def create_project(body: ProjectIn):
         rebuild_chapters(db, project)
         db.commit()
         db.refresh(project)
-        return _bundle(db, project)
+        result = None
+        if (project.source_text or "").strip():
+            try:
+                result = await full_registry_scan(db, project)
+            except Exception as exc:
+                raise HTTPException(502, f"全书资产扫描失败：{exc}") from exc
+        bundle = _bundle(db, project)
+        if result is not None:
+            bundle["result"] = result
+        return bundle
     finally:
         db.close()
 
@@ -185,7 +196,11 @@ async def upload_project(title: str = Form("未命名小说"), style: str = Form
         db.flush()
         rebuild_chapters(db, project)
         db.commit()
-        return _bundle(db, project)
+        try:
+            result = await full_registry_scan(db, project)
+        except Exception as exc:
+            raise HTTPException(502, f"全书资产扫描失败：{exc}") from exc
+        return {**_bundle(db, project), "result": result}
     finally:
         db.close()
 

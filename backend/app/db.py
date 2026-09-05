@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, create_engine
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, create_engine, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
 
 from app.config import settings
@@ -30,6 +30,7 @@ class Project(Base):
     fallback_model: Mapped[str] = mapped_column(String(120), default="qwen2.5:32b")
     allow_fallback: Mapped[bool] = mapped_column(Boolean, default=True)
     thinking: Mapped[str] = mapped_column(String(20), default="medium")
+    registry_scan_json: Mapped[str] = mapped_column(Text, default="{}")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
@@ -134,10 +135,20 @@ def reset_engine(url: str | None = None) -> None:
     engine = create_engine(url, connect_args={"check_same_thread": False})
     SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
     Base.metadata.create_all(engine)
+    ensure_schema()
+
+
+def ensure_schema() -> None:
+    """Add columns introduced after first create_all for existing SQLite files."""
+    with engine.begin() as conn:
+        cols = {row[1] for row in conn.execute(text("PRAGMA table_info(projects)")).fetchall()}
+        if "registry_scan_json" not in cols:
+            conn.execute(text("ALTER TABLE projects ADD COLUMN registry_scan_json TEXT DEFAULT '{}'"))
 
 
 def init_db() -> None:
     Base.metadata.create_all(engine)
+    ensure_schema()
 
 
 def project_dir(project_id: str) -> Path:

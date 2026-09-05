@@ -71,7 +71,42 @@ export type Project = {
   fallback_model: string;
   allow_fallback: boolean;
   thinking: string;
+  registry_scan?: {
+    passes?: Array<Record<string, unknown>>;
+    complete?: boolean;
+    counts?: Record<string, number>;
+    incomplete?: Array<Record<string, unknown>>;
+  };
 };
+
+/** Map Chinese / alias kinds to canonical English slots used by upload UI. */
+export function normalizeKind(raw: string | undefined | null): "character" | "scene" | "prop" {
+  const key = (raw || "").trim().toLowerCase();
+  const map: Record<string, "character" | "scene" | "prop"> = {
+    character: "character",
+    char: "character",
+    person: "character",
+    people: "character",
+    角色: "character",
+    人物: "character",
+    人名: "character",
+    scene: "scene",
+    location: "scene",
+    place: "scene",
+    场景: "scene",
+    地点: "scene",
+    场所: "scene",
+    prop: "prop",
+    item: "prop",
+    object: "prop",
+    物品: "prop",
+    道具: "prop",
+    信物: "prop",
+  };
+  if (map[key]) return map[key];
+  const cn = (raw || "").trim();
+  return map[cn] || "prop";
+}
 
 export type Bundle = {
   project: Project;
