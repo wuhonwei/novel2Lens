@@ -110,13 +110,15 @@ def build_field_prompt(project: Project, asset: Asset, field: str) -> str:
         if field == "full":
             return (
                 f"{style}。{period}。{identity}。角色名：{asset.name}。{look}。"
-                "全身站立人像，从头到脚完整入镜，正面或微侧，可见鞋子，无背景白底，单人。"
+                "全身站立人像，从头到脚完整入镜，正面或微侧，可见鞋子，"
+                "纯白色不透明实底背景，不要透明，不要棋盘格，单人。"
             )
         if field == "half":
             return (
                 f"保持人物身份、性别、年龄感、五官、发型与服饰完全一致（{identity}），"
                 f"{period}。"
-                "生成正面半身胸像，头肩构图，面部清晰，无背景白底，不要全身。"
+                "生成正面半身胸像，头肩构图，面部清晰，"
+                "纯白色不透明实底背景，不要透明，不要棋盘格，不要全身。"
             )
     if kind == "scene" and field == "far":
         return f"{style}。场景：{asset.name}。{look}。电影布光，环境完整，远景全貌，不要人物特写。"

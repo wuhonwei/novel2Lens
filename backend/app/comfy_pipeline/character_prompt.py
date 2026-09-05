@@ -18,21 +18,28 @@ _PERSON_RE = re.compile(
     re.IGNORECASE,
 )
 _NO_BG_RE = re.compile(
-    r"(无背景|透明背景|白底|纯白背景|抠图|isolated|transparent\s*background|pure\s*white\s*background|plain\s*white\s*background|white\s*backdrop)",
+    r"(无背景|透明背景|白底|纯白背景|纯白实底|抠图|isolated|transparent\s*background|pure\s*white\s*background|plain\s*white\s*background|white\s*backdrop)",
     re.IGNORECASE,
 )
 
 NO_BG_EXTRAS = [
-    "isolated subject on pure white background",
-    "plain pure white backdrop",
-    "seamless white studio background",
+    "solid pure white background",
+    "plain solid white studio backdrop",
+    "seamless opaque white background",
     "no scenery",
     "no environment",
-    "cutout character sheet",
     "even studio lighting",
 ]
 
 NO_BG_NEGATIVE = [
+    "checkerboard",
+    "checkered background",
+    "transparency grid",
+    "alpha checker",
+    "transparent background",
+    "png transparency pattern",
+    "grey and white squares",
+    "cutout edges",
     "palace",
     "courtyard",
     "room interior",
@@ -63,16 +70,19 @@ def is_no_background_prompt(prompt: str, *, flag: bool = False) -> bool:
 
 
 def apply_no_background(prompt: str, extras: list[str]) -> tuple[str, list[str]]:
-    """Force white studio isolation; remove conflicting environment tokens."""
+    """Force opaque pure-white studio isolation; never ask for transparency/cutout."""
     text = (prompt or "").strip()
     text = re.sub(
-        r"(虚化古风宫殿背景|古风宫殿背景|宫殿背景|宫殿庭院|palace courtyard|bokeh background)",
-        "纯白背景",
+        r"(虚化古风宫殿背景|古风宫殿背景|宫殿背景|宫殿庭院|palace courtyard|bokeh background|"
+        r"透明背景|透明底|checkerboard|棋盘格)",
+        "纯白实底背景",
         text,
         flags=re.IGNORECASE,
     )
-    if "无背景" not in text and "白底" not in text and "纯白" not in text:
-        text = f"{text}，无背景，纯白底"
+    # Strip ambiguous “无背景/抠图” which models often paint as transparency grid.
+    text = re.sub(r"无背景|抠图|透明背景|透明底", "纯白实底", text)
+    if "纯白" not in text and "白底" not in text:
+        text = f"{text}，纯白色不透明实底背景，不要透明，不要棋盘格"
     cleaned = [e for e in extras if e not in _BG_ENV_DROP]
     cleaned.extend(NO_BG_EXTRAS)
     return text, cleaned

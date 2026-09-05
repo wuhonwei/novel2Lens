@@ -368,9 +368,22 @@ class ImageWorker:
 
         aspect = payload.get("aspect") or "3:4"
         width, height = resolve_size(aspect, "sdxl")
+        edit_prompt = job.prompt or ""
+        # Character half-body edits must keep opaque white — never transparency grid.
+        if (job.target_field or "") in ("half",) or "半身" in edit_prompt:
+            if "纯白" not in edit_prompt:
+                edit_prompt = (
+                    f"{edit_prompt}。纯白色不透明实底背景，不要透明，不要棋盘格，不要灰白方格。"
+                )
+            edit_negative = (
+                "checkerboard, checkered background, transparency grid, alpha checker, "
+                "transparent background, png transparency pattern, grey and white squares"
+            )
+        else:
+            edit_negative = ""
         wf = compile_qwen_edit(
-            prompt=job.prompt,
-            negative="",
+            prompt=edit_prompt,
+            negative=edit_negative,
             ref_names=names,
             seed=next_seed(None, 0, False),
             width=width,
