@@ -324,10 +324,6 @@ export default function App() {
                 <input type="checkbox" checked={p.allow_fallback} onChange={(e) => setBundle({ ...bundle, project: { ...p, allow_fallback: e.target.checked } })} />
                 允许降级
               </label>
-              <label className="check">
-                <input data-testid="overwrite" type="checkbox" checked={overwrite} onChange={(e) => setOverwrite(e.target.checked)} />
-                重跑时覆盖已有结果
-              </label>
               <button data-testid="btn-save-settings" className="primary" onClick={() => run("保存设置", async () => setBundle(await api.patch(p.id, bundle.project)))}>
                 保存设置
               </button>
@@ -402,6 +398,10 @@ export default function App() {
                 >
                   一键生成全书资产
                 </button>
+                <label className="check overwrite-check">
+                  <input data-testid="overwrite" type="checkbox" checked={overwrite} onChange={(e) => setOverwrite(e.target.checked)} />
+                  覆盖已有分镜
+                </label>
                 <button
                   data-testid="btn-storyboard"
                   className={guide?.step === "storyboard" ? "primary" : ""}
