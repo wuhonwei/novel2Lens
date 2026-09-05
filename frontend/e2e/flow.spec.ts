@@ -20,7 +20,12 @@ test("list, open 青川渡, tabs, settings, assets upload, export, back, create,
   await page.getByTestId("tab-原文").click();
   await page.getByTestId("tab-全书资产").click();
   await expect(page.getByTestId("btn-one-click-assets")).toBeVisible();
+  await page.getByTestId("btn-view-character").click();
   await expect(page.getByTestId("section-人物形象")).toBeVisible();
+  await page.getByTestId("btn-view-scene").click();
+  await expect(page.getByTestId("section-核心场景")).toBeVisible();
+  await page.getByTestId("btn-view-prop").click();
+  await expect(page.getByTestId("section-核心物品")).toBeVisible();
 
   const fileInputs = page.locator('input[type="file"][accept="image/*"]');
   const png = Buffer.from(

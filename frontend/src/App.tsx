@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api, mediaUrl, normalizeKind, type Asset, type Bundle, type Project, type Shot } from "./api";
 import {
   assetsByKind,
@@ -488,6 +488,14 @@ function BookAssets({
   const { characters, scenes, props } = assetsByKind(bundle);
   const scan = bundle.project.registry_scan;
   const ready = bookAssetsReady(bundle);
+  const [view, setView] = useState<"character" | "scene" | "prop">("character");
+
+  const tabs = [
+    { id: "character" as const, label: "人物形象", count: characters.length, empty: "还没有人物。点上方一键生成。", assets: characters },
+    { id: "scene" as const, label: "核心场景", count: scenes.length, empty: "还没有核心场景。", assets: scenes },
+    { id: "prop" as const, label: "核心物品", count: props.length, empty: "还没有核心物品。", assets: props },
+  ];
+  const active = tabs.find((t) => t.id === view)!;
 
   return (
     <div className="stack">
@@ -515,90 +523,103 @@ function BookAssets({
         </div>
       </section>
 
-      <AssetSection
-        title="人物形象"
-        empty="还没有人物。点上方一键生成。"
-        assets={characters}
-        projectId={bundle.project.id}
-        bundle={bundle}
-        onChange={onChange}
-      />
-      <AssetSection
-        title="核心场景"
-        empty="还没有核心场景。"
-        assets={scenes}
-        projectId={bundle.project.id}
-        bundle={bundle}
-        onChange={onChange}
-      />
-      <AssetSection
-        title="核心物品"
-        empty="还没有核心物品。"
-        assets={props}
-        projectId={bundle.project.id}
-        bundle={bundle}
-        onChange={onChange}
-      />
-
-      <section className="panel">
-        <div className="panel-head">
-          <h2>合并角色（可选）</h2>
-          <p className="hint">若两个条目其实是同一人，保留一份并合并昵称。</p>
-        </div>
-        <div className="row">
-          <select value={keepId} onChange={(e) => setKeepId(e.target.value)}>
-            <option value="">保留资产</option>
-            {characters.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-          </select>
-          <select value={dropId} onChange={(e) => setDropId(e.target.value)}>
-            <option value="">合并进来并删除</option>
-            {characters.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-          </select>
-          <button
-            data-testid="btn-merge"
-            disabled={!keepId || !dropId || keepId === dropId}
-            onClick={() => onRun("合并", async () => onChange(await api.merge(bundle.project.id, keepId, dropId)))}
-          >
-            合并角色
-          </button>
+      <section className="panel" data-testid="asset-kind-switcher">
+        <div className="asset-kind-tabs" role="tablist" aria-label="资产类型">
+          {tabs.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              role="tab"
+              aria-selected={view === t.id}
+              data-testid={`btn-view-${t.id}`}
+              className={view === t.id ? "primary" : ""}
+              onClick={() => setView(t.id)}
+            >
+              {t.label}
+              <span className="muted"> · {t.count}</span>
+            </button>
+          ))}
         </div>
       </section>
+
+      <section className="panel" data-testid={`section-${active.label}`}>
+        <div className="panel-head">
+          <h2>{active.label}</h2>
+        </div>
+        {active.assets.length === 0 ? (
+          <p className="hint">{active.empty}</p>
+        ) : (
+          <div className="asset-rows">
+            {active.assets.map((asset) => (
+              <AssetCard
+                key={asset.id}
+                asset={asset}
+                projectId={bundle.project.id}
+                onUpdated={(next) => {
+                  onChange({ ...bundle, assets: bundle.assets.map((a) => (a.id === next.id ? next : a)) });
+                }}
+              />
+            ))}
+          </div>
+        )}
+      </section>
+
+      {view === "character" && (
+        <section className="panel">
+          <div className="panel-head">
+            <h2>合并角色（可选）</h2>
+            <p className="hint">若两个条目其实是同一人，保留一份并合并昵称。</p>
+          </div>
+          <div className="row">
+            <select value={keepId} onChange={(e) => setKeepId(e.target.value)}>
+              <option value="">保留资产</option>
+              {characters.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+            </select>
+            <select value={dropId} onChange={(e) => setDropId(e.target.value)}>
+              <option value="">合并进来并删除</option>
+              {characters.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+            </select>
+            <button
+              data-testid="btn-merge"
+              disabled={!keepId || !dropId || keepId === dropId}
+              onClick={() => onRun("合并", async () => onChange(await api.merge(bundle.project.id, keepId, dropId)))}
+            >
+              合并角色
+            </button>
+          </div>
+        </section>
+      )}
     </div>
   );
 }
 
-function AssetSection({
-  title, empty, assets, projectId, bundle, onChange,
+function AutoTextarea({
+  value,
+  onChange,
+  placeholder,
+  className,
 }: {
-  title: string;
-  empty: string;
-  assets: Asset[];
-  projectId: string;
-  bundle: Bundle;
-  onChange: (b: Bundle) => void;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  className?: string;
 }) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = "0px";
+    el.style.height = `${Math.max(el.scrollHeight, 48)}px`;
+  }, [value]);
   return (
-    <section className="panel" data-testid={`section-${title}`}>
-      <div className="panel-head">
-        <h2>{title}<span className="muted"> · {assets.length}</span></h2>
-      </div>
-      {assets.length === 0 ? (
-        <p className="hint">{empty}</p>
-      ) : (
-        <div className="asset-grid">
-          {assets.map((asset) => (
-            <AssetCard
-              key={asset.id}
-              asset={asset}
-              projectId={projectId}
-              onUpdated={(next) => {
-                onChange({ ...bundle, assets: bundle.assets.map((a) => (a.id === next.id ? next : a)) });
-              }}
-            />
-          ))}
-        </div>
-      )}
-    </section>
+    <textarea
+      ref={ref}
+      className={`auto-textarea ${className || ""}`}
+      value={value}
+      placeholder={placeholder}
+      rows={1}
+      onChange={(e) => onChange(e.target.value)}
+    />
   );
 }
 
@@ -626,67 +647,72 @@ function AssetCard({ asset, projectId, onUpdated }: { asset: Asset; projectId: s
     kind === "character" ? Boolean(asset.half_path && asset.full_path) : Boolean(asset.image_path);
 
   return (
-    <article className={`asset-card ${ready ? "ready" : "need-img"}`} data-kind={kind}>
-      <div className="asset-head">
-        <h3>{asset.name}</h3>
-        <span className={`pill ${ready ? "ok" : "warn"}`}>{ready ? "图齐" : "缺图"}</span>
-      </div>
-      <p className="muted">
-        {kind === "character" ? "人物" : kind === "scene" ? "场景" : "物品"}
-        {asset.refer_as ? ` · ${asset.refer_as}` : ""}
-        {asset.age_band ? ` · ${asset.age_band}` : ""}
-      </p>
-      {(asset.aliases || []).length > 0 && <p className="muted">别名：{(asset.aliases || []).join("、")}</p>}
+    <article className={`asset-card asset-row ${ready ? "ready" : "need-img"}`} data-kind={kind}>
+      <div className="asset-row-main">
+        <div className="asset-head">
+          <h3>{asset.name}</h3>
+          <span className={`pill ${ready ? "ok" : "warn"}`}>{ready ? "图齐" : "缺图"}</span>
+        </div>
+        <p className="muted">
+          {kind === "character" ? "人物" : kind === "scene" ? "场景" : "物品"}
+          {asset.refer_as ? ` · ${asset.refer_as}` : ""}
+          {asset.age_band ? ` · ${asset.age_band}` : ""}
+          {(asset.aliases || []).length > 0 ? ` · 别名 ${(asset.aliases || []).join("、")}` : ""}
+        </p>
 
-      {kind === "character" ? (
-        <>
-          <div className="desc-block view-only">
-            <label>① 背景与身份<span className="muted"> · 仅查阅，不参与生图</span></label>
-            <textarea
-              value={background}
-              onChange={(e) => setBackground(e.target.value)}
-              placeholder="出身、身份、与剧情关系……不要写五官衣着"
-            />
+        {kind === "character" ? (
+          <div className="desc-cols">
+            <div className="desc-block view-only">
+              <label>① 背景与身份<span className="muted"> · 仅查阅</span></label>
+              <AutoTextarea
+                value={background}
+                onChange={setBackground}
+                placeholder="出身、身份、与剧情关系……"
+              />
+            </div>
+            <div className="desc-block look-gen">
+              <label>② 样貌身材服饰<span className="muted"> · 生图关键</span></label>
+              <AutoTextarea
+                value={desc}
+                onChange={setDesc}
+                placeholder="五官、发型、身材、衣着……"
+              />
+            </div>
           </div>
+        ) : (
           <div className="desc-block look-gen">
-            <label>② 样貌身材服饰<span className="muted"> · 生图关键字段</span></label>
-            <textarea
-              value={desc}
-              onChange={(e) => setDesc(e.target.value)}
-              placeholder="五官、发型、身材、衣着……不要写身世剧情"
-            />
+            <label>可视化描述</label>
+            <AutoTextarea value={desc} onChange={setDesc} />
           </div>
-        </>
-      ) : (
-        <>
-          <label>可视化描述（中文）</label>
-          <textarea value={desc} onChange={(e) => setDesc(e.target.value)} />
-        </>
-      )}
-      <div className="row">
-        <button onClick={() => saveFields()}>保存描述</button>
-      </div>
-      <div className="thumbs">
-        {kind === "character" ? (
-          <>
-            {asset.half_path ? <img src={mediaUrl(asset.half_path)} alt="半身" /> : <div className="ph">半身</div>}
-            {asset.full_path ? <img src={mediaUrl(asset.full_path)} alt="全身" /> : <div className="ph">全身</div>}
-          </>
-        ) : asset.image_path ? (
-          <img className="wide" src={mediaUrl(asset.image_path)} alt={asset.name} />
-        ) : (
-          <div className="ph wide">参考图</div>
         )}
+        <div className="row">
+          <button onClick={() => saveFields()}>保存描述</button>
+        </div>
       </div>
-      <div className="row upload-row">
-        {kind === "character" ? (
-          <>
-            <label className="file-btn">半身<input type="file" accept="image/*" onChange={(e) => upload("half", e.target.files?.[0])} /></label>
-            <label className="file-btn">全身<input type="file" accept="image/*" onChange={(e) => upload("full", e.target.files?.[0])} /></label>
-          </>
-        ) : (
-          <label className="file-btn">参考图<input type="file" accept="image/*" onChange={(e) => upload("image", e.target.files?.[0])} /></label>
-        )}
+
+      <div className="asset-row-side">
+        <div className="thumbs">
+          {kind === "character" ? (
+            <>
+              {asset.half_path ? <img src={mediaUrl(asset.half_path)} alt="半身" /> : <div className="ph">半身</div>}
+              {asset.full_path ? <img src={mediaUrl(asset.full_path)} alt="全身" /> : <div className="ph">全身</div>}
+            </>
+          ) : asset.image_path ? (
+            <img className="wide" src={mediaUrl(asset.image_path)} alt={asset.name} />
+          ) : (
+            <div className="ph wide">参考图</div>
+          )}
+        </div>
+        <div className="row upload-row">
+          {kind === "character" ? (
+            <>
+              <label className="file-btn">半身<input type="file" accept="image/*" onChange={(e) => upload("half", e.target.files?.[0])} /></label>
+              <label className="file-btn">全身<input type="file" accept="image/*" onChange={(e) => upload("full", e.target.files?.[0])} /></label>
+            </>
+          ) : (
+            <label className="file-btn">参考图<input type="file" accept="image/*" onChange={(e) => upload("image", e.target.files?.[0])} /></label>
+          )}
+        </div>
       </div>
     </article>
   );

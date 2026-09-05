@@ -359,6 +359,50 @@ input, select { width: 100%; }
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
   gap: 0.85rem;
 }
+
+.asset-kind-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+.asset-kind-tabs button {
+  min-width: 7.5rem;
+}
+
+.asset-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.asset-card.asset-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 200px;
+  gap: 1rem;
+  align-items: start;
+}
+
+.asset-row-main { min-width: 0; }
+.asset-row-side {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.desc-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.65rem;
+}
+
+.auto-textarea {
+  width: 100%;
+  min-height: 48px;
+  height: auto;
+  overflow: hidden !important;
+  resize: none;
+  line-height: 1.55;
+}
 .asset-card, .shot-card {
   background: rgba(18, 26, 22, 0.95);
   border: 1px solid var(--line);
@@ -454,10 +498,18 @@ input, select { width: 100%; }
 }
 .desc-block textarea {
   width: 100%;
-  min-height: 4.5rem;
+  min-height: 48px;
+  overflow: hidden;
+  resize: none;
 }
 
 @media (max-width: 980px) {
+  .asset-card.asset-row {
+    grid-template-columns: 1fr;
+  }
+  .desc-cols {
+    grid-template-columns: 1fr;
+  }
   .home-steps { grid-template-columns: 1fr 1fr; }
   .pipeline { grid-template-columns: 1fr 1fr; }
   .pipe-step { border-radius: 12px; }
