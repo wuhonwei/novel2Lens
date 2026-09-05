@@ -154,10 +154,21 @@ export const api = {
       body: JSON.stringify(body),
     }),
   remove: (id: string) => req<{ ok: boolean }>(`/api/projects/${id}`, { method: "DELETE" }),
+  /** One-click book registry. Prefer stable /prescan; also try /generate-assets. */
+  generateAssets: async (id: string, replace = true) => {
+    const qs = `replace=${replace}`;
+    try {
+      return await req<Bundle>(`/api/projects/${id}/prescan?${qs}`, { method: "POST" });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (/not found/i.test(msg)) {
+        return req<Bundle>(`/api/projects/${id}/generate-assets?${qs}`, { method: "POST" });
+      }
+      throw err;
+    }
+  },
   prescan: (id: string, replace = false) =>
     req<Bundle>(`/api/projects/${id}/prescan?replace=${replace}`, { method: "POST" }),
-  generateAssets: (id: string, replace = true) =>
-    req<Bundle>(`/api/projects/${id}/generate-assets?replace=${replace}`, { method: "POST" }),
   extract: (pid: string, cid: string, overwrite = false) =>
     req<Bundle>(`/api/projects/${pid}/chapters/${cid}/extract?overwrite=${overwrite}`, { method: "POST" }),
   confirm: (pid: string, cid: string, items: unknown[]) =>
