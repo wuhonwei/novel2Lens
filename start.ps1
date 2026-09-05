@@ -92,10 +92,13 @@ $python = Get-VenvPython
 Assert-Node
 Ensure-BackendDeps $python
 Ensure-FrontendDeps
+Write-Host "Starting Flash-Next LLM..."
+& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Root "start-llm.ps1")
+if ($LASTEXITCODE -ne 0) { throw "Flash-Next LLM failed to start." }
 Start-Backend $python
 Start-Frontend
 Wait-Service "API" $ApiUrl
 Wait-Service "UI" $UiUrl
 Start-Process $UiUrl
 Write-Host "Opened $UiUrl"
-Write-Host "Close the novel2Lens API / novel2Lens UI windows to stop."
+Write-Host "Close novel2Lens Flash-Next / API / UI windows to stop."

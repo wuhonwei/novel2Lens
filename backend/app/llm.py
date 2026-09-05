@@ -7,14 +7,19 @@ from typing import Any
 import httpx
 
 JSON_BLOCK = re.compile(r"```(?:json)?\s*([\s\S]*?)```", re.I)
+THINK_BLOCK = re.compile(r"<think>[\s\S]*?</think>", re.I)
 
 
 class LLMError(RuntimeError):
     pass
 
 
+def strip_thinking(text: str) -> str:
+    return THINK_BLOCK.sub("", text or "").strip()
+
+
 def parse_json_value(text: str) -> Any:
-    raw = (text or "").strip()
+    raw = strip_thinking(text)
     fenced = JSON_BLOCK.search(raw)
     if fenced:
         raw = fenced.group(1).strip()
