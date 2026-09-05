@@ -1,0 +1,1941 @@
+{
+  "started_at": "2026-09-05T14:55:19.228057+00:00",
+  "ok": true,
+  "fake_comfy": false,
+  "base_url": "http://127.0.0.1:8790",
+  "novel": "D:\\Develop\\aiVedioProducer\\docs\\novels\\青渡川.txt",
+  "timings_sec": {
+    "create": 0.010919999999941865,
+    "patch": 0.008302799999910349,
+    "generate_assets": 493.13987670000006,
+    "storyboard": 176.17566810000017,
+    "generate_images": 1625.9586919000003,
+    "total": 2295.4808304000003
+  },
+  "errors": [],
+  "novel_chars": 17180,
+  "project_id": "f34ba90e-d4fc-4e75-9da8-bbc0d1d4f208",
+  "chapters": 5,
+  "image_output_dir": "D:\\Develop\\novel2Lens\\data\\projects\\f34ba90e-d4fc-4e75-9da8-bbc0d1d4f208\\generated",
+  "asset_counts": {
+    "character": 10,
+    "scene": 9,
+    "prop": 7
+  },
+  "shots": 8,
+  "max_assets": null,
+  "image_asset_ids": [
+    "68c02336-4efd-4fd8-879e-70f987dd4191",
+    "9db8483d-92dc-4815-b1c1-f76e08f16ed7",
+    "84b0059b-07f8-4b2e-8839-664e55975ebf",
+    "dee655fd-cfbe-4114-b1a8-792848849eaf",
+    "38700438-8498-439e-a6a9-322ac006c314",
+    "90f3be8a-acca-4d28-a102-81e00ee22088",
+    "a7a162db-b724-46d7-8fde-744a2d688191",
+    "27e116b2-91eb-4b71-bb50-270966f4550f",
+    "fb14c67f-6339-400e-b1b9-2ff345fa83f9",
+    "c64ca835-c62a-4593-8413-6bcbf931ce4d",
+    "dd413e75-8aa3-44a3-bc07-83b0a47b26cf",
+    "33224ea1-8c5e-4188-b458-c4335a5cede9",
+    "2b9f3f05-7e69-4725-b991-270508248da1",
+    "a0534a46-2580-4376-8bcf-d092ab8f5674",
+    "ebcea110-db92-4822-b2b3-b53527a1fe42",
+    "5fa69592-79de-4e88-a835-81f9eba13b16",
+    "02654e1a-677a-4e09-9a7b-1e64970f03d4",
+    "60214ee0-6c63-4a06-bef6-d33fcfe1be31",
+    "cacd4e49-61eb-46e2-9a8b-53a937b37b32",
+    "3085c4cc-2e16-4f83-9e02-272a9ef6886a",
+    "f6bc2f14-49d4-4350-91ad-8410628b8b7f",
+    "46a74dba-f51f-4803-9c0d-98e3de69b925",
+    "e2826b98-40df-445f-a3e2-b17d5928f381",
+    "45552052-92bf-45eb-8840-5b1ae4bf0c41",
+    "c2075cee-6015-4bd0-9f13-a1c1ccdef19a",
+    "4bfd0625-f0bd-489c-acef-176013d8a9bd"
+  ],
+  "image_asset_names": [
+    "林砚之",
+    "陈守义",
+    "苏晚卿",
+    "赵万山",
+    "苏婆婆",
+    "周大人",
+    "黑衣首领",
+    "青川渡渡口",
+    "陈守义茅草屋",
+    "乌木船",
+    "青川渡主街",
+    "云栖山古松悬崖",
+    "云栖山山洞石室",
+    "苏婆婆深山木屋",
+    "忠守玉佩",
+    "紫檀木箱",
+    "前朝文献",
+    "母亲遗信",
+    "苏晚卿照片",
+    "蓝布包袱",
+    "赵万山随从",
+    "老渔民",
+    "茶馆老板娘",
+    "江南古刹藏经阁",
+    "渡口小祠",
+    "草药手册"
+  ],
+  "batch_id": "7f5b1921-053b-476a-b38b-b8502c8b7ea7",
+  "queued": 45,
+  "t2i_before_edit": true,
+  "storyboard_busy_status": 409,
+  "poll_events": [
+    {
+      "t": 1607.3,
+      "active": 19,
+      "labels": [
+        "排队中"
+      ],
+      "sample": [
+        {
+          "id": "e1b603c8-89ed-4af6-92d2-bbf42b52d84f",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        },
+        {
+          "id": "b4b093ad-35ac-40ee-bbfc-153af00bb412",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        },
+        {
+          "id": "4b11bc31-d399-4a6a-b338-596ce197d58a",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        }
+      ]
+    },
+    {
+      "t": 1628.4,
+      "active": 19,
+      "labels": [
+        "排队中",
+        "生成中"
+      ],
+      "sample": [
+        {
+          "id": "e1b603c8-89ed-4af6-92d2-bbf42b52d84f",
+          "kind": "edit",
+          "phase": "generating",
+          "status": "running",
+          "label": "生成中"
+        },
+        {
+          "id": "b4b093ad-35ac-40ee-bbfc-153af00bb412",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        },
+        {
+          "id": "4b11bc31-d399-4a6a-b338-596ce197d58a",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        }
+      ]
+    },
+    {
+      "t": 1682.4,
+      "active": 18,
+      "labels": [
+        "排队中"
+      ],
+      "sample": [
+        {
+          "id": "b4b093ad-35ac-40ee-bbfc-153af00bb412",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        },
+        {
+          "id": "4b11bc31-d399-4a6a-b338-596ce197d58a",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        },
+        {
+          "id": "6b9a3ebe-e3e7-4ce1-9357-5a39795ca80f",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        }
+      ]
+    },
+    {
+      "t": 1703.5,
+      "active": 18,
+      "labels": [
+        "排队中",
+        "生成中"
+      ],
+      "sample": [
+        {
+          "id": "b4b093ad-35ac-40ee-bbfc-153af00bb412",
+          "kind": "edit",
+          "phase": "generating",
+          "status": "running",
+          "label": "生成中"
+        },
+        {
+          "id": "4b11bc31-d399-4a6a-b338-596ce197d58a",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        },
+        {
+          "id": "6b9a3ebe-e3e7-4ce1-9357-5a39795ca80f",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        }
+      ]
+    },
+    {
+      "t": 1718.5,
+      "active": 17,
+      "labels": [
+        "排队中"
+      ],
+      "sample": [
+        {
+          "id": "4b11bc31-d399-4a6a-b338-596ce197d58a",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        },
+        {
+          "id": "6b9a3ebe-e3e7-4ce1-9357-5a39795ca80f",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        },
+        {
+          "id": "6ae27eb1-d739-4d61-8901-1b7f1cd80ed1",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        }
+      ]
+    },
+    {
+      "t": 1736.5,
+      "active": 17,
+      "labels": [
+        "排队中",
+        "生成中"
+      ],
+      "sample": [
+        {
+          "id": "4b11bc31-d399-4a6a-b338-596ce197d58a",
+          "kind": "edit",
+          "phase": "generating",
+          "status": "running",
+          "label": "生成中"
+        },
+        {
+          "id": "6b9a3ebe-e3e7-4ce1-9357-5a39795ca80f",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        },
+        {
+          "id": "6ae27eb1-d739-4d61-8901-1b7f1cd80ed1",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        }
+      ]
+    },
+    {
+      "t": 1751.6,
+      "active": 16,
+      "labels": [
+        "排队中"
+      ],
+      "sample": [
+        {
+          "id": "6b9a3ebe-e3e7-4ce1-9357-5a39795ca80f",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        },
+        {
+          "id": "6ae27eb1-d739-4d61-8901-1b7f1cd80ed1",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        },
+        {
+          "id": "f6826ac1-dbd6-4b49-a687-7ab4c65c3b74",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        }
+      ]
+    },
+    {
+      "t": 1769.6,
+      "active": 16,
+      "labels": [
+        "排队中",
+        "文生图模型加载中"
+      ],
+      "sample": [
+        {
+          "id": "6b9a3ebe-e3e7-4ce1-9357-5a39795ca80f",
+          "kind": "edit",
+          "phase": "ensuring_comfy",
+          "status": "running",
+          "label": "文生图模型加载中"
+        },
+        {
+          "id": "6ae27eb1-d739-4d61-8901-1b7f1cd80ed1",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        },
+        {
+          "id": "f6826ac1-dbd6-4b49-a687-7ab4c65c3b74",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        }
+      ]
+    },
+    {
+      "t": 1772.6,
+      "active": 16,
+      "labels": [
+        "排队中",
+        "生成中"
+      ],
+      "sample": [
+        {
+          "id": "6b9a3ebe-e3e7-4ce1-9357-5a39795ca80f",
+          "kind": "edit",
+          "phase": "generating",
+          "status": "running",
+          "label": "生成中"
+        },
+        {
+          "id": "6ae27eb1-d739-4d61-8901-1b7f1cd80ed1",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        },
+        {
+          "id": "f6826ac1-dbd6-4b49-a687-7ab4c65c3b74",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        }
+      ]
+    },
+    {
+      "t": 1784.6,
+      "active": 15,
+      "labels": [
+        "排队中"
+      ],
+      "sample": [
+        {
+          "id": "6ae27eb1-d739-4d61-8901-1b7f1cd80ed1",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        },
+        {
+          "id": "f6826ac1-dbd6-4b49-a687-7ab4c65c3b74",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        },
+        {
+          "id": "12421f7c-61ee-441e-a2ec-533fc63300d4",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        }
+      ]
+    },
+    {
+      "t": 1805.7,
+      "active": 15,
+      "labels": [
+        "排队中",
+        "生成中"
+      ],
+      "sample": [
+        {
+          "id": "6ae27eb1-d739-4d61-8901-1b7f1cd80ed1",
+          "kind": "edit",
+          "phase": "generating",
+          "status": "running",
+          "label": "生成中"
+        },
+        {
+          "id": "f6826ac1-dbd6-4b49-a687-7ab4c65c3b74",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        },
+        {
+          "id": "12421f7c-61ee-441e-a2ec-533fc63300d4",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        }
+      ]
+    },
+    {
+      "t": 1820.7,
+      "active": 14,
+      "labels": [
+        "排队中"
+      ],
+      "sample": [
+        {
+          "id": "f6826ac1-dbd6-4b49-a687-7ab4c65c3b74",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        },
+        {
+          "id": "12421f7c-61ee-441e-a2ec-533fc63300d4",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        },
+        {
+          "id": "6948ceb7-722f-4bf1-98f1-3682e9b16f62",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        }
+      ]
+    },
+    {
+      "t": 1838.7,
+      "active": 14,
+      "labels": [
+        "排队中",
+        "生成中"
+      ],
+      "sample": [
+        {
+          "id": "f6826ac1-dbd6-4b49-a687-7ab4c65c3b74",
+          "kind": "edit",
+          "phase": "generating",
+          "status": "running",
+          "label": "生成中"
+        },
+        {
+          "id": "12421f7c-61ee-441e-a2ec-533fc63300d4",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        },
+        {
+          "id": "6948ceb7-722f-4bf1-98f1-3682e9b16f62",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        }
+      ]
+    },
+    {
+      "t": 1853.7,
+      "active": 13,
+      "labels": [
+        "排队中"
+      ],
+      "sample": [
+        {
+          "id": "12421f7c-61ee-441e-a2ec-533fc63300d4",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        },
+        {
+          "id": "6948ceb7-722f-4bf1-98f1-3682e9b16f62",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        },
+        {
+          "id": "8df6fa15-11a5-40ba-b6b8-1479e291f151",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        }
+      ]
+    },
+    {
+      "t": 1874.8,
+      "active": 13,
+      "labels": [
+        "排队中",
+        "生成中"
+      ],
+      "sample": [
+        {
+          "id": "12421f7c-61ee-441e-a2ec-533fc63300d4",
+          "kind": "edit",
+          "phase": "generating",
+          "status": "running",
+          "label": "生成中"
+        },
+        {
+          "id": "6948ceb7-722f-4bf1-98f1-3682e9b16f62",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        },
+        {
+          "id": "8df6fa15-11a5-40ba-b6b8-1479e291f151",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        }
+      ]
+    },
+    {
+      "t": 1886.8,
+      "active": 12,
+      "labels": [
+        "排队中"
+      ],
+      "sample": [
+        {
+          "id": "6948ceb7-722f-4bf1-98f1-3682e9b16f62",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        },
+        {
+          "id": "8df6fa15-11a5-40ba-b6b8-1479e291f151",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        },
+        {
+          "id": "c5c4afc3-71bc-4aa0-af4b-a45315e7ede1",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        }
+      ]
+    },
+    {
+      "t": 1907.8,
+      "active": 12,
+      "labels": [
+        "排队中",
+        "生成中"
+      ],
+      "sample": [
+        {
+          "id": "6948ceb7-722f-4bf1-98f1-3682e9b16f62",
+          "kind": "edit",
+          "phase": "generating",
+          "status": "running",
+          "label": "生成中"
+        },
+        {
+          "id": "8df6fa15-11a5-40ba-b6b8-1479e291f151",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        },
+        {
+          "id": "c5c4afc3-71bc-4aa0-af4b-a45315e7ede1",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        }
+      ]
+    },
+    {
+      "t": 1922.8,
+      "active": 11,
+      "labels": [
+        "排队中"
+      ],
+      "sample": [
+        {
+          "id": "8df6fa15-11a5-40ba-b6b8-1479e291f151",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        },
+        {
+          "id": "c5c4afc3-71bc-4aa0-af4b-a45315e7ede1",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        },
+        {
+          "id": "ef9b640b-2108-4c93-b53f-fc7de5cdbab6",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        }
+      ]
+    },
+    {
+      "t": 1940.9,
+      "active": 11,
+      "labels": [
+        "排队中",
+        "生成中"
+      ],
+      "sample": [
+        {
+          "id": "8df6fa15-11a5-40ba-b6b8-1479e291f151",
+          "kind": "edit",
+          "phase": "generating",
+          "status": "running",
+          "label": "生成中"
+        },
+        {
+          "id": "c5c4afc3-71bc-4aa0-af4b-a45315e7ede1",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        },
+        {
+          "id": "ef9b640b-2108-4c93-b53f-fc7de5cdbab6",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        }
+      ]
+    },
+    {
+      "t": 1955.9,
+      "active": 10,
+      "labels": [
+        "排队中"
+      ],
+      "sample": [
+        {
+          "id": "c5c4afc3-71bc-4aa0-af4b-a45315e7ede1",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        },
+        {
+          "id": "ef9b640b-2108-4c93-b53f-fc7de5cdbab6",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        },
+        {
+          "id": "33971256-d560-4f72-b853-13005108c9e3",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        }
+      ]
+    },
+    {
+      "t": 1973.9,
+      "active": 10,
+      "labels": [
+        "排队中",
+        "文生图模型加载中"
+      ],
+      "sample": [
+        {
+          "id": "c5c4afc3-71bc-4aa0-af4b-a45315e7ede1",
+          "kind": "edit",
+          "phase": "ensuring_comfy",
+          "status": "running",
+          "label": "文生图模型加载中"
+        },
+        {
+          "id": "ef9b640b-2108-4c93-b53f-fc7de5cdbab6",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        },
+        {
+          "id": "33971256-d560-4f72-b853-13005108c9e3",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        }
+      ]
+    },
+    {
+      "t": 1976.9,
+      "active": 10,
+      "labels": [
+        "排队中",
+        "生成中"
+      ],
+      "sample": [
+        {
+          "id": "c5c4afc3-71bc-4aa0-af4b-a45315e7ede1",
+          "kind": "edit",
+          "phase": "generating",
+          "status": "running",
+          "label": "生成中"
+        },
+        {
+          "id": "ef9b640b-2108-4c93-b53f-fc7de5cdbab6",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        },
+        {
+          "id": "33971256-d560-4f72-b853-13005108c9e3",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        }
+      ]
+    },
+    {
+      "t": 1989.0,
+      "active": 9,
+      "labels": [
+        "排队中"
+      ],
+      "sample": [
+        {
+          "id": "ef9b640b-2108-4c93-b53f-fc7de5cdbab6",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        },
+        {
+          "id": "33971256-d560-4f72-b853-13005108c9e3",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        },
+        {
+          "id": "06484901-b750-4a7d-987b-c6f8ba66756c",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        }
+      ]
+    },
+    {
+      "t": 2010.0,
+      "active": 9,
+      "labels": [
+        "排队中",
+        "生成中"
+      ],
+      "sample": [
+        {
+          "id": "ef9b640b-2108-4c93-b53f-fc7de5cdbab6",
+          "kind": "edit",
+          "phase": "generating",
+          "status": "running",
+          "label": "生成中"
+        },
+        {
+          "id": "33971256-d560-4f72-b853-13005108c9e3",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        },
+        {
+          "id": "06484901-b750-4a7d-987b-c6f8ba66756c",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        }
+      ]
+    },
+    {
+      "t": 2025.0,
+      "active": 8,
+      "labels": [
+        "排队中"
+      ],
+      "sample": [
+        {
+          "id": "33971256-d560-4f72-b853-13005108c9e3",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        },
+        {
+          "id": "06484901-b750-4a7d-987b-c6f8ba66756c",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        },
+        {
+          "id": "fb9f83cd-b765-42ca-8c4f-0677d45e3855",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        }
+      ]
+    },
+    {
+      "t": 2043.1,
+      "active": 8,
+      "labels": [
+        "排队中",
+        "生成中"
+      ],
+      "sample": [
+        {
+          "id": "33971256-d560-4f72-b853-13005108c9e3",
+          "kind": "edit",
+          "phase": "generating",
+          "status": "running",
+          "label": "生成中"
+        },
+        {
+          "id": "06484901-b750-4a7d-987b-c6f8ba66756c",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        },
+        {
+          "id": "fb9f83cd-b765-42ca-8c4f-0677d45e3855",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        }
+      ]
+    },
+    {
+      "t": 2058.1,
+      "active": 7,
+      "labels": [
+        "排队中"
+      ],
+      "sample": [
+        {
+          "id": "06484901-b750-4a7d-987b-c6f8ba66756c",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        },
+        {
+          "id": "fb9f83cd-b765-42ca-8c4f-0677d45e3855",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        },
+        {
+          "id": "a1f68008-2562-4df3-bc47-aea2e91381f3",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        }
+      ]
+    },
+    {
+      "t": 2079.1,
+      "active": 7,
+      "labels": [
+        "排队中",
+        "生成中"
+      ],
+      "sample": [
+        {
+          "id": "06484901-b750-4a7d-987b-c6f8ba66756c",
+          "kind": "edit",
+          "phase": "generating",
+          "status": "running",
+          "label": "生成中"
+        },
+        {
+          "id": "fb9f83cd-b765-42ca-8c4f-0677d45e3855",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        },
+        {
+          "id": "a1f68008-2562-4df3-bc47-aea2e91381f3",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        }
+      ]
+    },
+    {
+      "t": 2091.2,
+      "active": 6,
+      "labels": [
+        "排队中"
+      ],
+      "sample": [
+        {
+          "id": "fb9f83cd-b765-42ca-8c4f-0677d45e3855",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        },
+        {
+          "id": "a1f68008-2562-4df3-bc47-aea2e91381f3",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        },
+        {
+          "id": "14d7cefa-3643-4dee-817d-e3a2f76da884",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        }
+      ]
+    },
+    {
+      "t": 2112.2,
+      "active": 6,
+      "labels": [
+        "排队中",
+        "生成中"
+      ],
+      "sample": [
+        {
+          "id": "fb9f83cd-b765-42ca-8c4f-0677d45e3855",
+          "kind": "edit",
+          "phase": "generating",
+          "status": "running",
+          "label": "生成中"
+        },
+        {
+          "id": "a1f68008-2562-4df3-bc47-aea2e91381f3",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        },
+        {
+          "id": "14d7cefa-3643-4dee-817d-e3a2f76da884",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        }
+      ]
+    },
+    {
+      "t": 2127.2,
+      "active": 5,
+      "labels": [
+        "排队中"
+      ],
+      "sample": [
+        {
+          "id": "a1f68008-2562-4df3-bc47-aea2e91381f3",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        },
+        {
+          "id": "14d7cefa-3643-4dee-817d-e3a2f76da884",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        },
+        {
+          "id": "c5d5043b-9779-4736-98a4-94506dc06189",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        }
+      ]
+    },
+    {
+      "t": 2145.2,
+      "active": 5,
+      "labels": [
+        "排队中",
+        "生成中"
+      ],
+      "sample": [
+        {
+          "id": "a1f68008-2562-4df3-bc47-aea2e91381f3",
+          "kind": "edit",
+          "phase": "generating",
+          "status": "running",
+          "label": "生成中"
+        },
+        {
+          "id": "14d7cefa-3643-4dee-817d-e3a2f76da884",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        },
+        {
+          "id": "c5d5043b-9779-4736-98a4-94506dc06189",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        }
+      ]
+    },
+    {
+      "t": 2160.3,
+      "active": 4,
+      "labels": [
+        "排队中"
+      ],
+      "sample": [
+        {
+          "id": "14d7cefa-3643-4dee-817d-e3a2f76da884",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        },
+        {
+          "id": "c5d5043b-9779-4736-98a4-94506dc06189",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        },
+        {
+          "id": "44beff5d-4a40-4fd6-9c42-aa737beff8f4",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        }
+      ]
+    },
+    {
+      "t": 2181.3,
+      "active": 4,
+      "labels": [
+        "排队中",
+        "生成中"
+      ],
+      "sample": [
+        {
+          "id": "14d7cefa-3643-4dee-817d-e3a2f76da884",
+          "kind": "edit",
+          "phase": "generating",
+          "status": "running",
+          "label": "生成中"
+        },
+        {
+          "id": "c5d5043b-9779-4736-98a4-94506dc06189",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        },
+        {
+          "id": "44beff5d-4a40-4fd6-9c42-aa737beff8f4",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        }
+      ]
+    },
+    {
+      "t": 2193.3,
+      "active": 3,
+      "labels": [
+        "排队中"
+      ],
+      "sample": [
+        {
+          "id": "c5d5043b-9779-4736-98a4-94506dc06189",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        },
+        {
+          "id": "44beff5d-4a40-4fd6-9c42-aa737beff8f4",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        },
+        {
+          "id": "e91dc124-cd13-4e32-8bfc-68e1dc77ad45",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        }
+      ]
+    },
+    {
+      "t": 2214.3,
+      "active": 3,
+      "labels": [
+        "排队中",
+        "生成中"
+      ],
+      "sample": [
+        {
+          "id": "c5d5043b-9779-4736-98a4-94506dc06189",
+          "kind": "edit",
+          "phase": "generating",
+          "status": "running",
+          "label": "生成中"
+        },
+        {
+          "id": "44beff5d-4a40-4fd6-9c42-aa737beff8f4",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        },
+        {
+          "id": "e91dc124-cd13-4e32-8bfc-68e1dc77ad45",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        }
+      ]
+    },
+    {
+      "t": 2229.4,
+      "active": 2,
+      "labels": [
+        "排队中"
+      ],
+      "sample": [
+        {
+          "id": "44beff5d-4a40-4fd6-9c42-aa737beff8f4",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        },
+        {
+          "id": "e91dc124-cd13-4e32-8bfc-68e1dc77ad45",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        }
+      ]
+    },
+    {
+      "t": 2247.4,
+      "active": 2,
+      "labels": [
+        "排队中",
+        "生成中"
+      ],
+      "sample": [
+        {
+          "id": "44beff5d-4a40-4fd6-9c42-aa737beff8f4",
+          "kind": "edit",
+          "phase": "generating",
+          "status": "running",
+          "label": "生成中"
+        },
+        {
+          "id": "e91dc124-cd13-4e32-8bfc-68e1dc77ad45",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        }
+      ]
+    },
+    {
+      "t": 2262.4,
+      "active": 1,
+      "labels": [
+        "排队中"
+      ],
+      "sample": [
+        {
+          "id": "e91dc124-cd13-4e32-8bfc-68e1dc77ad45",
+          "kind": "edit",
+          "phase": "",
+          "status": "queued",
+          "label": "排队中"
+        }
+      ]
+    },
+    {
+      "t": 2280.4,
+      "active": 1,
+      "labels": [
+        "生成中"
+      ],
+      "sample": [
+        {
+          "id": "e91dc124-cd13-4e32-8bfc-68e1dc77ad45",
+          "kind": "edit",
+          "phase": "generating",
+          "status": "running",
+          "label": "生成中"
+        }
+      ]
+    }
+  ],
+  "job_status_counts": {
+    "succeeded": 45
+  },
+  "jobs": [
+    {
+      "id": "ac152a4c-b340-427d-a4f7-4437c120af13",
+      "asset_id": "90f3be8a-acca-4d28-a102-81e00ee22088",
+      "kind": "t2i",
+      "target_field": "full",
+      "status": "succeeded",
+      "phase": "",
+      "error": ""
+    },
+    {
+      "id": "148ed5d9-6a47-4bc3-a081-613b86287027",
+      "asset_id": "68c02336-4efd-4fd8-879e-70f987dd4191",
+      "kind": "t2i",
+      "target_field": "full",
+      "status": "succeeded",
+      "phase": "",
+      "error": ""
+    },
+    {
+      "id": "1565c97a-22ff-45d8-a6dd-392ecbd4b5cb",
+      "asset_id": "46a74dba-f51f-4803-9c0d-98e3de69b925",
+      "kind": "t2i",
+      "target_field": "full",
+      "status": "succeeded",
+      "phase": "",
+      "error": ""
+    },
+    {
+      "id": "b213fdd7-dc2a-4d66-a9b4-2a158be9f751",
+      "asset_id": "38700438-8498-439e-a6a9-322ac006c314",
+      "kind": "t2i",
+      "target_field": "full",
+      "status": "succeeded",
+      "phase": "",
+      "error": ""
+    },
+    {
+      "id": "a51cc02a-3f08-47a4-a3a7-31b20203263b",
+      "asset_id": "84b0059b-07f8-4b2e-8839-664e55975ebf",
+      "kind": "t2i",
+      "target_field": "full",
+      "status": "succeeded",
+      "phase": "",
+      "error": ""
+    },
+    {
+      "id": "9e4ad547-de8f-4dfc-8c03-5d7188db06bf",
+      "asset_id": "e2826b98-40df-445f-a3e2-b17d5928f381",
+      "kind": "t2i",
+      "target_field": "full",
+      "status": "succeeded",
+      "phase": "",
+      "error": ""
+    },
+    {
+      "id": "3f9a7e2c-7189-4486-b875-25c26966fd77",
+      "asset_id": "dee655fd-cfbe-4114-b1a8-792848849eaf",
+      "kind": "t2i",
+      "target_field": "full",
+      "status": "succeeded",
+      "phase": "",
+      "error": ""
+    },
+    {
+      "id": "08e623d6-99e1-4b38-89d9-9081403a27fd",
+      "asset_id": "f6bc2f14-49d4-4350-91ad-8410628b8b7f",
+      "kind": "t2i",
+      "target_field": "full",
+      "status": "succeeded",
+      "phase": "",
+      "error": ""
+    },
+    {
+      "id": "c4a20645-2497-48c0-87cc-8b4d808c26dd",
+      "asset_id": "9db8483d-92dc-4815-b1c1-f76e08f16ed7",
+      "kind": "t2i",
+      "target_field": "full",
+      "status": "succeeded",
+      "phase": "",
+      "error": ""
+    },
+    {
+      "id": "73ba89ec-992d-4ae2-9589-9407410be41e",
+      "asset_id": "a7a162db-b724-46d7-8fde-744a2d688191",
+      "kind": "t2i",
+      "target_field": "full",
+      "status": "succeeded",
+      "phase": "",
+      "error": ""
+    },
+    {
+      "id": "de072eae-b2a6-435e-8522-28a78509095b",
+      "asset_id": "c64ca835-c62a-4593-8413-6bcbf931ce4d",
+      "kind": "t2i",
+      "target_field": "far",
+      "status": "succeeded",
+      "phase": "",
+      "error": ""
+    },
+    {
+      "id": "df8ea674-dce0-4675-97d1-20cd79e540ef",
+      "asset_id": "33224ea1-8c5e-4188-b458-c4335a5cede9",
+      "kind": "t2i",
+      "target_field": "far",
+      "status": "succeeded",
+      "phase": "",
+      "error": ""
+    },
+    {
+      "id": "c1283165-eff8-4fb8-845f-0c1d7912fa77",
+      "asset_id": "2b9f3f05-7e69-4725-b991-270508248da1",
+      "kind": "t2i",
+      "target_field": "far",
+      "status": "succeeded",
+      "phase": "",
+      "error": ""
+    },
+    {
+      "id": "2012572a-cb79-455b-a03c-3df33612491a",
+      "asset_id": "45552052-92bf-45eb-8840-5b1ae4bf0c41",
+      "kind": "t2i",
+      "target_field": "far",
+      "status": "succeeded",
+      "phase": "",
+      "error": ""
+    },
+    {
+      "id": "b2345554-c93a-44ce-96b6-75c748071f3d",
+      "asset_id": "c2075cee-6015-4bd0-9f13-a1c1ccdef19a",
+      "kind": "t2i",
+      "target_field": "far",
+      "status": "succeeded",
+      "phase": "",
+      "error": ""
+    },
+    {
+      "id": "284197d1-d16b-4e87-babb-31843735f4f7",
+      "asset_id": "a0534a46-2580-4376-8bcf-d092ab8f5674",
+      "kind": "t2i",
+      "target_field": "far",
+      "status": "succeeded",
+      "phase": "",
+      "error": ""
+    },
+    {
+      "id": "aa1f9a61-fe62-4ce0-9127-ca2f006ab995",
+      "asset_id": "fb14c67f-6339-400e-b1b9-2ff345fa83f9",
+      "kind": "t2i",
+      "target_field": "far",
+      "status": "succeeded",
+      "phase": "",
+      "error": ""
+    },
+    {
+      "id": "cd07bf6e-e104-495f-a7ef-8cb9c951722b",
+      "asset_id": "dd413e75-8aa3-44a3-bc07-83b0a47b26cf",
+      "kind": "t2i",
+      "target_field": "far",
+      "status": "succeeded",
+      "phase": "",
+      "error": ""
+    },
+    {
+      "id": "72f51773-0512-4631-9ff0-39a3e55d78b6",
+      "asset_id": "27e116b2-91eb-4b71-bb50-270966f4550f",
+      "kind": "t2i",
+      "target_field": "far",
+      "status": "succeeded",
+      "phase": "",
+      "error": ""
+    },
+    {
+      "id": "938e8143-5205-46a6-9761-c1e1d1c5f7db",
+      "asset_id": "02654e1a-677a-4e09-9a7b-1e64970f03d4",
+      "kind": "t2i",
+      "target_field": "image",
+      "status": "succeeded",
+      "phase": "",
+      "error": ""
+    },
+    {
+      "id": "0d02094c-ab3b-4ea6-9880-d80312d894b3",
+      "asset_id": "ebcea110-db92-4822-b2b3-b53527a1fe42",
+      "kind": "t2i",
+      "target_field": "image",
+      "status": "succeeded",
+      "phase": "",
+      "error": ""
+    },
+    {
+      "id": "98923b82-4f7d-4c5f-bf7e-0262a6cd3229",
+      "asset_id": "60214ee0-6c63-4a06-bef6-d33fcfe1be31",
+      "kind": "t2i",
+      "target_field": "image",
+      "status": "succeeded",
+      "phase": "",
+      "error": ""
+    },
+    {
+      "id": "d7cffa7d-e021-427a-aa0b-603f37bdfc41",
+      "asset_id": "5fa69592-79de-4e88-a835-81f9eba13b16",
+      "kind": "t2i",
+      "target_field": "image",
+      "status": "succeeded",
+      "phase": "",
+      "error": ""
+    },
+    {
+      "id": "244731f2-395b-46be-8180-4b66032ecada",
+      "asset_id": "cacd4e49-61eb-46e2-9a8b-53a937b37b32",
+      "kind": "t2i",
+      "target_field": "image",
+      "status": "succeeded",
+      "phase": "",
+      "error": ""
+    },
+    {
+      "id": "4bc5acfa-ff63-45c3-8e42-4450af411899",
+      "asset_id": "4bfd0625-f0bd-489c-acef-176013d8a9bd",
+      "kind": "t2i",
+      "target_field": "image",
+      "status": "succeeded",
+      "phase": "",
+      "error": ""
+    },
+    {
+      "id": "c44d6f99-365f-4989-bf81-6ad1f057f21e",
+      "asset_id": "3085c4cc-2e16-4f83-9e02-272a9ef6886a",
+      "kind": "t2i",
+      "target_field": "image",
+      "status": "succeeded",
+      "phase": "",
+      "error": ""
+    },
+    {
+      "id": "e1b603c8-89ed-4af6-92d2-bbf42b52d84f",
+      "asset_id": "90f3be8a-acca-4d28-a102-81e00ee22088",
+      "kind": "edit",
+      "target_field": "half",
+      "status": "succeeded",
+      "phase": "",
+      "error": ""
+    },
+    {
+      "id": "b4b093ad-35ac-40ee-bbfc-153af00bb412",
+      "asset_id": "68c02336-4efd-4fd8-879e-70f987dd4191",
+      "kind": "edit",
+      "target_field": "half",
+      "status": "succeeded",
+      "phase": "",
+      "error": ""
+    },
+    {
+      "id": "4b11bc31-d399-4a6a-b338-596ce197d58a",
+      "asset_id": "46a74dba-f51f-4803-9c0d-98e3de69b925",
+      "kind": "edit",
+      "target_field": "half",
+      "status": "succeeded",
+      "phase": "",
+      "error": ""
+    },
+    {
+      "id": "6b9a3ebe-e3e7-4ce1-9357-5a39795ca80f",
+      "asset_id": "38700438-8498-439e-a6a9-322ac006c314",
+      "kind": "edit",
+      "target_field": "half",
+      "status": "succeeded",
+      "phase": "",
+      "error": ""
+    },
+    {
+      "id": "6ae27eb1-d739-4d61-8901-1b7f1cd80ed1",
+      "asset_id": "84b0059b-07f8-4b2e-8839-664e55975ebf",
+      "kind": "edit",
+      "target_field": "half",
+      "status": "succeeded",
+      "phase": "",
+      "error": ""
+    },
+    {
+      "id": "f6826ac1-dbd6-4b49-a687-7ab4c65c3b74",
+      "asset_id": "e2826b98-40df-445f-a3e2-b17d5928f381",
+      "kind": "edit",
+      "target_field": "half",
+      "status": "succeeded",
+      "phase": "",
+      "error": ""
+    },
+    {
+      "id": "12421f7c-61ee-441e-a2ec-533fc63300d4",
+      "asset_id": "dee655fd-cfbe-4114-b1a8-792848849eaf",
+      "kind": "edit",
+      "target_field": "half",
+      "status": "succeeded",
+      "phase": "",
+      "error": ""
+    },
+    {
+      "id": "6948ceb7-722f-4bf1-98f1-3682e9b16f62",
+      "asset_id": "f6bc2f14-49d4-4350-91ad-8410628b8b7f",
+      "kind": "edit",
+      "target_field": "half",
+      "status": "succeeded",
+      "phase": "",
+      "error": ""
+    },
+    {
+      "id": "8df6fa15-11a5-40ba-b6b8-1479e291f151",
+      "asset_id": "9db8483d-92dc-4815-b1c1-f76e08f16ed7",
+      "kind": "edit",
+      "target_field": "half",
+      "status": "succeeded",
+      "phase": "",
+      "error": ""
+    },
+    {
+      "id": "c5c4afc3-71bc-4aa0-af4b-a45315e7ede1",
+      "asset_id": "a7a162db-b724-46d7-8fde-744a2d688191",
+      "kind": "edit",
+      "target_field": "half",
+      "status": "succeeded",
+      "phase": "",
+      "error": ""
+    },
+    {
+      "id": "ef9b640b-2108-4c93-b53f-fc7de5cdbab6",
+      "asset_id": "c64ca835-c62a-4593-8413-6bcbf931ce4d",
+      "kind": "edit",
+      "target_field": "near",
+      "status": "succeeded",
+      "phase": "",
+      "error": ""
+    },
+    {
+      "id": "33971256-d560-4f72-b853-13005108c9e3",
+      "asset_id": "33224ea1-8c5e-4188-b458-c4335a5cede9",
+      "kind": "edit",
+      "target_field": "near",
+      "status": "succeeded",
+      "phase": "",
+      "error": ""
+    },
+    {
+      "id": "06484901-b750-4a7d-987b-c6f8ba66756c",
+      "asset_id": "2b9f3f05-7e69-4725-b991-270508248da1",
+      "kind": "edit",
+      "target_field": "near",
+      "status": "succeeded",
+      "phase": "",
+      "error": ""
+    },
+    {
+      "id": "fb9f83cd-b765-42ca-8c4f-0677d45e3855",
+      "asset_id": "45552052-92bf-45eb-8840-5b1ae4bf0c41",
+      "kind": "edit",
+      "target_field": "near",
+      "status": "succeeded",
+      "phase": "",
+      "error": ""
+    },
+    {
+      "id": "a1f68008-2562-4df3-bc47-aea2e91381f3",
+      "asset_id": "c2075cee-6015-4bd0-9f13-a1c1ccdef19a",
+      "kind": "edit",
+      "target_field": "near",
+      "status": "succeeded",
+      "phase": "",
+      "error": ""
+    },
+    {
+      "id": "14d7cefa-3643-4dee-817d-e3a2f76da884",
+      "asset_id": "a0534a46-2580-4376-8bcf-d092ab8f5674",
+      "kind": "edit",
+      "target_field": "near",
+      "status": "succeeded",
+      "phase": "",
+      "error": ""
+    },
+    {
+      "id": "c5d5043b-9779-4736-98a4-94506dc06189",
+      "asset_id": "fb14c67f-6339-400e-b1b9-2ff345fa83f9",
+      "kind": "edit",
+      "target_field": "near",
+      "status": "succeeded",
+      "phase": "",
+      "error": ""
+    },
+    {
+      "id": "44beff5d-4a40-4fd6-9c42-aa737beff8f4",
+      "asset_id": "dd413e75-8aa3-44a3-bc07-83b0a47b26cf",
+      "kind": "edit",
+      "target_field": "near",
+      "status": "succeeded",
+      "phase": "",
+      "error": ""
+    },
+    {
+      "id": "e91dc124-cd13-4e32-8bfc-68e1dc77ad45",
+      "asset_id": "27e116b2-91eb-4b71-bb50-270966f4550f",
+      "kind": "edit",
+      "target_field": "near",
+      "status": "succeeded",
+      "phase": "",
+      "error": ""
+    }
+  ],
+  "path_issues": [],
+  "asset_paths": [
+    {
+      "id": "68c02336-4efd-4fd8-879e-70f987dd4191",
+      "name": "林砚之",
+      "kind": "character",
+      "full_path": "projects/f34ba90e-d4fc-4e75-9da8-bbc0d1d4f208/assets/68c02336-4efd-4fd8-879e-70f987dd4191/full.png",
+      "half_path": "projects/f34ba90e-d4fc-4e75-9da8-bbc0d1d4f208/assets/68c02336-4efd-4fd8-879e-70f987dd4191/half.png",
+      "far_path": "",
+      "near_path": "",
+      "image_path": ""
+    },
+    {
+      "id": "9db8483d-92dc-4815-b1c1-f76e08f16ed7",
+      "name": "陈守义",
+      "kind": "character",
+      "full_path": "projects/f34ba90e-d4fc-4e75-9da8-bbc0d1d4f208/assets/9db8483d-92dc-4815-b1c1-f76e08f16ed7/full.png",
+      "half_path": "projects/f34ba90e-d4fc-4e75-9da8-bbc0d1d4f208/assets/9db8483d-92dc-4815-b1c1-f76e08f16ed7/half.png",
+      "far_path": "",
+      "near_path": "",
+      "image_path": ""
+    },
+    {
+      "id": "84b0059b-07f8-4b2e-8839-664e55975ebf",
+      "name": "苏晚卿",
+      "kind": "character",
+      "full_path": "projects/f34ba90e-d4fc-4e75-9da8-bbc0d1d4f208/assets/84b0059b-07f8-4b2e-8839-664e55975ebf/full.png",
+      "half_path": "projects/f34ba90e-d4fc-4e75-9da8-bbc0d1d4f208/assets/84b0059b-07f8-4b2e-8839-664e55975ebf/half.png",
+      "far_path": "",
+      "near_path": "",
+      "image_path": ""
+    },
+    {
+      "id": "dee655fd-cfbe-4114-b1a8-792848849eaf",
+      "name": "赵万山",
+      "kind": "character",
+      "full_path": "projects/f34ba90e-d4fc-4e75-9da8-bbc0d1d4f208/assets/dee655fd-cfbe-4114-b1a8-792848849eaf/full.png",
+      "half_path": "projects/f34ba90e-d4fc-4e75-9da8-bbc0d1d4f208/assets/dee655fd-cfbe-4114-b1a8-792848849eaf/half.png",
+      "far_path": "",
+      "near_path": "",
+      "image_path": ""
+    },
+    {
+      "id": "38700438-8498-439e-a6a9-322ac006c314",
+      "name": "苏婆婆",
+      "kind": "character",
+      "full_path": "projects/f34ba90e-d4fc-4e75-9da8-bbc0d1d4f208/assets/38700438-8498-439e-a6a9-322ac006c314/full.png",
+      "half_path": "projects/f34ba90e-d4fc-4e75-9da8-bbc0d1d4f208/assets/38700438-8498-439e-a6a9-322ac006c314/half.png",
+      "far_path": "",
+      "near_path": "",
+      "image_path": ""
+    },
+    {
+      "id": "90f3be8a-acca-4d28-a102-81e00ee22088",
+      "name": "周大人",
+      "kind": "character",
+      "full_path": "projects/f34ba90e-d4fc-4e75-9da8-bbc0d1d4f208/assets/90f3be8a-acca-4d28-a102-81e00ee22088/full.png",
+      "half_path": "projects/f34ba90e-d4fc-4e75-9da8-bbc0d1d4f208/assets/90f3be8a-acca-4d28-a102-81e00ee22088/half.png",
+      "far_path": "",
+      "near_path": "",
+      "image_path": ""
+    },
+    {
+      "id": "a7a162db-b724-46d7-8fde-744a2d688191",
+      "name": "黑衣首领",
+      "kind": "character",
+      "full_path": "projects/f34ba90e-d4fc-4e75-9da8-bbc0d1d4f208/assets/a7a162db-b724-46d7-8fde-744a2d688191/full.png",
+      "half_path": "projects/f34ba90e-d4fc-4e75-9da8-bbc0d1d4f208/assets/a7a162db-b724-46d7-8fde-744a2d688191/half.png",
+      "far_path": "",
+      "near_path": "",
+      "image_path": ""
+    },
+    {
+      "id": "27e116b2-91eb-4b71-bb50-270966f4550f",
+      "name": "青川渡渡口",
+      "kind": "scene",
+      "full_path": "",
+      "half_path": "",
+      "far_path": "projects/f34ba90e-d4fc-4e75-9da8-bbc0d1d4f208/assets/27e116b2-91eb-4b71-bb50-270966f4550f/far.png",
+      "near_path": "projects/f34ba90e-d4fc-4e75-9da8-bbc0d1d4f208/assets/27e116b2-91eb-4b71-bb50-270966f4550f/near.png",
+      "image_path": "projects/f34ba90e-d4fc-4e75-9da8-bbc0d1d4f208/assets/27e116b2-91eb-4b71-bb50-270966f4550f/far.png"
+    },
+    {
+      "id": "fb14c67f-6339-400e-b1b9-2ff345fa83f9",
+      "name": "陈守义茅草屋",
+      "kind": "scene",
+      "full_path": "",
+      "half_path": "",
+      "far_path": "projects/f34ba90e-d4fc-4e75-9da8-bbc0d1d4f208/assets/fb14c67f-6339-400e-b1b9-2ff345fa83f9/far.png",
+      "near_path": "projects/f34ba90e-d4fc-4e75-9da8-bbc0d1d4f208/assets/fb14c67f-6339-400e-b1b9-2ff345fa83f9/near.png",
+      "image_path": "projects/f34ba90e-d4fc-4e75-9da8-bbc0d1d4f208/assets/fb14c67f-6339-400e-b1b9-2ff345fa83f9/far.png"
+    },
+    {
+      "id": "c64ca835-c62a-4593-8413-6bcbf931ce4d",
+      "name": "乌木船",
+      "kind": "scene",
+      "full_path": "",
+      "half_path": "",
+      "far_path": "projects/f34ba90e-d4fc-4e75-9da8-bbc0d1d4f208/assets/c64ca835-c62a-4593-8413-6bcbf931ce4d/far.png",
+      "near_path": "projects/f34ba90e-d4fc-4e75-9da8-bbc0d1d4f208/assets/c64ca835-c62a-4593-8413-6bcbf931ce4d/near.png",
+      "image_path": "projects/f34ba90e-d4fc-4e75-9da8-bbc0d1d4f208/assets/c64ca835-c62a-4593-8413-6bcbf931ce4d/far.png"
+    },
+    {
+      "id": "dd413e75-8aa3-44a3-bc07-83b0a47b26cf",
+      "name": "青川渡主街",
+      "kind": "scene",
+      "full_path": "",
+      "half_path": "",
+      "far_path": "projects/f34ba90e-d4fc-4e75-9da8-bbc0d1d4f208/assets/dd413e75-8aa3-44a3-bc07-83b0a47b26cf/far.png",
+      "near_path": "projects/f34ba90e-d4fc-4e75-9da8-bbc0d1d4f208/assets/dd413e75-8aa3-44a3-bc07-83b0a47b26cf/near.png",
+      "image_path": "projects/f34ba90e-d4fc-4e75-9da8-bbc0d1d4f208/assets/dd413e75-8aa3-44a3-bc07-83b0a47b26cf/far.png"
+    },
+    {
+      "id": "33224ea1-8c5e-4188-b458-c4335a5cede9",
+      "name": "云栖山古松悬崖",
+      "kind": "scene",
+      "full_path": "",
+      "half_path": "",
+      "far_path": "projects/f34ba90e-d4fc-4e75-9da8-bbc0d1d4f208/assets/33224ea1-8c5e-4188-b458-c4335a5cede9/far.png",
+      "near_path": "projects/f34ba90e-d4fc-4e75-9da8-bbc0d1d4f208/assets/33224ea1-8c5e-4188-b458-c4335a5cede9/near.png",
+      "image_path": "projects/f34ba90e-d4fc-4e75-9da8-bbc0d1d4f208/assets/33224ea1-8c5e-4188-b458-c4335a5cede9/far.png"
+    },
+    {
+      "id": "2b9f3f05-7e69-4725-b991-270508248da1",
+      "name": "云栖山山洞石室",
+      "kind": "scene",
+      "full_path": "",
+      "half_path": "",
+      "far_path": "projects/f34ba90e-d4fc-4e75-9da8-bbc0d1d4f208/assets/2b9f3f05-7e69-4725-b991-270508248da1/far.png",
+      "near_path": "projects/f34ba90e-d4fc-4e75-9da8-bbc0d1d4f208/assets/2b9f3f05-7e69-4725-b991-270508248da1/near.png",
+      "image_path": "projects/f34ba90e-d4fc-4e75-9da8-bbc0d1d4f208/assets/2b9f3f05-7e69-4725-b991-270508248da1/far.png"
+    },
+    {
+      "id": "a0534a46-2580-4376-8bcf-d092ab8f5674",
+      "name": "苏婆婆深山木屋",
+      "kind": "scene",
+      "full_path": "",
+      "half_path": "",
+      "far_path": "projects/f34ba90e-d4fc-4e75-9da8-bbc0d1d4f208/assets/a0534a46-2580-4376-8bcf-d092ab8f5674/far.png",
+      "near_path": "projects/f34ba90e-d4fc-4e75-9da8-bbc0d1d4f208/assets/a0534a46-2580-4376-8bcf-d092ab8f5674/near.png",
+      "image_path": "projects/f34ba90e-d4fc-4e75-9da8-bbc0d1d4f208/assets/a0534a46-2580-4376-8bcf-d092ab8f5674/far.png"
+    },
+    {
+      "id": "ebcea110-db92-4822-b2b3-b53527a1fe42",
+      "name": "忠守玉佩",
+      "kind": "prop",
+      "full_path": "",
+      "half_path": "",
+      "far_path": "projects/f34ba90e-d4fc-4e75-9da8-bbc0d1d4f208/assets/ebcea110-db92-4822-b2b3-b53527a1fe42/image.png",
+      "near_path": "",
+      "image_path": "projects/f34ba90e-d4fc-4e75-9da8-bbc0d1d4f208/assets/ebcea110-db92-4822-b2b3-b53527a1fe42/image.png"
+    },
+    {
+      "id": "5fa69592-79de-4e88-a835-81f9eba13b16",
+      "name": "紫檀木箱",
+      "kind": "prop",
+      "full_path": "",
+      "half_path": "",
+      "far_path": "projects/f34ba90e-d4fc-4e75-9da8-bbc0d1d4f208/assets/5fa69592-79de-4e88-a835-81f9eba13b16/image.png",
+      "near_path": "",
+      "image_path": "projects/f34ba90e-d4fc-4e75-9da8-bbc0d1d4f208/assets/5fa69592-79de-4e88-a835-81f9eba13b16/image.png"
+    },
+    {
+      "id": "02654e1a-677a-4e09-9a7b-1e64970f03d4",
+      "name": "前朝文献",
+      "kind": "prop",
+      "full_path": "",
+      "half_path": "",
+      "far_path": "projects/f34ba90e-d4fc-4e75-9da8-bbc0d1d4f208/assets/02654e1a-677a-4e09-9a7b-1e64970f03d4/image.png",
+      "near_path": "",
+      "image_path": "projects/f34ba90e-d4fc-4e75-9da8-bbc0d1d4f208/assets/02654e1a-677a-4e09-9a7b-1e64970f03d4/image.png"
+    },
+    {
+      "id": "60214ee0-6c63-4a06-bef6-d33fcfe1be31",
+      "name": "母亲遗信",
+      "kind": "prop",
+      "full_path": "",
+      "half_path": "",
+      "far_path": "projects/f34ba90e-d4fc-4e75-9da8-bbc0d1d4f208/assets/60214ee0-6c63-4a06-bef6-d33fcfe1be31/image.png",
+      "near_path": "",
+      "image_path": "projects/f34ba90e-d4fc-4e75-9da8-bbc0d1d4f208/assets/60214ee0-6c63-4a06-bef6-d33fcfe1be31/image.png"
+    },
+    {
+      "id": "cacd4e49-61eb-46e2-9a8b-53a937b37b32",
+      "name": "苏晚卿照片",
+      "kind": "prop",
+      "full_path": "",
+      "half_path": "",
+      "far_path": "projects/f34ba90e-d4fc-4e75-9da8-bbc0d1d4f208/assets/cacd4e49-61eb-46e2-9a8b-53a937b37b32/image.png",
+      "near_path": "",
+      "image_path": "projects/f34ba90e-d4fc-4e75-9da8-bbc0d1d4f208/assets/cacd4e49-61eb-46e2-9a8b-53a937b37b32/image.png"
+    },
+    {
+      "id": "3085c4cc-2e16-4f83-9e02-272a9ef6886a",
+      "name": "蓝布包袱",
+      "kind": "prop",
+      "full_path": "",
+      "half_path": "",
+      "far_path": "projects/f34ba90e-d4fc-4e75-9da8-bbc0d1d4f208/assets/3085c4cc-2e16-4f83-9e02-272a9ef6886a/image.png",
+      "near_path": "",
+      "image_path": "projects/f34ba90e-d4fc-4e75-9da8-bbc0d1d4f208/assets/3085c4cc-2e16-4f83-9e02-272a9ef6886a/image.png"
+    },
+    {
+      "id": "f6bc2f14-49d4-4350-91ad-8410628b8b7f",
+      "name": "赵万山随从",
+      "kind": "character",
+      "full_path": "projects/f34ba90e-d4fc-4e75-9da8-bbc0d1d4f208/assets/f6bc2f14-49d4-4350-91ad-8410628b8b7f/full.png",
+      "half_path": "projects/f34ba90e-d4fc-4e75-9da8-bbc0d1d4f208/assets/f6bc2f14-49d4-4350-91ad-8410628b8b7f/half.png",
+      "far_path": "",
+      "near_path": "",
+      "image_path": ""
+    },
+    {
+      "id": "46a74dba-f51f-4803-9c0d-98e3de69b925",
+      "name": "老渔民",
+      "kind": "character",
+      "full_path": "projects/f34ba90e-d4fc-4e75-9da8-bbc0d1d4f208/assets/46a74dba-f51f-4803-9c0d-98e3de69b925/full.png",
+      "half_path": "projects/f34ba90e-d4fc-4e75-9da8-bbc0d1d4f208/assets/46a74dba-f51f-4803-9c0d-98e3de69b925/half.png",
+      "far_path": "",
+      "near_path": "",
+      "image_path": ""
+    },
+    {
+      "id": "e2826b98-40df-445f-a3e2-b17d5928f381",
+      "name": "茶馆老板娘",
+      "kind": "character",
+      "full_path": "projects/f34ba90e-d4fc-4e75-9da8-bbc0d1d4f208/assets/e2826b98-40df-445f-a3e2-b17d5928f381/full.png",
+      "half_path": "projects/f34ba90e-d4fc-4e75-9da8-bbc0d1d4f208/assets/e2826b98-40df-445f-a3e2-b17d5928f381/half.png",
+      "far_path": "",
+      "near_path": "",
+      "image_path": ""
+    },
+    {
+      "id": "45552052-92bf-45eb-8840-5b1ae4bf0c41",
+      "name": "江南古刹藏经阁",
+      "kind": "scene",
+      "full_path": "",
+      "half_path": "",
+      "far_path": "projects/f34ba90e-d4fc-4e75-9da8-bbc0d1d4f208/assets/45552052-92bf-45eb-8840-5b1ae4bf0c41/far.png",
+      "near_path": "projects/f34ba90e-d4fc-4e75-9da8-bbc0d1d4f208/assets/45552052-92bf-45eb-8840-5b1ae4bf0c41/near.png",
+      "image_path": "projects/f34ba90e-d4fc-4e75-9da8-bbc0d1d4f208/assets/45552052-92bf-45eb-8840-5b1ae4bf0c41/far.png"
+    },
+    {
+      "id": "c2075cee-6015-4bd0-9f13-a1c1ccdef19a",
+      "name": "渡口小祠",
+      "kind": "scene",
+      "full_path": "",
+      "half_path": "",
+      "far_path": "projects/f34ba90e-d4fc-4e75-9da8-bbc0d1d4f208/assets/c2075cee-6015-4bd0-9f13-a1c1ccdef19a/far.png",
+      "near_path": "projects/f34ba90e-d4fc-4e75-9da8-bbc0d1d4f208/assets/c2075cee-6015-4bd0-9f13-a1c1ccdef19a/near.png",
+      "image_path": "projects/f34ba90e-d4fc-4e75-9da8-bbc0d1d4f208/assets/c2075cee-6015-4bd0-9f13-a1c1ccdef19a/far.png"
+    },
+    {
+      "id": "4bfd0625-f0bd-489c-acef-176013d8a9bd",
+      "name": "草药手册",
+      "kind": "prop",
+      "full_path": "",
+      "half_path": "",
+      "far_path": "projects/f34ba90e-d4fc-4e75-9da8-bbc0d1d4f208/assets/4bfd0625-f0bd-489c-acef-176013d8a9bd/image.png",
+      "near_path": "",
+      "image_path": "projects/f34ba90e-d4fc-4e75-9da8-bbc0d1d4f208/assets/4bfd0625-f0bd-489c-acef-176013d8a9bd/image.png"
+    }
+  ],
+  "finished_at": "2026-09-05T15:33:34.708502+00:00"
+}
