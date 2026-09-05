@@ -60,7 +60,7 @@ python -m pytest -v
 ## Review fixes (post Task 4 review)
 
 **Status:** DONE  
-**Commit:** _(filled after commit)_
+**Commit:** `b7194ab` — Fix field=None all-slot enqueue and cancel overwrite race.
 
 ### Fixes
 
