@@ -103,6 +103,7 @@ class Shot(Base):
     order_index: Mapped[int] = mapped_column(Integer)
     duration_s: Mapped[float] = mapped_column(Float, default=6.0)
     scene_asset_id: Mapped[str] = mapped_column(String(36), default="")
+    prop_asset_ids_json: Mapped[str] = mapped_column(Text, default="[]")
     camera: Mapped[str] = mapped_column(String(40), default="固定")
     camera_detail: Mapped[str] = mapped_column(String(300), default="")
     narration: Mapped[str] = mapped_column(Text, default="")
@@ -148,6 +149,9 @@ def ensure_schema() -> None:
         asset_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(assets)")).fetchall()}
         if "background_zh" not in asset_cols:
             conn.execute(text("ALTER TABLE assets ADD COLUMN background_zh TEXT DEFAULT ''"))
+        shot_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(shots)")).fetchall()}
+        if "prop_asset_ids_json" not in shot_cols:
+            conn.execute(text("ALTER TABLE shots ADD COLUMN prop_asset_ids_json TEXT DEFAULT '[]'"))
 
 
 def init_db() -> None:

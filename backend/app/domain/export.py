@@ -29,6 +29,15 @@ def build_shots_markdown(project_title: str, shots: list[dict[str, Any]]) -> str
         lines.append(f"## {shot.get('chapter_title') or ''} 镜 {shot.get('order_index')}")
         lines.append(f"- 时长：{shot.get('duration_s')}s　运镜：{shot.get('camera')}")
         lines.append(f"- 人数锁：{shot.get('character_count')}")
+        refs = shot.get("references") or []
+        if refs:
+            lines.append("- 本镜参考图：")
+            for ref in refs:
+                slot = f"图{ref.get('slot_index')} · " if ref.get("slot_index") else ""
+                note = f"（{ref.get('note')}）" if ref.get("note") else ""
+                lines.append(
+                    f"  - {slot}{ref.get('image_role')} · {ref.get('asset_name')}{note}：{ref.get('status_zh')}"
+                )
         lines.append(f"- 首帧（中文）：{shot.get('prompt_zh')}")
         lines.append(f"- 首帧（英文）：{shot.get('prompt_en')}")
         lines.append(f"- H3：{shot.get('h3_prompt')}")

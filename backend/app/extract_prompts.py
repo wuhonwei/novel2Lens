@@ -42,11 +42,12 @@ SHOT_SYSTEM = """你是分镜导演。只输出 JSON 对象：{"shots":[...]} �
 - dialogue / voice_direction / action 按位置写，禁止出现角色名（对白里引用人名除外）。
 - 人物 name 必须能在资产表里对上（用登记名，不要新发明角色）。
 - scene_name 必须是资产表里的场景名，没有则 null，并把环境写进 background。
+- prop_names：本镜画面里需要认出来的核心物品（资产表里的物品名），没有则 []。桌椅杯碟不要。
 - source_excerpt 引用本章原句。
 - 瞬时状态写在 characters[].transient，不要当新角色。
 
 每个 shot 字段：
-duration_s, scene_name, background, camera, camera_detail, narration, action, source_excerpt,
+duration_s, scene_name, prop_names, background, camera, camera_detail, narration, action, source_excerpt,
 characters: [{"name","position","facing","transient","action","dialogue","voice_direction"}]
 """
 

@@ -21,10 +21,10 @@ from app.domain.registry import (
     sanitize_character_fields,
     sanitize_look_text,
 )
+from app.domain.shot_refs import build_shot_references
 from app.domain.slots import (
     CAMERAS,
     FACINGS,
-    PackedSlot,
     SlotSubject,
     max_named_characters,
     pack_qwen_slots,
@@ -87,7 +87,25 @@ def serialize_asset(asset: Asset) -> dict[str, Any]:
     }
 
 
-def serialize_shot(shot: Shot, chapter_title: str = "") -> dict[str, Any]:
+def serialize_shot(shot: Shot, chapter_title: str = "", assets: list[Asset] | None = None) -> dict[str, Any]:
+    by_id = {a.id: a for a in (assets or [])}
+    scene = by_id.get(shot.scene_asset_id) if shot.scene_asset_id else None
+    prop_ids = _load(getattr(shot, "prop_asset_ids_json", None) or "[]", [])
+    props = [by_id[pid] for pid in prop_ids if pid in by_id]
+    lines = _load(shot.lines_json, [])
+    slots = _load(shot.slots_json, [])
+    references = (
+        build_shot_references(
+            scene=scene,
+            lines=lines,
+            slots=slots,
+            props=props,
+            half_lock=bool(shot.half_lock),
+            assets_by_id=by_id,
+        )
+        if assets is not None
+        else []
+    )
     return {
         "id": shot.id,
         "chapter_id": shot.chapter_id,
@@ -95,6 +113,7 @@ def serialize_shot(shot: Shot, chapter_title: str = "") -> dict[str, Any]:
         "order_index": shot.order_index,
         "duration_s": shot.duration_s,
         "scene_asset_id": shot.scene_asset_id,
+        "prop_asset_ids": prop_ids,
         "camera": shot.camera,
         "camera_detail": shot.camera_detail,
         "narration": shot.narration,
@@ -106,9 +125,10 @@ def serialize_shot(shot: Shot, chapter_title: str = "") -> dict[str, Any]:
         "prompt_en": shot.prompt_en,
         "h3_prompt": shot.h3_prompt,
         "background": shot.background,
-        "slots": _load(shot.slots_json, []),
-        "lines": _load(shot.lines_json, []),
+        "slots": slots,
+        "lines": lines,
         "half_lock": shot.half_lock,
+        "references": references,
     }
 
 
@@ -747,14 +767,21 @@ def merge_assets(db: Session, project_id: str, keep_id: str, drop_id: str) -> No
             shot.scene_asset_id = keep_id
         slots = _load(shot.slots_json, [])
         lines = _load(shot.lines_json, [])
+        prop_ids = _load(getattr(shot, "prop_asset_ids_json", None) or "[]", [])
         for slot in slots:
             if slot.get("asset_id") == drop_id:
                 slot["asset_id"] = keep_id
         for line in lines:
             if line.get("asset_id") == drop_id:
                 line["asset_id"] = keep_id
+        prop_ids = [keep_id if pid == drop_id else pid for pid in prop_ids]
+        deduped: list[str] = []
+        for pid in prop_ids:
+            if pid and pid not in deduped:
+                deduped.append(pid)
         shot.slots_json = _dump(slots)
         shot.lines_json = _dump(lines)
+        shot.prop_asset_ids_json = _dump(deduped)
     db.query(Asset).filter(Asset.parent_id == drop_id).update({"parent_id": keep_id})
     db.delete(drop)
     db.commit()
@@ -769,7 +796,13 @@ def _match_name(assets: list[Asset], name: str, kind: str | None = None) -> Asse
     return None
 
 
-def _shot_unready(project: Project, scene: Asset | None, chars: list[Asset], half_lock: bool) -> bool:
+def _shot_unready(
+    project: Project,
+    scene: Asset | None,
+    chars: list[Asset],
+    half_lock: bool,
+    props: list[Asset] | None = None,
+) -> bool:
     if not (project.style or "").strip():
         return True
     if scene and not scene.image_path:
@@ -779,6 +812,9 @@ def _shot_unready(project: Project, scene: Asset | None, chars: list[Asset], hal
             return True
     if half_lock and chars and not chars[0].half_path:
         return True
+    for prop in props or []:
+        if not prop.image_path:
+            return True
     return False
 
 
@@ -786,6 +822,8 @@ def compile_shot_prompts(project: Project, shot: Shot, assets: list[Asset]) -> N
     by_id = {a.id: a for a in assets}
     scene = by_id.get(shot.scene_asset_id) if shot.scene_asset_id else None
     lines = _load(shot.lines_json, [])
+    prop_ids = _load(getattr(shot, "prop_asset_ids_json", None) or "[]", [])
+    prop_assets = [by_id[pid] for pid in prop_ids if pid in by_id]
     chars: list[SlotSubject] = []
     char_assets: list[Asset] = []
     for line in lines:
@@ -804,7 +842,15 @@ def compile_shot_prompts(project: Project, shot: Shot, assets: list[Asset]) -> N
         )
     has_scene = bool(scene)
     half_lock = bool(shot.half_lock and has_scene and len(chars) == 1)
-    packed = pack_qwen_slots(has_scene=has_scene, characters=chars, half_lock=half_lock)
+    prop_subject = None
+    if prop_assets:
+        prop_subject = SlotSubject(asset_id=prop_assets[0].id, kind="prop", image_key="prop")
+    packed = pack_qwen_slots(
+        has_scene=has_scene,
+        characters=chars,
+        half_lock=half_lock,
+        prop=prop_subject,
+    )
     if scene:
         packed[0].asset_id = scene.id
         packed[0].image_key = "scene"
@@ -840,11 +886,15 @@ def compile_shot_prompts(project: Project, shot: Shot, assets: list[Asset]) -> N
     )
     slot_dump = []
     for p in packed:
+        asset = by_id.get(p.asset_id or "") if p.asset_id else None
+        if p.kind == "scene" and scene:
+            asset = scene
         slot_dump.append(
             {
                 "index": p.index,
                 "kind": p.kind,
                 "asset_id": p.asset_id,
+                "asset_name": asset.name if asset else "",
                 "position": p.position,
                 "facing": p.facing,
                 "image_key": p.image_key,
@@ -852,7 +902,7 @@ def compile_shot_prompts(project: Project, shot: Shot, assets: list[Asset]) -> N
             }
         )
     shot.slots_json = _dump(slot_dump)
-    shot.first_frame_unready = _shot_unready(project, scene, char_assets, half_lock)
+    shot.first_frame_unready = _shot_unready(project, scene, char_assets, half_lock, prop_assets)
 
 
 async def generate_storyboard(
@@ -920,6 +970,16 @@ async def generate_storyboard(
         if len(lines) == 1 and lines[0]["position"] not in ("左一", "中", "右一"):
             lines[0]["position"] = "中"
         half_lock = bool(scene) and len(lines) == 1
+        prop_names = raw.get("prop_names") or raw.get("props") or []
+        if isinstance(prop_names, str):
+            prop_names = [prop_names]
+        prop_ids: list[str] = []
+        for pname in prop_names:
+            if not isinstance(pname, str):
+                continue
+            prop = _match_name(props, pname, "prop")
+            if prop and prop.id not in prop_ids:
+                prop_ids.append(prop.id)
         shot = Shot(
             id=_uid(),
             project_id=project.id,
@@ -927,6 +987,7 @@ async def generate_storyboard(
             order_index=i,
             duration_s=duration,
             scene_asset_id=scene.id if scene else "",
+            prop_asset_ids_json=_dump(prop_ids),
             camera=camera,
             camera_detail=raw.get("camera_detail") or "",
             narration=raw.get("narration") or "",
@@ -944,7 +1005,7 @@ async def generate_storyboard(
     chapter.used_fallback_llm = fallback
     chapter.last_error = ""
     db.commit()
-    return [serialize_shot(s, chapter.title) for s in saved]
+    return [serialize_shot(s, chapter.title, assets) for s in saved]
 
 
 def update_shot(db: Session, project: Project, shot: Shot, patch: dict[str, Any]) -> dict[str, Any]:
@@ -956,12 +1017,14 @@ def update_shot(db: Session, project: Project, shot: Shot, patch: dict[str, Any]
         shot.character_count = len(patch["lines"])
     if "scene_asset_id" in patch:
         shot.scene_asset_id = patch["scene_asset_id"] or ""
+    if "prop_asset_ids" in patch and patch["prop_asset_ids"] is not None:
+        shot.prop_asset_ids_json = _dump(patch["prop_asset_ids"])
     assets = db.query(Asset).filter(Asset.project_id == project.id).all()
     if patch.get("recompile", True):
         compile_shot_prompts(project, shot, assets)
     db.commit()
     chapter = db.query(Chapter).filter(Chapter.id == shot.chapter_id).one()
-    return serialize_shot(shot, chapter.title)
+    return serialize_shot(shot, chapter.title, assets)
 
 
 def save_upload(asset: Asset, field: str, filename: str, data: bytes) -> str:
@@ -1007,7 +1070,7 @@ def export_project(db: Session, project: Project) -> tuple[dict[str, Any], str, 
     assets = db.query(Asset).filter(Asset.project_id == project.id).all()
     shots = db.query(Shot).filter(Shot.project_id == project.id).order_by(Shot.order_index).all()
     title_by_ch = {c.id: c.title for c in chapters}
-    shot_docs = [serialize_shot(s, title_by_ch.get(s.chapter_id, "")) for s in shots]
+    shot_docs = [serialize_shot(s, title_by_ch.get(s.chapter_id, ""), assets) for s in shots]
     doc = build_export_document(
         project={**serialize_project(project), "used_fallback_any": any(c.used_fallback_llm for c in chapters)},
         assets=[serialize_asset(a) for a in assets],

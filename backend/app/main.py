@@ -110,6 +110,7 @@ class ShotPatch(BaseModel):
     h3_prompt: str | None = None
     lines: list[dict] | None = None
     scene_asset_id: str | None = None
+    prop_asset_ids: list[str] | None = None
     recompile: bool = True
 
 
@@ -143,7 +144,7 @@ def _bundle(db: Session, project: Project) -> dict:
         "project": serialize_project(project),
         "chapters": [serialize_chapter(c) for c in chapters],
         "assets": [serialize_asset(a) for a in assets],
-        "shots": [serialize_shot(s, title_by.get(s.chapter_id, "")) for s in shots],
+        "shots": [serialize_shot(s, title_by.get(s.chapter_id, ""), assets) for s in shots],
         "proposals": [{"id": p.id, "chapter_id": p.chapter_id, **(_load(p.payload_json, {}))} for p in proposals],
     }
 

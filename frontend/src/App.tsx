@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { api, mediaUrl, normalizeKind, type Asset, type Bundle, type Project, type Shot } from "./api";
+import { api, mediaUrl, normalizeKind, type Asset, type Bundle, type Project, type Shot, type ShotReference } from "./api";
 import {
   assetsByKind,
   bookAssetsReady,
@@ -744,7 +744,10 @@ function ShotCard({
 }) {
   const [local, setLocal] = useState(shot);
   useEffect(() => setLocal(shot), [shot]);
-  const scene = assets.find((a) => a.id === shot.scene_asset_id);
+  const refs = shot.references?.length
+    ? shot.references
+    : fallbackShotRefs(shot, assets);
+  const missing = refs.filter((r) => !r.uploaded).length;
 
   return (
     <article className="shot-card">
@@ -755,7 +758,37 @@ function ShotCard({
           {shot.first_frame_unready ? "首帧未就绪" : "首帧就绪"}
         </span>
       </div>
-      {scene?.image_path && <img className="scene-thumb" src={mediaUrl(scene.image_path)} alt="场景" />}
+
+      <div className="shot-refs">
+        <div className="shot-refs-head">
+          <h4>本镜参考图</h4>
+          <span className={`pill ${missing ? "warn" : "ok"}`}>
+            {missing ? `${missing} 张尚未上传` : "参考图已齐"}
+          </span>
+        </div>
+        <div className="shot-ref-grid">
+          {refs.map((ref, i) => (
+            <div key={`${ref.asset_id}-${ref.image_key}-${i}`} className={`shot-ref ${ref.uploaded ? "ok" : "miss"}`}>
+              {ref.uploaded && ref.path ? (
+                <img src={mediaUrl(ref.path)} alt={ref.image_role} />
+              ) : (
+                <div className="ph">{ref.status_zh || "尚未上传"}</div>
+              )}
+              <div className="shot-ref-meta">
+                <strong>
+                  {ref.slot_index ? `图${cnNum(ref.slot_index)} · ` : ""}
+                  {ref.image_role}
+                </strong>
+                <span>{ref.asset_name}{ref.position ? ` · ${ref.position}` : ""}</span>
+                {ref.note ? <span className="muted">{ref.note}</span> : null}
+                <span className={ref.uploaded ? "ok-text" : "warn-text"}>{ref.status_zh}</span>
+              </div>
+            </div>
+          ))}
+          {refs.length === 0 && <p className="muted">本镜暂无绑定参考资产</p>}
+        </div>
+      </div>
+
       <div className="settings-grid">
         <div className="stack">
           <label>时长</label>
@@ -785,4 +818,72 @@ function ShotCard({
       {shot.source_excerpt && <p className="muted excerpt">原文：{shot.source_excerpt}</p>}
     </article>
   );
+}
+
+const CN_SLOT = ["", "一", "二", "三", "四", "五"];
+function cnNum(n: number) {
+  return CN_SLOT[n] || String(n);
+}
+
+function fallbackShotRefs(shot: Shot, assets: Asset[]): ShotReference[] {
+  const byId = Object.fromEntries(assets.map((a) => [a.id, a]));
+  const out: ShotReference[] = [];
+  const push = (
+    image_key: "scene" | "full" | "half" | "prop",
+    asset: Asset | undefined,
+    opts: { slot?: number; position?: string; note?: string } = {},
+  ) => {
+    if (!asset) return;
+    const path =
+      image_key === "half" ? asset.half_path : image_key === "full" ? asset.full_path : asset.image_path;
+    const role =
+      image_key === "scene"
+        ? "核心场景参考图"
+        : image_key === "full"
+          ? "人物全身图"
+          : image_key === "half"
+            ? "人物半身图"
+            : "核心物品参考图";
+    out.push({
+      slot_index: opts.slot ?? null,
+      kind: asset.kind,
+      image_key,
+      image_role: role,
+      asset_id: asset.id,
+      asset_name: asset.name,
+      position: opts.position || "",
+      path: path || "",
+      uploaded: Boolean(path),
+      required: true,
+      note: opts.note || "",
+      status_zh: path ? "已上传" : "尚未上传",
+    });
+  };
+  for (const slot of shot.slots || []) {
+    const asset = byId[String(slot.asset_id || "")];
+    const key = String(slot.image_key || "") as "scene" | "full" | "half" | "prop";
+    push(key, asset, {
+      slot: Number(slot.index) || undefined,
+      position: String(slot.position || ""),
+      note: key === "half" ? "锁脸" : key === "scene" ? "场景底板" : "",
+    });
+  }
+  if (shot.scene_asset_id && !out.some((r) => r.image_key === "scene")) {
+    push("scene", byId[shot.scene_asset_id], { note: "本镜场景" });
+  }
+  for (const line of shot.lines || []) {
+    const asset = byId[line.asset_id];
+    if (!out.some((r) => r.asset_id === line.asset_id && r.image_key === "full")) {
+      push("full", asset, { position: line.position, note: "体态服装" });
+    }
+    if (!out.some((r) => r.asset_id === line.asset_id && r.image_key === "half")) {
+      push("half", asset, { position: line.position, note: "面部锁定" });
+    }
+  }
+  for (const pid of shot.prop_asset_ids || []) {
+    if (!out.some((r) => r.asset_id === pid && r.image_key === "prop")) {
+      push("prop", byId[pid], { note: "本镜核心物品" });
+    }
+  }
+  return out;
 }

@@ -31,6 +31,21 @@ export type Chapter = {
   prescan_done: boolean;
 };
 
+export type ShotReference = {
+  slot_index: number | null;
+  kind: string;
+  image_key: string;
+  image_role: string;
+  asset_id: string;
+  asset_name: string;
+  position: string;
+  path: string;
+  uploaded: boolean;
+  required: boolean;
+  note: string;
+  status_zh: string;
+};
+
 export type Shot = {
   id: string;
   chapter_id: string;
@@ -38,6 +53,7 @@ export type Shot = {
   order_index: number;
   duration_s: number;
   scene_asset_id: string;
+  prop_asset_ids?: string[];
   camera: string;
   camera_detail: string;
   narration: string;
@@ -52,6 +68,7 @@ export type Shot = {
   slots: Array<Record<string, unknown>>;
   lines: Array<Record<string, string>>;
   half_lock: boolean;
+  references?: ShotReference[];
 };
 
 export type Proposal = Record<string, unknown> & {
