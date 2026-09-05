@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 
@@ -128,6 +129,48 @@ REFER_AS_CANDIDATES = frozenset(
     }
 )
 
+# Occupations / roles that belong in background, not look.
+LOOK_BANNED_TERMS = frozenset(
+    {
+        "老船工",
+        "船工",
+        "船夫",
+        "遗孤",
+        "孤儿",
+        "店小二",
+        "书生",
+        "侠客",
+        "剑客",
+        "农夫",
+        "渔夫",
+        "商人",
+        "掌柜",
+        "捕快",
+        "将军",
+        "少爷",
+        "小姐",
+        "夫人",
+        "娘子",
+        "相公",
+        "仆人",
+        "侍女",
+        "丫鬟",
+        "师父",
+        "师傅",
+        "徒弟",
+    }
+)
+
+# Clauses matching these are non-visual (emotion / action / plot).
+LOOK_BANNED_PATTERNS = (
+    re.compile(r".*(迷茫|坚定|沉稳|果敢|柔弱|狠厉|冷漠|温柔|倔强|坚毅|哀伤|悲悯|愤怒|喜悦).*(转|变|为|成|而|地|的).*"),
+    re.compile(r".*(眼神|目光|神情|神色|神态).*(迷茫|坚定|沉稳|温柔|冷|狠|怒|喜|哀|惊).*"),
+    re.compile(r".*(转为|变得|显得|透着|带着).*(坚定|迷茫|沉稳|温柔|杀意|悲).*"),
+    re.compile(r"(笑靥如花|面带微笑|微微一笑|嫣然一笑|莞尔|冷笑|苦笑)"),
+    re.compile(r".*(动作|举止|步伐|步态|行事).*(沉稳|稳健|轻盈|敏捷|迟缓).*"),
+    re.compile(r".*(寻找|寻母|寻父|复仇|逃亡|赶路|说话|对白|性格).*"),
+)
+
 
 def normalize_kind(raw: str | None) -> str:
     key = (raw or "").strip().lower()
@@ -142,6 +185,52 @@ def normalize_kind(raw: str | None) -> str:
 def is_non_alias_term(value: str | None) -> bool:
     s = (value or "").strip()
     return (not s) or (s in NON_ALIAS_TERMS)
+
+
+def _look_clause_banned(clause: str) -> bool:
+    s = clause.strip()
+    if not s:
+        return True
+    if s in LOOK_BANNED_TERMS or s in NON_ALIAS_TERMS:
+        return True
+    for term in LOOK_BANNED_TERMS:
+        if term == s or (len(term) >= 2 and term in s and len(s) <= len(term) + 2):
+            return True
+    for pat in LOOK_BANNED_PATTERNS:
+        if pat.search(s):
+            return True
+    return False
+
+
+def sanitize_look_text(text: str | None) -> str:
+    """Keep only visual appearance clauses for portrait generation."""
+    raw = (text or "").strip()
+    if not raw:
+        return ""
+    # Split on common Chinese / English separators while keeping content pieces
+    parts = re.split(r"[；;。！？!\n]+|(?<=[^\d])，(?=[^\d])|,", raw)
+    kept: list[str] = []
+    for part in parts:
+        clause = part.strip(" 、,，")
+        if not clause or _look_clause_banned(clause):
+            continue
+        # Drop bare occupation words glued with commas already split
+        if clause in LOOK_BANNED_TERMS:
+            continue
+        if clause not in kept:
+            kept.append(clause)
+    return "，".join(kept)
+
+
+def sanitize_appearance(appearance: dict[str, Any] | None) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    for key, value in (appearance or {}).items():
+        if value in (None, ""):
+            continue
+        cleaned = sanitize_look_text(str(value))
+        if cleaned:
+            out[key] = cleaned
+    return out
 
 
 def sanitize_aliases(
@@ -184,6 +273,15 @@ def sanitize_character_fields(row: dict[str, Any]) -> dict[str, Any]:
     out["name"] = name
     out["refer_as"] = refer_as or (out.get("refer_as") or "")
     out["aliases"] = sanitize_aliases(aliases_in, name=name, refer_as=out["refer_as"])
+    if "look_zh" in out or "desc_zh" in out or "notes" in out:
+        look = out.get("look_zh") or out.get("desc_zh") or ""
+        # notes may be mixed; only sanitize explicit look fields here
+        if out.get("look_zh"):
+            out["look_zh"] = sanitize_look_text(out.get("look_zh"))
+        if out.get("desc_zh"):
+            out["desc_zh"] = sanitize_look_text(out.get("desc_zh"))
+    if out.get("appearance") is not None:
+        out["appearance"] = sanitize_appearance(out.get("appearance"))
     return out
 
 
@@ -241,13 +339,17 @@ def merge_registry_entry(existing: dict[str, Any], incoming: dict[str, Any]) -> 
     # If model stuffed both into notes, prefer look_zh/desc_zh; never copy background into look
     if add_zh and add_bg and add_zh == add_bg:
         add_zh = ""
+    add_zh = sanitize_look_text(add_zh)
     if add_zh:
         if not desc_zh:
             merged["desc_zh"] = add_zh
         elif add_zh not in desc_zh:
-            merged["desc_zh"] = f"{desc_zh}；{add_zh}"
+            merged["desc_zh"] = sanitize_look_text(f"{desc_zh}；{add_zh}")
         else:
-            merged["desc_zh"] = desc_zh
+            merged["desc_zh"] = sanitize_look_text(desc_zh)
+    elif desc_zh:
+        merged["desc_zh"] = sanitize_look_text(desc_zh)
+    merged["appearance"] = sanitize_appearance(merged.get("appearance") or appearance)
     desc_en = (existing.get("desc_en") or "").strip()
     add_en = (incoming.get("desc_en") or incoming.get("look_en") or "").strip()
     if add_en and not desc_en:
@@ -267,11 +369,11 @@ def merge_registry_entry(existing: dict[str, Any], incoming: dict[str, Any]) -> 
 def look_text(asset: dict[str, Any]) -> str:
     """Visual look string used for portrait generation (never includes background)."""
     parts: list[str] = []
-    desc = (asset.get("desc_zh") or asset.get("look_zh") or "").strip()
+    desc = sanitize_look_text(asset.get("desc_zh") or asset.get("look_zh") or "")
     if desc:
         parts.append(desc)
-    appearance = asset.get("appearance") or {}
-    for key in ("face", "hair", "eyes", "skin", "body", "posture", "marks", "clothing", "condition"):
+    appearance = sanitize_appearance(asset.get("appearance") or {})
+    for key in ("face", "hair", "eyes", "skin", "body", "posture", "marks", "clothing", "accessories", "condition"):
         val = (appearance.get(key) or "").strip()
         if val and val not in desc:
             parts.append(val)

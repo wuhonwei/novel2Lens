@@ -41,13 +41,15 @@ html, body, #root {
 .app {
   position: relative;
   z-index: 1;
+  width: 80%;
   max-width: none;
-  width: 100%;
-  margin: 0;
-  padding: 0.85rem 1rem 2rem;
+  margin: 0 auto;
+  padding: 0.85rem 0 2rem;
 }
 .app.workspace-app {
-  padding: 0.65rem 0.75rem 1.5rem;
+  width: 80%;
+  margin: 0 auto;
+  padding: 0.65rem 0 1.5rem;
 }
 
 .topbar {

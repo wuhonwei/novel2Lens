@@ -690,7 +690,7 @@ function AssetCard({ asset, projectId, onUpdated }: { asset: Asset; projectId: s
               <AutoTextarea
                 value={desc}
                 onChange={setDesc}
-                placeholder="五官、发型、身材、衣着……"
+                placeholder="只写看得见的外表：年龄感、身材、五官、发型、眼睛外形、饰品、衣服样式颜色……不要写情绪/动作/职业"
               />
             </div>
           </div>

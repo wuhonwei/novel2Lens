@@ -17,7 +17,9 @@ from app.domain.registry import (
     normalize_kind,
     registry_completeness,
     sanitize_aliases,
+    sanitize_appearance,
     sanitize_character_fields,
+    sanitize_look_text,
 )
 from app.domain.slots import (
     CAMERAS,
@@ -243,8 +245,11 @@ def _apply_registry_rows_to_db(
             # Prefer explicit look; if notes equals background, drop from look
             if look_zh and background_zh and look_zh == background_zh:
                 look_zh = ""
+            look_zh = sanitize_look_text(look_zh)
+            appearance = sanitize_appearance(row.get("appearance") or {})
         else:
             look_zh = look_zh or (row.get("notes") or "").strip()
+            appearance = row.get("appearance") or {}
         if asset is None:
             asset = Asset(
                 id=_uid(),
@@ -254,7 +259,7 @@ def _apply_registry_rows_to_db(
                 aliases_json=_dump(aliases),
                 refer_as=row.get("refer_as") or ("人" if kind == "character" else ""),
                 age_band=row.get("age_band") or "",
-                appearance_json=_dump(row.get("appearance") or {}),
+                appearance_json=_dump(appearance),
                 background_zh=background_zh if kind == "character" else "",
                 desc_zh=look_zh,
                 desc_en=row.get("desc_en") or row.get("look_en") or "",
@@ -270,16 +275,22 @@ def _apply_registry_rows_to_db(
                 asset.refer_as = row["refer_as"]
             if row.get("age_band"):
                 asset.age_band = row["age_band"]
-            asset.appearance_json = _dump(row.get("appearance") or {})
+            asset.appearance_json = _dump(appearance if kind == "character" else (row.get("appearance") or {}))
             if kind == "character" and background_zh:
                 if not (asset.background_zh or "").strip():
                     asset.background_zh = background_zh
                 elif background_zh not in asset.background_zh:
                     asset.background_zh = f"{asset.background_zh}；{background_zh}"
             if look_zh:
-                asset.desc_zh = look_zh if not asset.desc_zh else (
-                    asset.desc_zh if look_zh in asset.desc_zh else f"{asset.desc_zh}；{look_zh}"
-                )
+                prev = sanitize_look_text(asset.desc_zh) if kind == "character" else asset.desc_zh
+                if not prev:
+                    asset.desc_zh = look_zh
+                elif look_zh not in prev:
+                    asset.desc_zh = sanitize_look_text(f"{prev}；{look_zh}") if kind == "character" else f"{prev}；{look_zh}"
+                else:
+                    asset.desc_zh = prev
+            elif kind == "character" and asset.desc_zh:
+                asset.desc_zh = sanitize_look_text(asset.desc_zh)
             if row.get("desc_en") or row.get("look_en"):
                 asset.desc_en = row.get("desc_en") or row.get("look_en") or asset.desc_en
             asset.confirmed = True
@@ -441,11 +452,15 @@ async def full_registry_scan(db: Session, project: Project, *, replace: bool = F
                     "name": asset.name,
                     "aliases": _load(asset.aliases_json, []),
                     "refer_as": asset.refer_as,
+                    "desc_zh": asset.desc_zh,
+                    "appearance": _load(asset.appearance_json, {}),
                 }
             )
             asset.aliases_json = _dump(cleaned["aliases"])
             if cleaned.get("refer_as"):
                 asset.refer_as = cleaned["refer_as"]
+            asset.desc_zh = sanitize_look_text(cleaned.get("desc_zh") or asset.desc_zh)
+            asset.appearance_json = _dump(sanitize_appearance(cleaned.get("appearance") or {}))
         else:
             asset.aliases_json = _dump(
                 sanitize_aliases(_load(asset.aliases_json, []), name=asset.name)

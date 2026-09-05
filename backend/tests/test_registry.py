@@ -129,7 +129,25 @@ def test_pass1_chinese_keys_force_character_kind():
     assert by_name["玉佩"] == "prop"
 
 
-def test_sanitize_aliases_drops_refer_as_and_kinship():
+def test_sanitize_look_drops_emotion_action_and_occupation():
+    from app.domain.registry import sanitize_look_text, sanitize_appearance
+
+    text = sanitize_look_text(
+        "十七岁清瘦，眉眼清俊，洗白长衫，眼神从迷茫转为坚定，动作沉稳，笑靥如花，老船工"
+    )
+    assert "眉眼清俊" in text
+    assert "洗白长衫" in text
+    assert "迷茫" not in text
+    assert "沉稳" not in text
+    assert "笑靥如花" not in text
+    assert "老船工" not in text
+
+    app = sanitize_appearance(
+        {"eyes": "眼神坚定", "face": "眉眼清俊", "clothing": "藏青短打"}
+    )
+    assert "face" in app
+    assert "clothing" in app
+    assert "eyes" not in app or "坚定" not in app.get("eyes", "")
     from app.domain.registry import sanitize_aliases, sanitize_character_fields, apply_registry_delta
 
     cleaned = sanitize_aliases(
