@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { api, mediaUrl, normalizeKind, type Asset, type Bundle, type Project, type Shot } from "./api";
 import {
   assetsByKind,
@@ -605,20 +605,35 @@ function AutoTextarea({
   className?: string;
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
-  useEffect(() => {
+
+  const fit = () => {
     const el = ref.current;
     if (!el) return;
-    el.style.height = "0px";
-    el.style.height = `${Math.max(el.scrollHeight, 48)}px`;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  };
+
+  useLayoutEffect(() => {
+    fit();
   }, [value]);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => fit());
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   return (
     <textarea
       ref={ref}
       className={`auto-textarea ${className || ""}`}
       value={value}
       placeholder={placeholder}
-      rows={1}
+      rows={Math.max(2, (value || "").split("\n").length)}
       onChange={(e) => onChange(e.target.value)}
+      onInput={fit}
     />
   );
 }
@@ -661,7 +676,7 @@ function AssetCard({ asset, projectId, onUpdated }: { asset: Asset; projectId: s
         </p>
 
         {kind === "character" ? (
-          <div className="desc-cols">
+          <div className="desc-stack">
             <div className="desc-block view-only">
               <label>① 背景与身份<span className="muted"> · 仅查阅</span></label>
               <AutoTextarea
