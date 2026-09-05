@@ -13,16 +13,25 @@ IMAGE_ROLE_ZH = {
 }
 
 
+def scene_image_path(asset: Any) -> str:
+    if not asset:
+        return ""
+    near = getattr(asset, "near_path", None) or ""
+    if near:
+        return near.strip()
+    far = getattr(asset, "far_path", None) or ""
+    if far:
+        return far.strip()
+    return (getattr(asset, "image_path", None) or "").strip()
+
+
 def _path_for(asset: Any, image_key: str) -> str:
     if image_key == "half":
         return (getattr(asset, "half_path", None) or "") if asset else ""
     if image_key == "full":
         return (getattr(asset, "full_path", None) or "") if asset else ""
-    if image_key == "scene" and asset:
-        far = getattr(asset, "far_path", None) or ""
-        if far:
-            return far
-        return getattr(asset, "image_path", None) or ""
+    if image_key == "scene":
+        return scene_image_path(asset)
     return (getattr(asset, "image_path", None) or "") if asset else ""
 
 

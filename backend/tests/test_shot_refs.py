@@ -1,9 +1,33 @@
-from app.domain.shot_refs import build_shot_references
+from app.domain.shot_refs import build_shot_references, scene_image_path
 
 
 class _A:
     def __init__(self, **kw):
         self.__dict__.update(kw)
+
+
+def test_scene_image_path_prefers_near_then_far_then_legacy():
+    assert scene_image_path(_A(near_path="near.png", far_path="far.png", image_path="legacy.png")) == "near.png"
+    assert scene_image_path(_A(near_path="", far_path="far.png", image_path="legacy.png")) == "far.png"
+    assert scene_image_path(_A(near_path="", far_path="", image_path="legacy.png")) == "legacy.png"
+    assert scene_image_path(_A(near_path="", far_path="", image_path="")) == ""
+
+
+def test_build_shot_references_scene_uses_near_path():
+    scene = _A(
+        id="s1",
+        kind="scene",
+        name="青川渡",
+        near_path="near.png",
+        far_path="far.png",
+        image_path="legacy.png",
+        half_path="",
+        full_path="",
+    )
+    slots = [{"index": 1, "kind": "scene", "asset_id": "s1", "image_key": "scene"}]
+    refs = build_shot_references(scene=scene, lines=[], slots=slots, assets_by_id={"s1": scene})
+    assert refs[0]["path"] == "near.png"
+    assert refs[0]["uploaded"] is True
 
 
 def test_build_shot_references_one_portrait_per_character():

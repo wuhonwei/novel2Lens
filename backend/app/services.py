@@ -22,7 +22,7 @@ from app.domain.registry import (
     sanitize_character_fields,
     sanitize_look_text,
 )
-from app.domain.shot_refs import build_shot_references
+from app.domain.shot_refs import build_shot_references, scene_image_path
 from app.domain.slots import (
     CAMERAS,
     FACINGS,
@@ -98,7 +98,7 @@ def serialize_asset(asset: Asset) -> dict[str, Any]:
         "created_chapter_id": asset.created_chapter_id,
         "portrait_ready": bool(asset.half_path and asset.full_path)
         if kind == "character"
-        else bool(far_path if kind == "scene" else asset.image_path),
+        else bool(scene_image_path(asset) if kind == "scene" else asset.image_path),
     }
 
 
@@ -828,7 +828,7 @@ def _shot_unready(
             return True
         if key == "full" and not asset.full_path:
             return True
-        if key == "scene" and not _effective_far_path(asset):
+        if key == "scene" and not scene_image_path(asset):
             return True
         if key == "prop" and not asset.image_path:
             return True
