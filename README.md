@@ -4,7 +4,15 @@
 
 ## 启动
 
-终端 1：
+资源管理器双击 `start.bat`，或在仓库根目录：
+
+```powershell
+.\start.ps1
+```
+
+脚本会按需创建 `backend\.venv`、安装依赖、拉起 API（8790）和前端（5176），并打开 http://127.0.0.1:5176。关掉弹出的 `novel2Lens API` / `novel2Lens UI` 窗口即停止服务。
+
+手动分终端启动也可以：
 
 ```powershell
 cd backend
@@ -12,15 +20,11 @@ python -m pip install -e ".[dev]"
 python -m uvicorn app.main:app --host 127.0.0.1 --port 8790
 ```
 
-终端 2：
-
 ```powershell
 cd frontend
 npm install
 npm run dev
 ```
-
-打开 http://127.0.0.1:5176
 
 ## 本地模型
 
