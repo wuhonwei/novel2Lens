@@ -1,7 +1,7 @@
 # 全书资产一键生图（对接造像）Design
 
 **Date:** 2026-09-05  
-**Status:** Approved (user: 按这个做; 半身 3:4)
+**Status:** Superseded by `2026-09-05-embedded-image-pipeline-design.md`
 
 ## Goal
 
