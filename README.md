@@ -1,6 +1,6 @@
 # novel2Lens
 
-本地小说文本分镜策划器：读小说 → 角色/场景/物品资产 → 上传参考图 → 首帧提示词（Qwen-Image-Edit-2511）+ MiniMax-H3 视频脚本。不调用 ComfyUI。
+本地小说文本分镜策划器：读小说 → 角色/场景/物品资产 → 上传参考图 → 首帧提示词（Qwen-Image-Edit-2511）+ MiniMax-H3 视频脚本。ComfyUI 按需启动（首次生图任务，`:8189`）。
 
 ## 启动
 
@@ -10,7 +10,9 @@
 .\start.ps1
 ```
 
-脚本会：启动本地 **Qwen3.8-Flash-Next-UD**（llama-server `:8080`）→ 按需创建 `backend\.venv` / 安装依赖 → 拉起 API（8790）和前端（5176）→ 打开 http://127.0.0.1:5176。
+脚本会：按需创建 `backend\.venv` / 安装依赖 → 拉起 API（8790）和前端（5176）→ 打开 http://127.0.0.1:5176。LLM 与 ComfyUI **不会**在此脚本中启动。
+
+文本/分镜需要 LLM 时另开终端：
 
 只起模型：
 
@@ -18,7 +20,7 @@
 .\start-llm.ps1
 ```
 
-关掉弹出的 `novel2Lens Flash-Next` / `API` / `UI` 窗口即停止服务。
+关掉弹出的 `API` / `UI` 窗口即停止服务（LLM / Comfy 若在其它终端运行，需各自关闭）。
 
 手动分终端：
 
