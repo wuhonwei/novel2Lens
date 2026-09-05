@@ -24,6 +24,7 @@ from app.services import (
     prescan_project,
     rebuild_chapters,
     refresh_shot_readiness,
+    repair_shot_prompts_if_needed,
     save_upload,
     serialize_asset,
     serialize_chapter,
@@ -133,6 +134,7 @@ class TranslateIn(BaseModel):
 def _bundle(db: Session, project: Project) -> dict:
     chapters = db.query(Chapter).filter(Chapter.project_id == project.id).order_by(Chapter.index).all()
     assets = db.query(Asset).filter(Asset.project_id == project.id).all()
+    repair_shot_prompts_if_needed(db, project, assets)
     shots = db.query(Shot).filter(Shot.project_id == project.id).order_by(Shot.order_index).all()
     proposals = (
         db.query(Proposal)

@@ -840,6 +840,51 @@ def _pick_portrait(raw_shot: dict[str, Any], person: dict[str, Any], named_count
     return "full"
 
 
+def _line_portrait_key(line: dict[str, Any], *, shot: Shot, line_count: int) -> str:
+    explicit = line.get("image_key") or line.get("portrait")
+    if explicit:
+        return normalize_portrait_key(str(explicit))
+    # Legacy half_lock packed full+half together; migrate to a single portrait.
+    if bool(shot.half_lock) and line_count == 1:
+        slots = _load(shot.slots_json, [])
+        keys = [
+            s.get("image_key")
+            for s in slots
+            if s.get("image_key") in ("half", "full") and (not line.get("asset_id") or s.get("asset_id") == line.get("asset_id"))
+        ]
+        if keys.count("full") and keys.count("half"):
+            return "full"  # drop companion half-lock slot
+        if keys == ["half"] or (keys and all(k == "half" for k in keys)):
+            return "half"
+    return "full"
+
+
+LEGACY_DUAL_PORTRAIT_MARKERS = (
+    "仅用于锁定面部",
+    "外貌以半身像面部为准",
+    "体态与服装以全身参考为准",
+    "体态服装以全身图为准",
+)
+
+
+def shot_needs_portrait_repair(shot: Shot) -> bool:
+    prompt = shot.prompt_zh or ""
+    if any(m in prompt for m in LEGACY_DUAL_PORTRAIT_MARKERS):
+        return True
+    slots = _load(shot.slots_json, [])
+    seen: set[str] = set()
+    for slot in slots:
+        if slot.get("image_key") not in ("half", "full"):
+            continue
+        aid = str(slot.get("asset_id") or "")
+        if not aid:
+            continue
+        if aid in seen:
+            return True
+        seen.add(aid)
+    return False
+
+
 def compile_shot_prompts(project: Project, shot: Shot, assets: list[Asset]) -> None:
     by_id = {a.id: a for a in assets}
     scene = by_id.get(shot.scene_asset_id) if shot.scene_asset_id else None
@@ -848,12 +893,15 @@ def compile_shot_prompts(project: Project, shot: Shot, assets: list[Asset]) -> N
     prop_assets = [by_id[pid] for pid in prop_ids if pid in by_id]
     chars: list[SlotSubject] = []
     char_reqs: list[tuple[Asset, str]] = []
+    seen_char_ids: set[str] = set()
     for line in lines:
         asset = by_id.get(line.get("asset_id") or "")
-        if not asset:
+        if not asset or asset.id in seen_char_ids:
             continue
-        image_key = normalize_portrait_key(line.get("image_key") or line.get("portrait"))
+        seen_char_ids.add(asset.id)
+        image_key = _line_portrait_key(line, shot=shot, line_count=len(lines))
         line["image_key"] = image_key
+        line["portrait"] = image_key
         char_reqs.append((asset, image_key))
         chars.append(
             SlotSubject(
@@ -927,6 +975,20 @@ def compile_shot_prompts(project: Project, shot: Shot, assets: list[Asset]) -> N
         )
     shot.slots_json = _dump(slot_dump)
     shot.first_frame_unready = _shot_unready(project, scene, char_reqs, prop_assets)
+
+
+def repair_shot_prompts_if_needed(db: Session, project: Project, assets: list[Asset] | None = None) -> int:
+    """Recompile shots that still use legacy dual half+full portrait prompts."""
+    assets = assets if assets is not None else db.query(Asset).filter(Asset.project_id == project.id).all()
+    fixed = 0
+    for shot in db.query(Shot).filter(Shot.project_id == project.id):
+        if shot_needs_portrait_repair(shot):
+            compile_shot_prompts(project, shot, assets)
+            fixed += 1
+    if fixed:
+        db.commit()
+    return fixed
+
 
 
 async def generate_storyboard(

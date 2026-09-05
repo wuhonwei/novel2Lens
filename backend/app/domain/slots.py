@@ -72,6 +72,16 @@ def pack_qwen_slots(
 ) -> list[PackedSlot]:
     """Pack at most 3 reference images. Each character uses exactly one of half|full."""
     del half_lock  # legacy flag; dual half+full packing removed
+    # One slot per person — drop accidental duplicates.
+    unique_chars: list[SlotSubject] = []
+    seen_ids: set[str] = set()
+    for char in characters:
+        if char.asset_id in seen_ids:
+            continue
+        seen_ids.add(char.asset_id)
+        unique_chars.append(char)
+    characters = unique_chars
+
     cap = max_named_characters(has_scene)
     if len(characters) > cap:
         raise ValueError(f"具名出镜人物不能超过 {cap} 人（有场景时最多 2 人）")

@@ -26,6 +26,19 @@ def test_first_frame_with_scene_uses_image_one_as_plate():
     assert "林砚" not in out.zh
 
 
+def test_first_frame_half_only_does_not_mention_full_companion():
+    slots = pack_qwen_slots(
+        has_scene=True,
+        characters=[SlotSubject(asset_id="c1", position="中", facing="面向镜头", image_key="half")],
+    )
+    out = compile_first_frame(style="半写实", slots=slots, character_count=1, actions={"中": "站立"})
+    assert "图二是中" in out.zh
+    assert "半身即图二人物" in out.zh
+    assert "图三" not in out.zh
+    assert "仅用于锁定面部" not in out.zh
+    assert "全身图为准" not in out.zh
+
+
 def test_first_frame_without_scene_draws_background_from_text():
     slots = pack_qwen_slots(
         has_scene=False,

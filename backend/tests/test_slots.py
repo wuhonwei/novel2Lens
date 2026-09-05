@@ -31,6 +31,18 @@ def test_single_person_uses_only_one_portrait_never_both():
     assert sum(1 for s in slots if s.kind == "character") == 1
 
 
+def test_duplicate_character_subjects_collapse_to_one_slot():
+    slots = pack_qwen_slots(
+        has_scene=True,
+        characters=[
+            SlotSubject(asset_id="c1", position="中", image_key="full"),
+            SlotSubject(asset_id="c1", position="中", image_key="half"),
+        ],
+    )
+    assert [s.kind for s in slots] == ["scene", "character"]
+    assert slots[1].image_key == "full"
+
+
 def test_scene_plus_one_half_leaves_room_for_prop():
     slots = pack_qwen_slots(
         has_scene=True,
