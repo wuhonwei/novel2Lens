@@ -34,24 +34,22 @@ export function pipelineSteps() {
   return PIPELINE;
 }
 
+export function assetRefReady(a: Asset): boolean {
+  const kind = normalizeKind(a.kind);
+  if (kind === "character") return Boolean(a.half_path && a.full_path);
+  if (kind === "scene") return Boolean(a.near_path || a.far_path || a.image_path);
+  if (kind === "prop") return Boolean(a.image_path);
+  return true;
+}
+
 function missingRefCount(assets: Asset[]): number {
-  let n = 0;
-  for (const a of assets) {
-    const kind = normalizeKind(a.kind);
-    if (kind === "character") {
-      if (!a.half_path || !a.full_path) n += 1;
-    } else if (kind === "scene") {
-      if (!(a.near_path || a.far_path || a.image_path)) n += 1;
-    } else if (!a.image_path) {
-      n += 1;
-    }
-  }
-  return n;
+  return assets.filter((a) => !assetRefReady(a)).length;
 }
 
 export function bookAssetsReady(bundle: Bundle): boolean {
   const chars = bundle.assets.filter((a) => normalizeKind(a.kind) === "character");
-  return chars.length > 0 && chars.every((a) => a.confirmed);
+  if (!(chars.length > 0 && chars.every((a) => a.confirmed))) return false;
+  return bundle.assets.every(assetRefReady);
 }
 
 export function assetsByKind(bundle: Bundle) {
@@ -89,8 +87,8 @@ export function deriveGuide(bundle: Bundle, chapter: Chapter | undefined, shots:
     return {
       step: "upload",
       index: 2,
-      title: "第 3 步 · 上传参考图（建议）",
-      tip: `还有 ${missing} 个全书资产缺图。人物需半身+全身，场景/物品各一张。可先生成分镜，缺图镜会标「首帧未就绪」。`,
+      title: "第 3 步 · 补齐参考图（必须）",
+      tip: `还有 ${missing} 个全书资产缺图。人物需半身+全身，场景/物品各至少一张。缺图禁止生成分镜。`,
       cta: "去全书资产补图",
       tab: "全书资产",
     };

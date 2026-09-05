@@ -139,16 +139,11 @@ def test_full_planner_pipeline(tmp_path, monkeypatch):
         assert any(a["kind"] == "character" for a in assets)
         people = [a for a in assets if a["kind"] == "character"]
         scene = next(a for a in assets if a["kind"] == "scene")
+        prop = next(a for a in assets if a["kind"] == "prop")
 
-        board = client.post(f"/api/projects/{pid}/chapters/{cid}/storyboard").json()
-        assert board["shots"]
-        shot = board["shots"][0]
-        assert "图三为场景底板" in shot["prompt_zh"]
-        assert "<Image 1>" in shot["h3_prompt"]
-        assert "左一的少年" in shot["h3_prompt"]
-        assert shot["character_count"] == 2
-        assert len(shot["slots"]) <= 3
-        assert "林砚之" not in shot["h3_prompt"].replace("我母亲叫苏晚卿", "")
+        blocked = client.post(f"/api/projects/{pid}/chapters/{cid}/storyboard")
+        assert blocked.status_code == 409
+        assert "参考图未齐备" in blocked.json()["detail"]
 
         png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 32
         for person in people:
@@ -167,6 +162,22 @@ def test_full_planner_pipeline(tmp_path, monkeypatch):
             data={"field": "image"},
             files={"file": ("scene.png", png, "image/png")},
         )
+        client.post(
+            f"/api/projects/{pid}/assets/{prop['id']}/upload",
+            data={"field": "image"},
+            files={"file": ("prop.png", png, "image/png")},
+        )
+
+        board = client.post(f"/api/projects/{pid}/chapters/{cid}/storyboard").json()
+        assert board["shots"]
+        shot = board["shots"][0]
+        assert "图三为场景底板" in shot["prompt_zh"]
+        assert "<Image 1>" in shot["h3_prompt"]
+        assert "左一的少年" in shot["h3_prompt"]
+        assert shot["character_count"] == 2
+        assert len(shot["slots"]) <= 3
+        assert "林砚之" not in shot["h3_prompt"].replace("我母亲叫苏晚卿", "")
+
         exported = client.post(f"/api/projects/{pid}/export").json()
         assert exported["document"]["h3_encoder"].startswith("qwen3vl_32b_heretic")
         assert exported["document"]["shots"]

@@ -50,16 +50,10 @@ def main() -> None:
     confirmed.raise_for_status()
     assets = confirmed.json()["assets"]
     print("assets", [(a["kind"], a["name"]) for a in assets])
-    print("storyboard…")
-    board = client.post(f"/api/projects/{pid}/chapters/{first['id']}/storyboard")
-    board.raise_for_status()
-    shots = board.json()["shots"]
-    print("shots", len(shots))
-    if shots:
-        print("h3", shots[0]["h3_prompt"][:180])
+    print("upload reference images…")
     for asset in assets:
-        field = "image" if asset["kind"] != "character" else None
-        if asset["kind"] == "character":
+        kind = (asset.get("kind") or "").lower()
+        if kind in ("character", "人物", "角色"):
             for f in ("half", "full"):
                 client.post(
                     f"/api/projects/{pid}/assets/{asset['id']}/upload",
@@ -72,6 +66,13 @@ def main() -> None:
                 data={"field": "image"},
                 files={"file": ("ref.png", PNG, "image/png")},
             ).raise_for_status()
+    print("storyboard…")
+    board = client.post(f"/api/projects/{pid}/chapters/{first['id']}/storyboard")
+    board.raise_for_status()
+    shots = board.json()["shots"]
+    print("shots", len(shots))
+    if shots:
+        print("h3", shots[0]["h3_prompt"][:180])
     exported = client.post(f"/api/projects/{pid}/export")
     exported.raise_for_status()
     out = exported.json()

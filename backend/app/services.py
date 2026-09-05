@@ -98,6 +98,39 @@ def _asset_media_version(asset: Asset) -> int:
     return latest
 
 
+def asset_ref_ready(asset: Asset) -> bool:
+    """True when this book asset has the reference image(s) required for storyboard."""
+    kind = normalize_kind(asset.kind)
+    if kind == "character":
+        return bool((asset.half_path or "").strip() and (asset.full_path or "").strip())
+    if kind == "scene":
+        return bool(scene_image_path(asset))
+    if kind == "prop":
+        return bool((asset.image_path or "").strip())
+    return True
+
+
+def missing_asset_image_messages(assets: list[Asset]) -> list[str]:
+    out: list[str] = []
+    for a in assets:
+        kind = normalize_kind(a.kind)
+        if asset_ref_ready(a):
+            continue
+        if kind == "character":
+            out.append(f"人物「{a.name}」缺半身或全身图")
+        elif kind == "scene":
+            out.append(f"场景「{a.name}」缺参考图")
+        elif kind == "prop":
+            out.append(f"物品「{a.name}」缺参考图")
+    return out
+
+
+def require_asset_images(assets: list[Asset]) -> None:
+    msgs = missing_asset_image_messages(assets)
+    if msgs:
+        raise ValueError("参考图未齐备，无法生成分镜：" + "；".join(msgs[:12]))
+
+
 def serialize_asset(asset: Asset) -> dict[str, Any]:
     kind = normalize_kind(asset.kind)
     far_path = _effective_far_path(asset)
@@ -1096,6 +1129,7 @@ async def generate_storyboard(
     book_ready = any(a.confirmed and normalize_kind(a.kind) == "character" for a in assets)
     if chapter.status not in ("assets_confirmed", "storyboarded") and not book_ready and not overwrite:
         raise ValueError("请先一键生成全书资产（人物/场景/物品）。")
+    require_asset_images(assets)
     if overwrite:
         db.query(Shot).filter(Shot.chapter_id == chapter.id).delete()
     elif db.query(Shot).filter(Shot.chapter_id == chapter.id).count():

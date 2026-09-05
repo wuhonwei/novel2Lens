@@ -198,6 +198,10 @@ export default function App() {
         setTab("原文");
         return;
       }
+      if (!bookAssetsReady(bundle)) {
+        setTab("全书资产");
+        return;
+      }
       await run("生成分镜", async () => {
         setBundle(await api.storyboard(p.id, chapter.id, overwrite));
         setTab("分镜");

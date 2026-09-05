@@ -21,6 +21,31 @@ COMFY_PYTHON = Path(r"D:\Develop\ComfyUI\venv\Scripts\python.exe")
 DATA_DIR = Path(__file__).resolve().parents[2] / "data"
 
 
+PNG_PLACEHOLDER = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
+
+
+def upload_placeholder_refs(client: httpx.Client, pid: str, assets: list[dict]) -> None:
+    """Satisfy storyboard image gate before (or without) real Comfy generation."""
+    for asset in assets:
+        kind = (asset.get("kind") or "").lower()
+        aid = asset["id"]
+        if kind in ("character", "人物", "角色"):
+            for field in ("half", "full"):
+                r = client.post(
+                    f"/api/projects/{pid}/assets/{aid}/upload",
+                    data={"field": field},
+                    files={"file": (f"{field}.png", PNG_PLACEHOLDER, "image/png")},
+                )
+                r.raise_for_status()
+        else:
+            r = client.post(
+                f"/api/projects/{pid}/assets/{aid}/upload",
+                data={"field": "image"},
+                files={"file": ("ref.png", PNG_PLACEHOLDER, "image/png")},
+            )
+            r.raise_for_status()
+
+
 def phase_label(job: dict) -> str:
     phase = job.get("phase") or ""
     status = job.get("status") or ""
@@ -242,6 +267,9 @@ def main() -> int:
         print(f"assets {counts}", flush=True)
         if not assets:
             raise RuntimeError("generate-assets returned zero assets")
+
+        print("upload placeholder refs (storyboard gate)…", flush=True)
+        upload_placeholder_refs(client, pid, assets)
 
         first = sorted(chapters, key=lambda c: c.get("index", 0))[0]
         # refresh chapter ids from latest bundle
