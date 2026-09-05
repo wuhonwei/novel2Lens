@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
 
-from app.db import Asset, SessionLocal, reset_engine
+from app import db as database
+from app.db import Asset, reset_engine
 from app.main import app
 from app.services import _uid
 
@@ -41,7 +42,7 @@ def test_generate_one_asset_character_mocked(tmp_path, monkeypatch):
             json={"title": "t", "text": "第一章\n林砚之站着。", "style": "半写实江湖"},
         ).json()
         pid = created["project"]["id"]
-        db = SessionLocal()
+        db = database.SessionLocal()
         try:
             asset = Asset(
                 id=_uid(),
