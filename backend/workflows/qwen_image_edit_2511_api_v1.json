@@ -1,0 +1,227 @@
+{
+  "_meta": {
+    "id": "qwen_image_edit_2511_storyboard_v1",
+    "title": "Qwen-Image-Edit-2511 storyboard (character refs + instruction)",
+    "description": "Instruction-guided storyboard stills from up to 3 reference images (identity, outfit, scene) via TextEncodeQwenImageEditPlus.",
+    "requires_models": true,
+    "compatible_manifest_ids": [
+      "qwen_image_edit_2511_fp8mixed",
+      "qwen_2_5_vl_7b",
+      "qwen_image_vae"
+    ]
+  },
+  "1": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "qwen_image_edit_2511_fp8mixed.safetensors",
+      "weight_dtype": "default"
+    }
+  },
+  "2": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "qwen_2.5_vl_7b_fp8_scaled.safetensors",
+      "type": "qwen_image",
+      "device": "default"
+    }
+  },
+  "3": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "qwen_image_vae.safetensors"
+    }
+  },
+  "4": {
+    "class_type": "LoraLoaderModelOnly",
+    "inputs": {
+      "model": [
+        "1",
+        0
+      ],
+      "lora_name": "Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors",
+      "strength_model": 1.0
+    }
+  },
+  "5": {
+    "class_type": "ModelSamplingAuraFlow",
+    "inputs": {
+      "model": [
+        "4",
+        0
+      ],
+      "shift": 3.1
+    }
+  },
+  "6": {
+    "class_type": "CFGNorm",
+    "inputs": {
+      "model": [
+        "5",
+        0
+      ],
+      "strength": 1.0
+    }
+  },
+  "10": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "ref_identity.png"
+    }
+  },
+  "11": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "ref_outfit.png"
+    }
+  },
+  "12": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "ref_scene.png"
+    }
+  },
+  "13": {
+    "class_type": "FluxKontextImageScale",
+    "inputs": {
+      "image": [
+        "10",
+        0
+      ]
+    }
+  },
+  "20": {
+    "class_type": "TextEncodeQwenImageEditPlus",
+    "inputs": {
+      "clip": [
+        "2",
+        0
+      ],
+      "prompt": "Using the character identity in image 1 and the costume in image 2, place them into the scene context of image 3 as a cinematic widescreen storyboard frame matching the instruction.",
+      "vae": [
+        "3",
+        0
+      ],
+      "image1": [
+        "13",
+        0
+      ],
+      "image2": [
+        "11",
+        0
+      ],
+      "image3": [
+        "12",
+        0
+      ]
+    }
+  },
+  "21": {
+    "class_type": "TextEncodeQwenImageEditPlus",
+    "inputs": {
+      "clip": [
+        "2",
+        0
+      ],
+      "prompt": "",
+      "vae": [
+        "3",
+        0
+      ],
+      "image1": [
+        "13",
+        0
+      ],
+      "image2": [
+        "11",
+        0
+      ],
+      "image3": [
+        "12",
+        0
+      ]
+    }
+  },
+  "22": {
+    "class_type": "FluxKontextMultiReferenceLatentMethod",
+    "inputs": {
+      "conditioning": [
+        "20",
+        0
+      ],
+      "reference_latents_method": "index_timestep_zero"
+    }
+  },
+  "23": {
+    "class_type": "FluxKontextMultiReferenceLatentMethod",
+    "inputs": {
+      "conditioning": [
+        "21",
+        0
+      ],
+      "reference_latents_method": "index_timestep_zero"
+    }
+  },
+  "30": {
+    "class_type": "VAEEncode",
+    "inputs": {
+      "pixels": [
+        "13",
+        0
+      ],
+      "vae": [
+        "3",
+        0
+      ]
+    }
+  },
+  "40": {
+    "class_type": "KSampler",
+    "inputs": {
+      "seed": 0,
+      "steps": 4,
+      "cfg": 1.0,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "denoise": 1.0,
+      "model": [
+        "6",
+        0
+      ],
+      "positive": [
+        "22",
+        0
+      ],
+      "negative": [
+        "23",
+        0
+      ],
+      "latent_image": [
+        "30",
+        0
+      ]
+    }
+  },
+  "50": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": [
+        "40",
+        0
+      ],
+      "vae": [
+        "3",
+        0
+      ]
+    }
+  },
+  "60": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "filename_prefix": "nvs_qwen_edit",
+      "images": [
+        "50",
+        0
+      ]
+    }
+  }
+}
