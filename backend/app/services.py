@@ -864,6 +864,9 @@ LEGACY_DUAL_PORTRAIT_MARKERS = (
     "外貌以半身像面部为准",
     "体态与服装以全身参考为准",
     "体态服装以全身图为准",
+    "同一人物只使用其选定的一张人物参考图",
+    "禁止同时套用半身与全身",
+    "Each person uses only one portrait reference",
 )
 
 

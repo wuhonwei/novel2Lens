@@ -20,7 +20,7 @@ def test_first_frame_with_scene_uses_image_one_as_plate():
     assert "图二是左一" in out.zh
     assert "图三是右一" in out.zh
     assert "恰好2人" in out.zh
-    assert "半身或全身二选一" in out.zh
+    assert "半身或全身二选一" not in out.zh
     assert "image 1 as the environment plate" in out.en.lower()
     assert "image 2 is the leftmost" in out.en.lower()
     assert "林砚" not in out.zh

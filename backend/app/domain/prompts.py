@@ -84,13 +84,11 @@ def compile_first_frame(
             f"在图一的背景下，{person_zh}"
             f"画面中可辨认人物恰好{character_count}人，禁止增加面孔；远处只允许不可辨认剪影。"
             "不要文字、水印、字幕。"
-            "同一人物只使用其选定的一张人物参考图（半身或全身二选一），禁止同时套用半身与全身。"
         )
         en = (
             f"16:9. Style: {style}. Use image 1 as the environment plate; keep layout and lighting. "
             f"In the setting of image 1, {person_en} "
-            f"Exactly {character_count} identifiable people. No extra faces. No text, no watermark. "
-            "Each person uses only one portrait reference (half or full), never both."
+            f"Exactly {character_count} identifiable people. No extra faces. No text, no watermark."
         )
         return FirstFramePrompts(zh=zh, en=en)
 
@@ -100,13 +98,11 @@ def compile_first_frame(
         f"{person_zh}"
         f"画面中可辨认人物恰好{character_count}人，禁止增加面孔；远处只允许不可辨认剪影。"
         "不要文字、水印、字幕。"
-        "同一人物只使用其选定的一张人物参考图（半身或全身二选一），禁止同时套用半身与全身。"
     )
     en = (
         f"16:9. Style: {style}. Paint the background from this description: {bg}. "
         f"{person_en} "
-        f"Exactly {character_count} identifiable people. No extra faces. No text, no watermark. "
-        "Each person uses only one portrait reference (half or full), never both."
+        f"Exactly {character_count} identifiable people. No extra faces. No text, no watermark."
     )
     return FirstFramePrompts(zh=zh, en=en)
 
