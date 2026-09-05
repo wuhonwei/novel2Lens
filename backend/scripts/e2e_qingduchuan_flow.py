@@ -12,9 +12,9 @@ import httpx
 
 NOVEL = Path(r"D:\Develop\aiVedioProducer\docs\novels\青渡川.txt")
 API = "http://127.0.0.1:8790"
-TITLE = "青渡川"
-STYLE = "半写实、东方江湖、电影布光、十六比九横构图"
-REPORT = Path(__file__).resolve().parent / "qingduchuan_e2e_report.json"
+TITLE = "青渡川自主测试"
+STYLE = "国风3D、东方江湖"
+REPORT = Path(__file__).resolve().parent / "qingduchuan_full_e2e_report.json"
 MIN_BYTES = 2048
 COMFY_ROOT = Path(r"D:\Develop\ComfyUI")
 COMFY_PYTHON = Path(r"D:\Develop\ComfyUI\venv\Scripts\python.exe")
