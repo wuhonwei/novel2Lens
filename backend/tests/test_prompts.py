@@ -22,9 +22,43 @@ def test_first_frame_with_scene_uses_image_one_as_plate():
     assert "图一是左一" in out.zh
     assert "图二是右一" in out.zh
     assert "恰好2人" in out.zh
+    assert "互不相同" in out.zh or "不同面孔" in out.zh or "禁止复制同一张脸" in out.zh
     assert "半身或全身二选一" not in out.zh
     assert "image 3 as the environment plate" in out.en.lower()
     assert "林砚" not in out.zh
+
+
+def test_first_frame_slot_includes_character_name_when_present():
+    result = pack_qwen_slots(
+        characters=[
+            SlotSubject(
+                asset_id="c1",
+                kind="character",
+                position="左一",
+                facing="朝右",
+                image_key="full",
+                name="林砚之",
+            ),
+            SlotSubject(
+                asset_id="c2",
+                kind="character",
+                position="右一",
+                facing="朝左",
+                image_key="full",
+                name="陈守义",
+            ),
+        ],
+        scene=SlotSubject(asset_id="s1", kind="scene", name="青川渡"),
+    )
+    out = compile_first_frame(
+        style="国漫3D",
+        slots=result.slots,
+        character_count=2,
+        text_fallbacks=result.text_fallbacks,
+    )
+    assert "林砚之" in out.zh
+    assert "陈守义" in out.zh
+    assert "禁止复制同一张脸" in out.zh or "互不相同" in out.zh
 
 
 def test_first_frame_half_only_does_not_mention_full_companion():

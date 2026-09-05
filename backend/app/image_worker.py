@@ -314,6 +314,15 @@ class ImageWorker:
             negative = STYLE_DEFAULT_NEGATIVE
             if subject_type == "scenery":
                 negative = f"{negative}, people, person, human, face, crowd"
+            if subject_type == "prop":
+                negative = (
+                    f"{negative}, people, person, human, hands, face, fingers, "
+                    "building exterior, courtyard, room interior, landscape, scenery, wide shot"
+                )
+                positive = (
+                    f"single prop product shot, centered object, plain studio background, "
+                    f"{prompt}"
+                )
 
         if backend == "ideogram4":
             width, height = resolve_size(aspect, "ideogram4")
@@ -415,11 +424,19 @@ class ImageWorker:
         for i in range(len(names)):
             label = (ref_labels[i] if i < len(ref_labels) else f"参考图{i + 1}").strip()
             labeled.append(f"image {i + 1} ({label})")
-        wrapped = (
-            f"Using {', '.join(labeled)}, create one new image: {edit_prompt}. "
-            "Preserve identity and key details from the references as instructed. "
-            f"Output image aspect ratio {aspect}, resolution {width}x{height}."
-        )
+        if (job.target_field or "") == "half":
+            wrapped = (
+                f"Using {labeled[0]}, create one new image that is ONLY a tighter bust-crop reframe "
+                f"of that same person: {edit_prompt}. "
+                "Do not invent a new character; keep the exact face, hair, and outfit from the reference. "
+                f"Output image aspect ratio {aspect}, resolution {width}x{height}."
+            )
+        else:
+            wrapped = (
+                f"Using {', '.join(labeled)}, create one new image: {edit_prompt}. "
+                "Preserve identity and key details from the references as instructed. "
+                f"Output image aspect ratio {aspect}, resolution {width}x{height}."
+            )
 
         last_err = ""
         last_png: bytes | None = None

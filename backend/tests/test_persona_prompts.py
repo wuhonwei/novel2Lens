@@ -86,3 +86,49 @@ def test_elder_negative_blocks_young():
 def test_identity_lock_zh_grandma():
     lock = identity_lock_zh(gender="female", age_tier="elder", refer_as="婆婆", age_band="60岁")
     assert "老年女性" in lock
+
+
+def test_infer_male_from_大人_and_知县():
+    assert infer_gender(name="周大人", refer_as="知县", age_band="middle-aged", look="穿着官服") == "male"
+    assert infer_age_tier(name="周大人", refer_as="知县", age_band="middle-aged", look="") == "adult"
+
+
+def test_infer_male_assassin_and_elder_from_老人():
+    assert infer_gender(name="黑衣人", refer_as="刺客", age_band="", look="黑衣蒙面") == "male"
+    assert infer_gender(name="陈守义", refer_as="老人", age_band="", look="") == "male"
+    assert infer_age_tier(name="陈守义", refer_as="老人", age_band="", look="") == "elder"
+
+
+def test_half_prompt_is_reframe_not_redesign():
+    project = Project(id="p", title="t", style="国漫3D", source_text="x")
+    asset = Asset(
+        id="a1",
+        project_id="p",
+        kind="character",
+        name="周大人",
+        refer_as="知县",
+        age_band="middle-aged",
+        desc_zh="穿着官服，中年面容",
+    )
+    text = build_field_prompt(project, asset, "half")
+    assert "半身" in text or "胸像" in text
+    assert "同一人物" in text or "参考" in text
+    # Must not push a costume redesign that fights the full-body reference image
+    assert "汉服或江湖劲装" not in text
+    assert "不要换装" in text or "禁止换" in text
+
+
+def test_prop_prompt_is_object_not_narrative_scene():
+    project = Project(id="p", title="t", style="国漫3D", source_text="x")
+    prop = Asset(
+        id="p1",
+        project_id="p",
+        kind="prop",
+        name="玉佩",
+        desc_zh="分为两半，一半在林砚之手中，一半在陈守义手中，合在一起可以打开藏匿文献的地方，上面刻有忠守二字。",
+    )
+    text = build_field_prompt(project, prop, "image")
+    assert "玉佩" in text
+    assert "不要人物" in text or "禁止人物" in text
+    assert "不要" in text and ("建筑" in text or "场景" in text or "风景" in text)
+    assert "手中" not in text

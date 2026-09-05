@@ -87,6 +87,24 @@ def character_persona(asset: Asset) -> tuple[str, str]:
     return gender, age_tier
 
 
+def _prop_visual_brief(name: str, desc: str) -> str:
+    """Keep physical props cues; drop narrative 'held by X / opens the vault' prose."""
+    import re
+
+    text = (desc or "").strip()
+    if not text:
+        return name
+    # Drop clauses that describe ownership / plot usage rather than appearance.
+    text = re.sub(r"[，,。；;]*[^。；;]*在[^。；;]{0,12}手中[^。；;]*", "，", text)
+    text = re.sub(r"[，,。；;]*合在一起可以[^。；;]*", "，", text)
+    text = re.sub(r"[，,。；;]*用于[^。；;]*", "，", text)
+    text = re.sub(r"[，,。；;]*指引[^。；;]*", "，", text)
+    text = re.sub(r"[，,。；;]*通往[^。；;]*", "，", text)
+    text = re.sub(r"[，,。；;]*藏在[^。；;]*", "，", text)
+    text = re.sub(r"[，,]{2,}", "，", text).strip("，,。；; ")
+    return text or name
+
+
 def build_field_prompt(project: Project, asset: Asset, field: str) -> str:
     kind = normalize_kind(asset.kind)
     look = _look_prompt(asset)
@@ -115,11 +133,12 @@ def build_field_prompt(project: Project, asset: Asset, field: str) -> str:
                 "纯白色不透明实底背景，不要透明，不要棋盘格，单人。"
             )
         if field == "half":
+            # Ref-first reframe: text must not redesign costume/period vs the full reference.
             return (
-                f"保持与参考全身图同一人物身份、五官、发型、妆造与整套服饰完全一致"
-                f"（{identity}；外貌：{look}），{period}。"
-                "同一套古装/江湖服饰，不要换装。生成正面半身胸像，头肩构图，面部清晰，"
-                "纯白色不透明实底背景，不要透明，不要棋盘格，不要全身。"
+                f"严格按参考全身图同一人物重裁为正面半身胸像：五官、发型、妆造、服饰纹样与参考图完全一致，"
+                f"禁止换脸、换年龄性别、换装或重新设计角色（外貌备注仅辅助：{look}）。"
+                "头肩构图，面部清晰，不要全身。"
+                "纯白色不透明实底背景，不要透明，不要棋盘格。"
             )
     if kind == "scene" and field == "far":
         return f"{style}。场景：{asset.name}。{look}。电影布光，环境完整，远景全貌，不要人物特写。"
@@ -129,7 +148,12 @@ def build_field_prompt(project: Project, asset: Asset, field: str) -> str:
             f"{look}。氛围连贯，不要出现无关人物。"
         )
     if kind == "prop" or field == "image":
-        return f"{style}。物品：{asset.name}。{look}。产品级静物，居中，干净背景。"
+        visual = _prop_visual_brief(asset.name or "", look)
+        return (
+            f"{style}。核心道具特写：{asset.name}。形制：{visual}。"
+            "单个静物居中，产品级道具质感，浅灰或纯色背景，"
+            "不要人物，不要手，不要建筑外景，不要房间内景宽镜头，不要风景。"
+        )
     return f"{style}。{look}"
 
 

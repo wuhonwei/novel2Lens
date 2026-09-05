@@ -8,8 +8,9 @@ Gender = Literal["male", "female", "unknown"]
 AgeTier = Literal["child", "youth", "adult", "elder", "unknown"]
 
 _MALE_RE = re.compile(
-    r"(男子|男人|男性|男孩|少年|公子|少爷|书生|侠客|汉子|老头|老汉|大爷|爷爷|伯父|"
-    r"叔父|父亲|爹|哥|弟|兄|丈夫|女婿|武生|小厮|捕快|衙役|将军|王爷|"
+    r"(男子|男人|男性|男孩|少年|公子|少爷|书生|侠客|汉子|老头|老汉|老人|老者|大爷|爷爷|伯父|"
+    r"叔父|父亲|爹|哥|弟|兄|丈夫|女婿|武生|小厮|捕快|衙役|将军|王爷|大人|知县|县令|县官|"
+    r"捕头|刺客|员外|师父|师傅|渔夫|船家|黑衣人|"
     r"\bman\b|\bmale\b|\bboy\b|\byouth\b)",
     re.IGNORECASE,
 )
@@ -20,9 +21,13 @@ _FEMALE_RE = re.compile(
     re.IGNORECASE,
 )
 _ELDER_RE = re.compile(
-    r"(婆婆|老太太|老太|奶奶|姥姥|爷爷|大爷|老头|老汉|老妇|老者|苍老|年迈|"
+    r"(婆婆|老太太|老太|奶奶|姥姥|爷爷|大爷|老头|老汉|老人|老妇|老者|苍老|年迈|"
     r"白发|银发|皱纹|花甲|古稀|耄耋|六[十0-9]|七[十0-9]|八[十0-9]|九[十0-9]|"
     r"6[0-9]|7[0-9]|8[0-9]|9[0-9]|elder|elderly|old\s*woman|old\s*man)",
+    re.IGNORECASE,
+)
+_ADULT_BAND_RE = re.compile(
+    r"(middle[\s-]*aged|中年|壮年|\badult\b|三十|四十|五十|3[0-9]岁|4[0-9]岁|5[0-4]岁)",
     re.IGNORECASE,
 )
 _CHILD_RE = re.compile(r"(孩童|幼童|儿童|小儿|女童|男童|娃娃|\bchild\b|\bkid\b)", re.IGNORECASE)
@@ -40,10 +45,10 @@ def infer_gender(*, name: str = "", refer_as: str = "", age_band: str = "", look
         return "male"
     if female and not male:
         return "female"
-    # name heuristics: 婆/娘/姐 often female; 汉/哥 often male
+    # name heuristics: 婆/娘/姐 often female; 汉/哥/大人 often male
     if re.search(r"(婆|娘|姐|妹|妃|鬟)", name or ""):
         return "female"
-    if re.search(r"(汉|哥|爷|伯|叔|公(?!主))", name or ""):
+    if re.search(r"(汉|哥|爷|伯|叔|公(?!主)|大人)", name or ""):
         return "male"
     if male and female:
         # prefer refer_as / age_band over look prose noise
@@ -73,6 +78,8 @@ def infer_age_tier(*, name: str = "", refer_as: str = "", age_band: str = "", lo
             return "child"
         if n <= 25:
             return "youth"
+        return "adult"
+    if _ADULT_BAND_RE.search(blob):
         return "adult"
     return "unknown"
 
