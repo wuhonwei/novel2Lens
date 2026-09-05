@@ -18,6 +18,10 @@ dev = ["pytest>=8.3.0"]
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
+markers = [
+  "gpu: real Comfy/GPU integration (not run in default CI)",
+  "slow: long-running tests",
+]
 
 [build-system]
 requires = ["setuptools>=68"]

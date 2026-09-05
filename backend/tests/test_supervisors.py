@@ -2,7 +2,12 @@ def test_set_image_busy_stops_llm():
     stops = []
     from app.llm_supervisor import LlmSupervisor
 
-    s = LlmSupervisor(stop_cmd=lambda: stops.append("stop"), start_cmd=lambda: None)
+    s = LlmSupervisor(
+        stop_cmd=lambda: stops.append("stop"),
+        start_cmd=lambda: None,
+        is_up=lambda: False,
+        settle_seconds=0,
+    )
     s.set_image_busy(True)
     assert s.image_busy is True
     assert stops == ["stop"]
@@ -12,11 +17,52 @@ def test_set_image_busy_false_does_not_start_llm():
     starts = []
     from app.llm_supervisor import LlmSupervisor
 
-    s = LlmSupervisor(stop_cmd=lambda: None, start_cmd=lambda: starts.append("start"), is_up=lambda: False)
+    s = LlmSupervisor(
+        stop_cmd=lambda: None,
+        start_cmd=lambda: starts.append("start"),
+        is_up=lambda: False,
+        settle_seconds=0,
+    )
     s.set_image_busy(True)
     s.set_image_busy(False)
     assert s.image_busy is False
     assert starts == []
+
+
+def test_stop_llm_waits_until_down_then_settles():
+    """Kill may take a moment; stop_llm must wait for is_up=False before settle."""
+    from app.llm_supervisor import LlmSupervisor
+
+    state = {"up": True, "stops": 0, "slept": []}
+
+    def stop():
+        state["stops"] += 1
+        if state["stops"] >= 2:
+            state["up"] = False
+
+    real_sleep = __import__("time").sleep
+
+    def fake_sleep(sec):
+        state["slept"].append(sec)
+
+    import time as time_mod
+
+    s = LlmSupervisor(
+        stop_cmd=stop,
+        start_cmd=lambda: None,
+        is_up=lambda: state["up"],
+        settle_seconds=0.5,
+        poll_interval_seconds=0.01,
+        release_timeout_seconds=5.0,
+    )
+    time_mod.sleep = fake_sleep  # type: ignore[assignment]
+    try:
+        s.stop_llm()
+    finally:
+        time_mod.sleep = real_sleep  # type: ignore[assignment]
+    assert state["up"] is False
+    assert state["stops"] >= 2
+    assert any(abs(x - 0.5) < 1e-6 for x in state["slept"])
 
 
 def test_tick_idle_skips_free_while_jobs_active():
@@ -149,7 +195,12 @@ def test_ensure_llm_skips_when_image_busy():
     starts = []
     from app.llm_supervisor import LlmSupervisor
 
-    s = LlmSupervisor(stop_cmd=lambda: None, start_cmd=lambda: starts.append("start"), is_up=lambda: False)
+    s = LlmSupervisor(
+        stop_cmd=lambda: None,
+        start_cmd=lambda: starts.append("start"),
+        is_up=lambda: False,
+        settle_seconds=0,
+    )
     s.set_image_busy(True)
     s.ensure_llm()
     assert starts == []
@@ -165,7 +216,12 @@ def test_ensure_llm_starts_when_idle():
         starts.append("start")
         up["ok"] = True
 
-    s = LlmSupervisor(stop_cmd=lambda: None, start_cmd=start, is_up=lambda: up["ok"])
+    s = LlmSupervisor(
+        stop_cmd=lambda: None,
+        start_cmd=start,
+        is_up=lambda: up["ok"],
+        settle_seconds=0,
+    )
     s.set_image_busy(False)
     s.ensure_llm()
     assert starts == ["start"]
@@ -175,6 +231,11 @@ def test_stop_llm_invokes_stop_cmd():
     stops = []
     from app.llm_supervisor import LlmSupervisor
 
-    s = LlmSupervisor(stop_cmd=lambda: stops.append("stop"), start_cmd=lambda: None)
+    s = LlmSupervisor(
+        stop_cmd=lambda: stops.append("stop"),
+        start_cmd=lambda: None,
+        is_up=lambda: False,
+        settle_seconds=0,
+    )
     s.stop_llm()
     assert stops == ["stop"]

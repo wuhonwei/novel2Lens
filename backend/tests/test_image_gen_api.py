@@ -17,7 +17,7 @@ def test_generate_one_asset_character_enqueues_and_worker_writes(tmp_path, monke
     monkeypatch.setattr("app.main._stop_image_worker", lambda: None)
 
     fake = FakeComfy()
-    llm = LlmSupervisor(stop_cmd=lambda: None, start_cmd=lambda: None, is_up=lambda: False)
+    llm = LlmSupervisor(stop_cmd=lambda: None, start_cmd=lambda: None, is_up=lambda: False, settle_seconds=0)
     comfy = ComfySupervisor(
         base_url="http://127.0.0.1:8189",
         root=str(tmp_path / "comfy"),

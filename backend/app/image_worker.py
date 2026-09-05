@@ -151,6 +151,11 @@ class ImageWorker:
         self._running = True
         try:
             self.llm.set_image_busy(True)
+            # stop_llm already settles; re-check port before touching Comfy VRAM.
+            try:
+                self.llm.wait_released()
+            except TimeoutError as exc:
+                raise RuntimeError(f"cannot start Comfy while LLM still up: {exc}") from exc
             job.status = "running"
             job.error = ""
             job.phase = "ensuring_comfy"

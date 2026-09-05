@@ -123,7 +123,7 @@ def test_one_click_orders_t2i_before_edit(tmp_path, monkeypatch):
     from app.llm_supervisor import LlmSupervisor
 
     fake = FakeComfy()
-    llm = LlmSupervisor(stop_cmd=lambda: None, start_cmd=lambda: None, is_up=lambda: False)
+    llm = LlmSupervisor(stop_cmd=lambda: None, start_cmd=lambda: None, is_up=lambda: False, settle_seconds=0)
     comfy = ComfySupervisor(
         base_url="http://127.0.0.1:8189",
         root=str(tmp_path / "comfy"),
@@ -272,7 +272,7 @@ def test_save_skips_when_db_already_cancelled(tmp_path, monkeypatch):
     from app.llm_supervisor import LlmSupervisor
 
     fake = FakeComfy()
-    llm = LlmSupervisor(stop_cmd=lambda: None, start_cmd=lambda: None, is_up=lambda: False)
+    llm = LlmSupervisor(stop_cmd=lambda: None, start_cmd=lambda: None, is_up=lambda: False, settle_seconds=0)
     comfy = ComfySupervisor(
         base_url="http://127.0.0.1:8189",
         root=str(tmp_path / "comfy"),
@@ -353,7 +353,7 @@ def test_worker_serial_never_two_running(tmp_path, monkeypatch):
     from app.llm_supervisor import LlmSupervisor
 
     fake = FakeComfy(sleep_s=0.15)
-    llm = LlmSupervisor(stop_cmd=lambda: None, start_cmd=lambda: None, is_up=lambda: False)
+    llm = LlmSupervisor(stop_cmd=lambda: None, start_cmd=lambda: None, is_up=lambda: False, settle_seconds=0)
     comfy = ComfySupervisor(
         base_url="http://127.0.0.1:8189",
         root=str(tmp_path / "comfy"),

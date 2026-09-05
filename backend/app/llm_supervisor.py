@@ -76,6 +76,8 @@ class LlmSupervisor:
         port: int = DEFAULT_LLM_PORT,
         ready_timeout_seconds: float = 900.0,
         poll_interval_seconds: float = 2.0,
+        release_timeout_seconds: float = 60.0,
+        settle_seconds: float = 15.0,
     ) -> None:
         self._port = port
         self._stop_cmd = stop_cmd or (lambda: _default_stop_cmd(self._port))
@@ -83,6 +85,8 @@ class LlmSupervisor:
         self._is_up = is_up or (lambda: _default_is_up(f"http://127.0.0.1:{self._port}/v1/models"))
         self.ready_timeout_seconds = ready_timeout_seconds
         self.poll_interval_seconds = poll_interval_seconds
+        self.release_timeout_seconds = release_timeout_seconds
+        self.settle_seconds = settle_seconds
         self._image_busy = False
 
     @property
@@ -95,10 +99,32 @@ class LlmSupervisor:
             self.stop_llm()
 
     def stop_llm(self) -> None:
+        """Kill Flash-Next and wait until the port is down + a short RAM settle."""
         try:
             self._stop_cmd()
         except Exception:
             pass
+        deadline = time.monotonic() + self.release_timeout_seconds
+        while time.monotonic() < deadline:
+            if not self._is_up():
+                break
+            try:
+                self._stop_cmd()
+            except Exception:
+                pass
+            time.sleep(min(1.0, self.poll_interval_seconds))
+        # OS may still be reclaiming GGUF pages; give RAM a beat before Comfy loads.
+        if self.settle_seconds > 0:
+            time.sleep(self.settle_seconds)
+
+    def wait_released(self) -> None:
+        """Block until LLM health is down (no extra settle). Used by worker preflight."""
+        deadline = time.monotonic() + self.release_timeout_seconds
+        while time.monotonic() < deadline:
+            if not self._is_up():
+                return
+            time.sleep(min(1.0, self.poll_interval_seconds))
+        raise TimeoutError(f"LLM still responding on port {self._port} after stop")
 
     def ensure_llm(self) -> None:
         """Lazy-start LLM for text routes; no-op while image pipeline holds the mutex."""
