@@ -9,6 +9,13 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.db import Asset, Project, project_dir
 from app.domain.registry import look_text, normalize_kind
+from app.comfy_pipeline.persona import (
+    identity_lock_en,
+    identity_lock_zh,
+    identity_negative,
+    infer_age_tier,
+    infer_gender,
+)
 from app.services import _load, refresh_shot_readiness, serialize_asset
 
 
@@ -60,20 +67,47 @@ def _look_prompt(asset: Asset) -> str:
     return text or asset.name
 
 
+def character_persona(asset: Asset) -> tuple[str, str]:
+    look = _look_prompt(asset)
+    gender = infer_gender(
+        name=asset.name or "",
+        refer_as=asset.refer_as or "",
+        age_band=asset.age_band or "",
+        look=look,
+    )
+    age_tier = infer_age_tier(
+        name=asset.name or "",
+        refer_as=asset.refer_as or "",
+        age_band=asset.age_band or "",
+        look=look,
+    )
+    return gender, age_tier
+
+
 def build_field_prompt(project: Project, asset: Asset, field: str) -> str:
     kind = normalize_kind(asset.kind)
     look = _look_prompt(asset)
     style = project.style or "半写实"
-    if kind == "character" and field == "full":
-        return (
-            f"{style}。{look}。"
-            "全身站立人像，从头到脚完整入镜，正面或微侧，可见鞋子，无背景白底，单人。"
+    if kind == "character":
+        gender, age_tier = character_persona(asset)
+        lock = identity_lock_zh(
+            gender=gender,
+            age_tier=age_tier,
+            refer_as=asset.refer_as or "",
+            age_band=asset.age_band or "",
         )
-    if kind == "character" and field == "half":
-        return (
-            "保持人物身份、五官、发型与服饰完全一致，生成正面半身胸像，"
-            "头肩构图，面部清晰，无背景白底，不要全身。"
-        )
+        en = identity_lock_en(gender=gender, age_tier=age_tier)
+        identity = "。".join(x for x in (lock, en) if x)
+        if field == "full":
+            return (
+                f"{style}。{identity}。角色名：{asset.name}。{look}。"
+                "全身站立人像，从头到脚完整入镜，正面或微侧，可见鞋子，无背景白底，单人。"
+            )
+        if field == "half":
+            return (
+                f"保持人物身份、性别、年龄感、五官、发型与服饰完全一致（{identity}），"
+                "生成正面半身胸像，头肩构图，面部清晰，无背景白底，不要全身。"
+            )
     if kind == "scene" and field == "far":
         return f"{style}。场景：{asset.name}。{look}。电影布光，环境完整，远景全貌，不要人物特写。"
     if kind == "scene" and field == "near":

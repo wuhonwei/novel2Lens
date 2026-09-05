@@ -28,6 +28,8 @@ from app.comfy_supervisor import ComfySupervisor
 from app.config import settings
 from app.db import Asset, ImageJob, Project
 from app.image_gen import abs_media_path, write_asset_image
+from app.comfy_pipeline.persona import identity_lock_en, identity_negative
+from app.comfy_pipeline.character_prompt import enrich_character_prompt, enrich_character_negative
 from app.image_jobs import has_active_jobs, next_queued_job
 from app.llm_supervisor import LlmSupervisor
 from app.services import refresh_shot_readiness
@@ -226,25 +228,74 @@ class ImageWorker:
         quality = payload.get("quality") or "standard"
         aspect = payload.get("aspect") or "1:1"
         subject_type = payload.get("subject_type") or "scenery"
+        gender = payload.get("gender") or "unknown"
+        age_tier = payload.get("age_tier") or "unknown"
+        prefer_backend = (payload.get("prefer_backend") or "").strip()
         qp = QUALITY_PARAMS.get(quality, QUALITY_PARAMS["standard"])
         live_ckpts = set(client.list_checkpoints() or [])
+
+        t2i_prompt = prompt
+        if subject_type == "character":
+            en_lock = identity_lock_en(gender=gender, age_tier=age_tier)
+            if en_lock:
+                t2i_prompt = f"{en_lock}. {t2i_prompt}"
+            # Drop doll-beauty bias for males / elders before style suffix.
+            if gender == "male" or age_tier == "elder":
+                style_for_suffix = "guofeng" if style == "guofeng_cg" else style
+            else:
+                style_for_suffix = style
+            t2i_prompt = enrich_character_prompt(
+                t2i_prompt,
+                style_for_suffix,
+                no_background=bool(payload.get("no_background")),
+                gender=gender,
+                age_tier=age_tier,
+            )
+        else:
+            style_for_suffix = style
+
         try:
             backend = pick_t2i_backend(
                 style,
                 quality,
                 self.models_dir,
-                prompt,
+                t2i_prompt,
                 subject_type=subject_type if subject_type != "prop" else "scenery",
                 available_ckpts=live_ckpts or None,
             )
         except ValueError:
-            # Fake / empty Comfy: fall back to RealVis compile path
             backend = "sdxl_realvis"
 
-        positive = build_positive(prompt, style)
-        negative = STYLE_DEFAULT_NEGATIVE
-        if subject_type == "scenery":
-            negative = f"{negative}, people, person, human, face, crowd"
+        if prefer_backend == "sdxl_realvis" and (
+            live_ckpts is None
+            or not live_ckpts
+            or "RealVisXL_V5.0_fp16.safetensors" in live_ckpts
+            or (self.models_dir / "checkpoints" / "RealVisXL_V5.0_fp16.safetensors").exists()
+        ):
+            # Prefer RealVis when Guofeng would paint every male as a young woman.
+            if "RealVisXL_V5.0_fp16.safetensors" in (live_ckpts or set()) or (
+                self.models_dir / "checkpoints" / "RealVisXL_V5.0_fp16.safetensors"
+            ).exists():
+                backend = "sdxl_realvis"
+
+        if subject_type == "character":
+            positive = build_positive(t2i_prompt, style_for_suffix)
+            negative = enrich_character_negative(
+                t2i_prompt,
+                STYLE_DEFAULT_NEGATIVE,
+                style=style_for_suffix,
+                no_background=bool(payload.get("no_background")),
+                gender=gender,
+                age_tier=age_tier,
+            )
+            extra_neg = identity_negative(gender=gender, age_tier=age_tier)
+            if extra_neg:
+                negative = f"{negative}, {extra_neg}"
+        else:
+            positive = build_positive(prompt, style)
+            negative = STYLE_DEFAULT_NEGATIVE
+            if subject_type == "scenery":
+                negative = f"{negative}, people, person, human, face, crowd"
 
         if backend == "ideogram4":
             width, height = resolve_size(aspect, "ideogram4")

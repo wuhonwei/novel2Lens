@@ -268,26 +268,47 @@ def _hair_extras(text: str) -> list[str]:
     ]
 
 
-def enrich_character_prompt(prompt: str, style: str, *, no_background: bool = False) -> str:
-    """Shot type follows user prompt; 全身优先于特写。"""
+def enrich_character_prompt(
+    prompt: str,
+    style: str,
+    *,
+    no_background: bool = False,
+    gender: str = "unknown",
+    age_tier: str = "unknown",
+) -> str:
+    """Shot type follows user prompt; 全身优先于特写. Gender must not default to woman."""
     raw = (prompt or "").strip()
     fullbody = is_fullbody_prompt(raw)
     want_nobg = is_no_background_prompt(raw, flag=no_background)
     text = _normalize_fullbody_text(raw) if fullbody else raw
     extras: list[str] = []
 
+    if gender == "male":
+        solo = "solo, single person, one man only"
+        subject = "man"
+        anime_token = "1boy"
+    elif gender == "female":
+        solo = "solo, single person, one woman only"
+        subject = "woman"
+        anime_token = "1girl"
+    else:
+        solo = "solo, single person, one character only"
+        subject = "person"
+        anime_token = ""
+
     if style == "guofeng_cg":
+        # Avoid baked-in "beautiful young Chinese woman" recipe — identity comes from prompt.
         if fullbody:
-            extras.extend(GUOFENG_CG_LOOK_FULLBODY)
+            extras.extend([solo, "Chinese historical costume"])
             extras.extend(GUOFENG_CG_FULLBODY_SHOT)
             extras.extend(_hair_extras(raw))
             if want_nobg:
                 text, extras = apply_no_background(text, extras)
             return (
-                "full body standing shot of a woman, head to toe, feet and shoes visible, "
+                f"full body standing shot of a {subject}, head to toe, feet and shoes visible, "
                 f"{text}, " + ", ".join(extras) + ", FULL BODY, entire figure in frame, feet visible"
             )
-        extras.extend(GUOFENG_CG_LOOK)
+        extras.extend([solo, "Chinese historical costume", "detailed face"])
         extras.extend(GUOFENG_CG_CLOSEUP_SHOT)
         extras.extend(_hair_extras(raw))
         if want_nobg:
@@ -295,21 +316,21 @@ def enrich_character_prompt(prompt: str, style: str, *, no_background: bool = Fa
         return f"{text}, " + ", ".join(extras) + ", CLOSE-UP, head and shoulders only"
 
     if is_person_prompt(text):
-        extras.append("solo, single person, one woman only")
+        extras.append(solo)
 
     if fullbody:
         extras.extend(FULLBODY_EXTRAS)
         extras.extend(_hair_extras(raw))
         if _FRONT_RE.search(raw):
             extras.extend(["front view", "facing camera", "looking at viewer", "symmetrical standing pose"])
-        if style == "anime":
-            extras.extend(["1girl", "full body"])
+        if style == "anime" and anime_token:
+            extras.extend([anime_token, "full body"])
         if style == "guofeng":
             extras.append("detailed face, elegant clothing")
         if want_nobg:
             text, extras = apply_no_background(text, extras)
         return (
-            "full body standing shot, head to toe, feet and shoes visible, "
+            f"full body standing shot of a {subject}, head to toe, feet and shoes visible, "
             f"{text}, " + ", ".join(extras) + ", FULL BODY, entire figure in frame, feet visible"
         )
 
@@ -328,8 +349,8 @@ def enrich_character_prompt(prompt: str, style: str, *, no_background: bool = Fa
 
     extras.extend(_hair_extras(raw))
 
-    if style == "anime":
-        extras.append("1girl")
+    if style == "anime" and anime_token:
+        extras.append(anime_token)
     if style == "guofeng":
         extras.append("detailed face, elegant clothing")
 
@@ -347,16 +368,24 @@ def enrich_character_negative(
     style: str = "",
     *,
     no_background: bool = False,
+    gender: str = "unknown",
+    age_tier: str = "unknown",
 ) -> str:
     base = (negative or "").strip()
-    extra: list[str] = ["multiple people", "two girls", "twins", "crowd"]
+    extra: list[str] = ["multiple people", "twins", "crowd"]
+    if gender == "male":
+        extra.extend(["two girls", "woman", "1girl"])
+    elif gender == "female":
+        extra.extend(["two boys", "man", "1boy"])
+    else:
+        extra.extend(["two girls", "two boys"])
 
     if is_fullbody_prompt(prompt or ""):
         extra.extend(FULLBODY_NEGATIVE)
     elif style == "guofeng_cg" or is_closeup_prompt(prompt or ""):
         extra.extend(CLOSEUP_NEGATIVE)
 
-    if style == "guofeng_cg":
+    if style == "guofeng_cg" and gender != "male" and age_tier != "elder":
         extra.extend(GUOFENG_CG_QUALITY_NEGATIVE)
 
     if is_no_background_prompt(prompt or "", flag=no_background):
@@ -367,10 +396,9 @@ def enrich_character_negative(
 
     seen: set[str] = set()
     ordered: list[str] = []
-    for part in [base] + extra:
-        for token in [t.strip() for t in part.split(",") if t.strip()]:
-            key = token.lower()
-            if key not in seen:
-                seen.add(key)
-                ordered.append(token)
+    for part in (base.split(",") if base else []) + extra:
+        p = part.strip()
+        if p and p.lower() not in seen:
+            seen.add(p.lower())
+            ordered.append(p)
     return ", ".join(ordered)

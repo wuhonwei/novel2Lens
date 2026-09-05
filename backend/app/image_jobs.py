@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.db import Asset, ImageJob, Project
 from app.domain.registry import normalize_kind
-from app.image_gen import _style_for, build_field_prompt
+from app.image_gen import _style_for, build_field_prompt, character_persona
 from app.services import _uid
 
 
@@ -121,13 +121,21 @@ def _t2i_payload(asset: Asset, project: Project, field: str, aspect: str) -> dic
     kind = normalize_kind(asset.kind)
     style_key = _style_for(kind, project.style or "")
     subject = "character" if kind == "character" else ("scenery" if kind == "scene" else "prop")
-    return {
-        "aspect": aspect,
+    payload: dict[str, Any] = {
         "style": style_key,
-        "subject_type": subject,
         "quality": "standard",
-        "no_background": kind in ("character", "prop"),
+        "aspect": aspect,
+        "subject_type": subject,
+        "no_background": kind == "character",
     }
+    if kind == "character":
+        gender, age_tier = character_persona(asset)
+        payload["gender"] = gender
+        payload["age_tier"] = age_tier
+        # Guofeng XL heavily biases young women; males/elders use RealVis path.
+        if gender == "male" or age_tier == "elder":
+            payload["prefer_backend"] = "sdxl_realvis"
+    return payload
 
 
 def _edit_payload(
