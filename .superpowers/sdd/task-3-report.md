@@ -2,7 +2,7 @@
 
 **Status:** DONE  
 **Branch:** `feature/embedded-image-pipeline`  
-**Commit:** (see git log after commit)
+**Commit:** `4a2c27e` — Add Comfy and LLM supervisors for on-demand load and hard mutex.
 
 ## Summary
 
