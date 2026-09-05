@@ -894,8 +894,17 @@ function AssetCard({
   const [desc, setDesc] = useState(asset.desc_zh);
   const [imgBusy, setImgBusy] = useState("");
   const [editOpen, setEditOpen] = useState(false);
+  const [preview, setPreview] = useState<{ src: string; label: string } | null>(null);
   useEffect(() => setBackground(asset.background_zh || ""), [asset.background_zh]);
   useEffect(() => setDesc(asset.desc_zh), [asset.desc_zh]);
+  useEffect(() => {
+    if (!preview) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setPreview(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [preview]);
   const kind = normalizeKind(asset.kind);
   const slotBusy = jobs.length > 0 || !!imgBusy;
 
@@ -959,7 +968,14 @@ function AssetCard({
     return (
       <div className={`thumb-slot ${wide ? "wide-slot" : ""}`} data-field={field}>
         {path ? (
-          <img className={wide ? "wide" : undefined} src={mediaUrl(path)} alt={label} />
+          <button
+            type="button"
+            className="thumb-open"
+            title={`查看大图 · ${label}`}
+            onClick={() => setPreview({ src: mediaUrl(path), label: `${asset.name} · ${label}` })}
+          >
+            <img className={wide ? "wide" : undefined} src={mediaUrl(path)} alt={label} />
+          </button>
         ) : (
           <div className={`ph ${wide ? "wide" : ""}`}>{label}</div>
         )}
@@ -1075,6 +1091,29 @@ function AssetCard({
             setEditOpen(false);
           }}
         />
+      ) : null}
+
+      {preview ? (
+        <div
+          className="lightbox-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-label={preview.label}
+          onClick={() => setPreview(null)}
+        >
+          <button type="button" className="lightbox-close" aria-label="关闭" onClick={() => setPreview(null)}>
+            ×
+          </button>
+          <img
+            className="lightbox-img"
+            src={preview.src}
+            alt={preview.label}
+            onClick={(e) => e.stopPropagation()}
+          />
+          <p className="lightbox-caption" onClick={(e) => e.stopPropagation()}>
+            {preview.label}
+          </p>
+        </div>
       ) : null}
     </article>
   );

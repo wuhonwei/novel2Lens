@@ -474,6 +474,68 @@ input, select { width: 100%; }
 .thumbs .ph.wide, .thumbs img.wide { width: 160px; height: 90px; }
 .thumb-slot { display: flex; flex-direction: column; gap: 0.35rem; position: relative; }
 .thumb-slot.wide-slot .ph.wide, .thumb-slot.wide-slot img.wide { width: 160px; height: 90px; }
+.thumb-open {
+  display: block;
+  padding: 0;
+  margin: 0;
+  border: none;
+  background: transparent;
+  cursor: zoom-in;
+  border-radius: 10px;
+  line-height: 0;
+}
+.thumb-open:focus-visible {
+  outline: 2px solid var(--warm);
+  outline-offset: 2px;
+}
+.thumb-open img { display: block; }
+.lightbox-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(4, 8, 6, 0.88);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.65rem;
+  padding: 1.25rem;
+  cursor: zoom-out;
+}
+.lightbox-img {
+  max-width: min(96vw, 1200px);
+  max-height: min(82vh, 900px);
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55);
+  cursor: default;
+  background: rgba(0, 0, 0, 0.35);
+}
+.lightbox-caption {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+  text-align: center;
+  max-width: 90vw;
+}
+.lightbox-close {
+  position: absolute;
+  top: 0.85rem;
+  right: 1rem;
+  width: 2.4rem;
+  height: 2.4rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgba(18, 26, 22, 0.9);
+  color: var(--text);
+  font-size: 1.45rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.lightbox-close:hover { background: rgba(30, 40, 34, 0.95); }
 .slot-badge {
   position: absolute;
   top: 0.35rem;
