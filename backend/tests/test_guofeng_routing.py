@@ -23,5 +23,5 @@ def test_half_prompt_mentions_look_and_outfit():
     )
     text = build_field_prompt(project, asset, "half")
     assert "半身" in text or "胸像" in text
-    assert "洗白长衫" in text or "长衫" in text
+    assert "参考" in text or "同一人物" in text
     assert "服饰" in text

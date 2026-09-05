@@ -101,8 +101,20 @@ def _prop_visual_brief(name: str, desc: str) -> str:
     text = re.sub(r"[，,。；;]*指引[^。；;]*", "，", text)
     text = re.sub(r"[，,。；;]*通往[^。；;]*", "，", text)
     text = re.sub(r"[，,。；;]*藏在[^。；;]*", "，", text)
+    text = re.sub(r"[，,。；;]*里面装有[^。；;]*", "，", text)
+    text = re.sub(r"[，,。；;]*记载[^。；;]*", "，", text)
     text = re.sub(r"[，,]{2,}", "，", text).strip("，,。；; ")
     return text or name
+
+
+_PROP_SHAPE_HINTS = {
+    "玉佩": "中国古玉佩坠，碧玉或白玉雕成的佩饰，可对半分开的一对玉佩，刻字清晰，桌面静物",
+    "文献": "一叠用丝线捆扎的古旧宣纸文书卷轴，纸张纹理可见",
+    "木盒": "紫檀木雕花小方盒，合盖静物",
+    "火折子": "古代火折子点火器具，竹筒或金属小筒形随身火具",
+    "千年古松": "一棵苍劲千年古松的微缩盆景式特写，树干与松针清晰",
+    "密道": "木门后的狭窄地下密道入口特写，石阶与木框，无人物",
+}
 
 
 def build_field_prompt(project: Project, asset: Asset, field: str) -> str:
@@ -127,16 +139,30 @@ def build_field_prompt(project: Project, asset: Asset, field: str) -> str:
                 "不要现代衬衫西裤运动鞋，不要真人摄影棚写真"
             )
         if field == "full":
+            clothing = ""
+            try:
+                from app.services import _load
+
+                clothing = str((_load(asset.appearance_json, {}) or {}).get("clothing") or "").strip()
+            except Exception:
+                clothing = ""
+            clothes_lock = f"必须身着：{clothing}。" if clothing else ""
             return (
-                f"{style}。{period}。{identity}。角色名：{asset.name}。{look}。"
+                f"{style}。{period}。{identity}。角色名：{asset.name}。{clothes_lock}{look}。"
                 "全身站立人像，从头到脚完整入镜，正面或微侧，可见鞋子，"
                 "纯白色不透明实底背景，不要透明，不要棋盘格，单人。"
+                + (
+                    "禁止白衣金甲、禁止华丽仙女战甲、禁止露出大腿的铠甲短打。"
+                    if clothing and any(x in clothing for x in ("黑", "官", "布衣", "短打"))
+                    else ""
+                )
             )
         if field == "half":
-            # Ref-first reframe: text must not redesign costume/period vs the full reference.
+            # Pure reframe: no look/period text that can fight the full-body reference pixels.
             return (
-                f"严格按参考全身图同一人物重裁为正面半身胸像：五官、发型、妆造、服饰纹样与参考图完全一致，"
-                f"禁止换脸、换年龄性别、换装或重新设计角色（外貌备注仅辅助：{look}）。"
+                "严格按参考全身图同一人物重裁为正面半身胸像："
+                "五官、发型、妆造、服饰颜色与纹样必须与参考图像素级一致，"
+                "禁止换脸、换年龄性别、换装、换配色或重新设计角色。"
                 "头肩构图，面部清晰，不要全身。"
                 "纯白色不透明实底背景，不要透明，不要棋盘格。"
             )
@@ -149,10 +175,12 @@ def build_field_prompt(project: Project, asset: Asset, field: str) -> str:
         )
     if kind == "prop" or field == "image":
         visual = _prop_visual_brief(asset.name or "", look)
+        shape = _PROP_SHAPE_HINTS.get(asset.name or "", f"单个「{asset.name}」实物道具")
         return (
-            f"{style}。核心道具特写：{asset.name}。形制：{visual}。"
+            f"{style}。核心道具特写：{asset.name}。{shape}。形制细节：{visual}。"
             "单个静物居中，产品级道具质感，浅灰或纯色背景，"
-            "不要人物，不要手，不要建筑外景，不要房间内景宽镜头，不要风景。"
+            "不要人物，不要手，不要建筑外景，不要房间内景宽镜头，不要风景，"
+            "不要摄影灯、聚光灯、三脚架、现代电器。"
         )
     return f"{style}。{look}"
 

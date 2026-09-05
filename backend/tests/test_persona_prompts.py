@@ -115,7 +115,9 @@ def test_half_prompt_is_reframe_not_redesign():
     assert "同一人物" in text or "参考" in text
     # Must not push a costume redesign that fights the full-body reference image
     assert "汉服或江湖劲装" not in text
-    assert "不要换装" in text or "禁止换" in text
+    assert "禁止换" in text
+    # Look prose must not be injected (it caused half to ignore the full reference)
+    assert "穿着官服" not in text
 
 
 def test_prop_prompt_is_object_not_narrative_scene():
@@ -132,3 +134,5 @@ def test_prop_prompt_is_object_not_narrative_scene():
     assert "不要人物" in text or "禁止人物" in text
     assert "不要" in text and ("建筑" in text or "场景" in text or "风景" in text)
     assert "手中" not in text
+    assert "玉佩坠" in text or "古玉" in text
+    assert "聚光灯" in text or "摄影灯" in text

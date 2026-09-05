@@ -309,6 +309,13 @@ class ImageWorker:
                 negative = f"{negative}, {extra_neg}"
             if style_for_suffix in ("guofeng_cg", "guofeng"):
                 negative = f"{negative}, {GUOFENG_PERIOD_NEGATIVE}"
+            # Hard clothing color locks for assassin / official looks that Guofeng loves to overwrite.
+            blob = f"{prompt} {t2i_prompt}".lower()
+            if any(x in prompt for x in ("黑色", "黑衣", "官服", "短打")):
+                negative = (
+                    f"{negative}, white fantasy armor, gold filigree armor, "
+                    "beautiful young woman, 1girl, exposed thighs, glamorous goddess armor"
+                )
         else:
             positive = build_positive(prompt, style)
             negative = STYLE_DEFAULT_NEGATIVE
@@ -317,7 +324,8 @@ class ImageWorker:
             if subject_type == "prop":
                 negative = (
                     f"{negative}, people, person, human, hands, face, fingers, "
-                    "building exterior, courtyard, room interior, landscape, scenery, wide shot"
+                    "building exterior, courtyard, room interior, landscape, scenery, wide shot, "
+                    "spotlight, tripod, studio softbox, lamp, photography equipment"
                 )
                 positive = (
                     f"single prop product shot, centered object, plain studio background, "

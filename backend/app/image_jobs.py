@@ -233,9 +233,11 @@ def enqueue_asset_all_slots(db: Session, project: Project, asset: Asset) -> list
 
     fields = required_fields_for_asset(asset)
     base_ts = _utcnow()
+    batch_id = _uid()
     jobs: list[ImageJob] = []
     for i, field in enumerate(fields):
         job = _build_asset_field_job(project, asset, field)
+        job.batch_id = batch_id
         job.created_at = base_ts + timedelta(microseconds=i)
         job.updated_at = job.created_at
         jobs.append(job)
