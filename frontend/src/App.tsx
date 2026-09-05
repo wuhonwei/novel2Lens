@@ -1334,7 +1334,13 @@ function ShotCard({
               {ref.mode === "text" ? (
                 <div className="ph text-ph">{(ref.text || "文字描述补足").slice(0, 72)}</div>
               ) : ref.uploaded && ref.path ? (
-                <img src={mediaUrl(ref.path)} alt={ref.image_role} />
+                <img
+                  src={mediaUrl(
+                    ref.path,
+                    assets.find((a) => a.id === ref.asset_id)?.media_version,
+                  )}
+                  alt={ref.image_role}
+                />
               ) : (
                 <div className="ph">{ref.status_zh || "尚未上传"}</div>
               )}
