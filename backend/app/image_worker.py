@@ -126,11 +126,23 @@ class ImageWorker:
         finally:
             db.close()
 
-    def _save(self, db: Session, job: ImageJob) -> None:
+    def _save(self, db: Session, job: ImageJob) -> bool:
+        """Persist job progress. Returns False if DB already cancelled (no overwrite)."""
         from datetime import datetime, timezone
+
+        check = self.session_factory()
+        try:
+            fresh = check.get(ImageJob, job.id)
+            if fresh is not None and fresh.status == "cancelled":
+                db.rollback()
+                db.refresh(job)
+                return False
+        finally:
+            check.close()
 
         job.updated_at = datetime.now(timezone.utc)
         db.commit()
+        return True
 
     def _client(self) -> Any:
         return self.comfy._client()
@@ -142,11 +154,7 @@ class ImageWorker:
             job.status = "running"
             job.error = ""
             job.phase = "ensuring_comfy"
-            self._save(db, job)
-
-            # Re-check cancel after phase update
-            db.refresh(job)
-            if job.status == "cancelled":
+            if not self._save(db, job):
                 return
 
             self.comfy.ensure_running()
@@ -157,22 +165,33 @@ class ImageWorker:
                 if self._last_kind == "edit":
                     self.comfy.free_models()
                 job.phase = "loading_t2i"
-                self._save(db, job)
+                if not self._save(db, job):
+                    return
                 job.phase = "generating"
-                self._save(db, job)
+                if not self._save(db, job):
+                    return
                 png = self._run_t2i(client, job.prompt, payload)
             else:
                 if self._last_kind == "t2i":
                     self.comfy.free_models()
                 job.phase = "loading_edit"
-                self._save(db, job)
+                if not self._save(db, job):
+                    return
                 job.phase = "generating"
-                self._save(db, job)
+                if not self._save(db, job):
+                    return
                 png = self._run_edit(db, client, job, payload)
 
-            db.refresh(job)
-            if job.status == "cancelled":
-                return
+            # Abort before write/succeed if cancelled while generating
+            check = self.session_factory()
+            try:
+                fresh = check.get(ImageJob, job.id)
+                if fresh is not None and fresh.status == "cancelled":
+                    db.rollback()
+                    db.refresh(job)
+                    return
+            finally:
+                check.close()
 
             project = db.get(Project, job.project_id)
             asset = db.get(Asset, job.asset_id)
@@ -183,7 +202,8 @@ class ImageWorker:
             job.status = "succeeded"
             job.phase = ""
             job.error = ""
-            self._save(db, job)
+            if not self._save(db, job):
+                return
             self._last_kind = job.kind
             self.comfy.note_activity()
         finally:

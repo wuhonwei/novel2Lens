@@ -18,6 +18,7 @@ from app.domain.registry import sanitize_aliases, sanitize_character_fields
 from app.image_gen import clear_asset_image, list_image_output_files, resolve_image_output_dir
 from app.image_jobs import (
     cancel_batch,
+    enqueue_asset_all_slots,
     enqueue_asset_field,
     enqueue_manual_edit,
     enqueue_one_click,
@@ -502,20 +503,18 @@ def api_generate_asset_image(project_id: str, asset_id: str, field: str | None =
         if not asset or asset.project_id != project_id:
             raise HTTPException(404, "资产不存在")
         try:
-            from app.domain.registry import normalize_kind
-
-            kind = normalize_kind(asset.kind)
             if field is None:
-                if kind == "character":
-                    field = "full"
-                elif kind == "scene":
-                    field = "far"
-                else:
-                    field = "image"
-            job = enqueue_asset_field(db, project, asset, field)
+                jobs = enqueue_asset_all_slots(db, project, asset)
+            else:
+                jobs = [enqueue_asset_field(db, project, asset, field)]
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
-        return {"ok": True, "job": serialize_job(job), "asset": serialize_asset(asset)}
+        return {
+            "ok": True,
+            "job": serialize_job(jobs[0]),
+            "jobs": [serialize_job(j) for j in jobs],
+            "asset": serialize_asset(asset),
+        }
     finally:
         db.close()
 

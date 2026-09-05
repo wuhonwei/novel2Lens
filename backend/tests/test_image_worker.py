@@ -207,6 +207,142 @@ def test_llm_route_409_while_job_queued(tmp_path, monkeypatch):
             assert "参考图生成中" in r.json()["detail"]
 
 
+def test_enqueue_asset_all_slots_orders_t2i_then_edit(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.config.settings.data_dir", tmp_path)
+    reset_engine(f"sqlite:///{tmp_path / 't.sqlite'}")
+
+    from app.image_jobs import enqueue_asset_all_slots
+
+    db = database.SessionLocal()
+    try:
+        project, char, scene, prop = _seed_project(db)
+
+        char_jobs = enqueue_asset_all_slots(db, project, char)
+        assert [j.kind for j in char_jobs] == ["t2i", "edit"]
+        assert [j.target_field for j in char_jobs] == ["full", "half"]
+
+        scene_jobs = enqueue_asset_all_slots(db, project, scene)
+        assert [j.kind for j in scene_jobs] == ["t2i", "edit"]
+        assert [j.target_field for j in scene_jobs] == ["far", "near"]
+
+        prop_jobs = enqueue_asset_all_slots(db, project, prop)
+        assert [j.kind for j in prop_jobs] == ["t2i"]
+        assert [j.target_field for j in prop_jobs] == ["image"]
+    finally:
+        db.close()
+
+
+def test_generate_image_field_none_enqueues_all_slots(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.config.settings.data_dir", tmp_path)
+    reset_engine(f"sqlite:///{tmp_path / 't.sqlite'}")
+    monkeypatch.setattr("app.main._start_image_worker", lambda: None)
+    monkeypatch.setattr("app.main._stop_image_worker", lambda: None)
+
+    db = database.SessionLocal()
+    try:
+        project, char, scene, prop = _seed_project(db)
+        pid = project.id
+        char_id, scene_id, prop_id = char.id, scene.id, prop.id
+    finally:
+        db.close()
+
+    with TestClient(app) as client:
+        char_out = client.post(f"/api/projects/{pid}/assets/{char_id}/generate-image")
+        assert char_out.status_code == 200, char_out.text
+        body = char_out.json()
+        assert len(body["jobs"]) == 2
+        assert [j["target_field"] for j in body["jobs"]] == ["full", "half"]
+        assert [j["kind"] for j in body["jobs"]] == ["t2i", "edit"]
+
+        scene_out = client.post(f"/api/projects/{pid}/assets/{scene_id}/generate-image")
+        assert scene_out.status_code == 200, scene_out.text
+        assert [j["target_field"] for j in scene_out.json()["jobs"]] == ["far", "near"]
+
+        prop_out = client.post(f"/api/projects/{pid}/assets/{prop_id}/generate-image")
+        assert prop_out.status_code == 200, prop_out.text
+        assert [j["target_field"] for j in prop_out.json()["jobs"]] == ["image"]
+
+
+def test_save_skips_when_db_already_cancelled(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.config.settings.data_dir", tmp_path)
+    reset_engine(f"sqlite:///{tmp_path / 't.sqlite'}")
+
+    from app.comfy_supervisor import ComfySupervisor
+    from app.image_worker import ImageWorker
+    from app.llm_supervisor import LlmSupervisor
+
+    fake = FakeComfy()
+    llm = LlmSupervisor(stop_cmd=lambda: None, start_cmd=lambda: None, is_up=lambda: False)
+    comfy = ComfySupervisor(
+        base_url="http://127.0.0.1:8189",
+        root=str(tmp_path / "comfy"),
+        python="python",
+        idle_seconds=9999,
+        stop_when_idle=False,
+        client_factory=lambda _url: fake,
+        start_process=lambda: None,
+        stop_process=lambda: None,
+        is_up=lambda: True,
+    )
+    worker = ImageWorker(
+        session_factory=database.SessionLocal,
+        comfy=comfy,
+        llm=llm,
+        models_dir=tmp_path / "models",
+    )
+
+    db = database.SessionLocal()
+    try:
+        project, char, *_ = _seed_project(db)
+        job = ImageJob(
+            id=_uid(),
+            project_id=project.id,
+            asset_id=char.id,
+            kind="t2i",
+            target_field="full",
+            status="running",
+            phase="generating",
+            prompt="x",
+            payload_json="{}",
+            batch_id=_uid(),
+            error="",
+        )
+        db.add(job)
+        db.commit()
+        job_id = job.id
+    finally:
+        db.close()
+
+    # Cancel from a separate session (simulates API cancel race)
+    cancel_db = database.SessionLocal()
+    try:
+        row = cancel_db.get(ImageJob, job_id)
+        assert row is not None
+        row.status = "cancelled"
+        row.error = "cancelled_by_user"
+        cancel_db.commit()
+    finally:
+        cancel_db.close()
+
+    work_db = database.SessionLocal()
+    try:
+        job = work_db.get(ImageJob, job_id)
+        assert job is not None
+        # Worker about to overwrite with succeeded
+        job.status = "succeeded"
+        job.phase = ""
+        job.error = ""
+        ok = worker._save(work_db, job)
+        assert ok is False
+        work_db.expire_all()
+        again = work_db.get(ImageJob, job_id)
+        assert again is not None
+        assert again.status == "cancelled"
+        assert again.error == "cancelled_by_user"
+    finally:
+        work_db.close()
+
+
 def test_worker_serial_never_two_running(tmp_path, monkeypatch):
     monkeypatch.setattr("app.config.settings.data_dir", tmp_path)
     reset_engine(f"sqlite:///{tmp_path / 't.sqlite'}")
@@ -247,3 +383,10 @@ def test_worker_serial_never_two_running(tmp_path, monkeypatch):
     worker.drain_once()
     assert fake.max_concurrent == 1
     assert fake.queue_calls == 5
+    # Light strengthening: every job finished succeeded under serial drain
+    db = database.SessionLocal()
+    try:
+        statuses = [j.status for j in db.query(ImageJob).all()]
+        assert statuses == ["succeeded"] * 5
+    finally:
+        db.close()

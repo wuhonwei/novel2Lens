@@ -144,71 +144,96 @@ def _edit_payload(
     }
 
 
-def enqueue_asset_field(db: Session, project: Project, asset: Asset, field: str) -> ImageJob:
+def _build_asset_field_job(project: Project, asset: Asset, field: str) -> ImageJob:
+    """Build a single queued ImageJob for one asset field (not yet added to session)."""
     kind = normalize_kind(asset.kind)
     field = (field or "").strip()
     if kind == "character":
         if field == "full":
-            prompt = build_field_prompt(project, asset, "full")
-            job = _make_job(
+            return _make_job(
                 project=project,
                 asset=asset,
                 kind="t2i",
                 target_field="full",
-                prompt=prompt,
+                prompt=build_field_prompt(project, asset, "full"),
                 payload=_t2i_payload(asset, project, "full", "9:16"),
             )
-        elif field == "half":
-            prompt = build_field_prompt(project, asset, "half")
-            job = _make_job(
+        if field == "half":
+            return _make_job(
                 project=project,
                 asset=asset,
                 kind="edit",
                 target_field="half",
-                prompt=prompt,
+                prompt=build_field_prompt(project, asset, "half"),
                 payload=_edit_payload(aspect="3:4", ref_field="full"),
             )
-        else:
-            raise ValueError("人物图 field 只能是 half 或 full")
-    elif kind == "scene":
+        raise ValueError("人物图 field 只能是 half 或 full")
+    if kind == "scene":
         if field == "far":
-            prompt = build_field_prompt(project, asset, "far")
-            job = _make_job(
+            return _make_job(
                 project=project,
                 asset=asset,
                 kind="t2i",
                 target_field="far",
-                prompt=prompt,
+                prompt=build_field_prompt(project, asset, "far"),
                 payload=_t2i_payload(asset, project, "far", "16:9"),
             )
-        elif field == "near":
-            prompt = build_field_prompt(project, asset, "near")
-            job = _make_job(
+        if field == "near":
+            return _make_job(
                 project=project,
                 asset=asset,
                 kind="edit",
                 target_field="near",
-                prompt=prompt,
+                prompt=build_field_prompt(project, asset, "near"),
                 payload=_edit_payload(aspect="3:4", ref_field="far"),
             )
-        else:
-            raise ValueError("场景 field 只能是 far 或 near")
-    else:
-        if field not in ("", "image"):
-            raise ValueError("物品 field 只能是 image")
-        prompt = build_field_prompt(project, asset, "image")
-        job = _make_job(
-            project=project,
-            asset=asset,
-            kind="t2i",
-            target_field="image",
-            prompt=prompt,
-            payload=_t2i_payload(asset, project, "image", "1:1"),
-        )
+        raise ValueError("场景 field 只能是 far 或 near")
+    if field not in ("", "image"):
+        raise ValueError("物品 field 只能是 image")
+    return _make_job(
+        project=project,
+        asset=asset,
+        kind="t2i",
+        target_field="image",
+        prompt=build_field_prompt(project, asset, "image"),
+        payload=_t2i_payload(asset, project, "image", "1:1"),
+    )
+
+
+def required_fields_for_asset(asset: Asset) -> list[str]:
+    kind = normalize_kind(asset.kind)
+    if kind == "character":
+        return ["full", "half"]
+    if kind == "scene":
+        return ["far", "near"]
+    return ["image"]
+
+
+def enqueue_asset_field(db: Session, project: Project, asset: Asset, field: str) -> ImageJob:
+    job = _build_asset_field_job(project, asset, field)
     db.add(job)
     db.commit()
     db.refresh(job)
     return job
+
+
+def enqueue_asset_all_slots(db: Session, project: Project, asset: Asset) -> list[ImageJob]:
+    """Enqueue all required slots for one asset (t2i then edit when both exist)."""
+    from datetime import timedelta
+
+    fields = required_fields_for_asset(asset)
+    base_ts = _utcnow()
+    jobs: list[ImageJob] = []
+    for i, field in enumerate(fields):
+        job = _build_asset_field_job(project, asset, field)
+        job.created_at = base_ts + timedelta(microseconds=i)
+        job.updated_at = job.created_at
+        jobs.append(job)
+        db.add(job)
+    db.commit()
+    for job in jobs:
+        db.refresh(job)
+    return jobs
 
 
 def enqueue_manual_edit(
