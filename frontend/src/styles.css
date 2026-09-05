@@ -506,6 +506,7 @@ input, select { width: 100%; }
 }
 .shot-ref.miss { border-color: rgba(201, 166, 107, 0.45); }
 .shot-ref.ok { border-color: rgba(111, 191, 154, 0.35); }
+.shot-ref.text { border-color: rgba(140, 160, 180, 0.35); }
 .shot-ref img, .shot-ref .ph {
   width: 100%;
   height: 110px;
@@ -520,6 +521,12 @@ input, select { width: 100%; }
   font-size: 0.82rem;
   text-align: center;
   padding: 0.4rem;
+}
+.shot-ref .ph.text-ph {
+  color: var(--muted);
+  align-content: center;
+  line-height: 1.35;
+  font-size: 0.76rem;
 }
 .shot-ref-meta {
   display: flex;

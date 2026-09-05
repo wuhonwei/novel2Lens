@@ -116,6 +116,7 @@ class Shot(Base):
     h3_prompt: Mapped[str] = mapped_column(Text, default="")
     background: Mapped[str] = mapped_column(Text, default="")
     slots_json: Mapped[str] = mapped_column(Text, default="[]")
+    text_fallbacks_json: Mapped[str] = mapped_column(Text, default="[]")
     lines_json: Mapped[str] = mapped_column(Text, default="[]")
     half_lock: Mapped[bool] = mapped_column(Boolean, default=False)
 
@@ -152,6 +153,8 @@ def ensure_schema() -> None:
         shot_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(shots)")).fetchall()}
         if "prop_asset_ids_json" not in shot_cols:
             conn.execute(text("ALTER TABLE shots ADD COLUMN prop_asset_ids_json TEXT DEFAULT '[]'"))
+        if "text_fallbacks_json" not in shot_cols:
+            conn.execute(text("ALTER TABLE shots ADD COLUMN text_fallbacks_json TEXT DEFAULT '[]'"))
 
 
 def init_db() -> None:

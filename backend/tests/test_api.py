@@ -143,10 +143,11 @@ def test_full_planner_pipeline(tmp_path, monkeypatch):
         board = client.post(f"/api/projects/{pid}/chapters/{cid}/storyboard").json()
         assert board["shots"]
         shot = board["shots"][0]
-        assert "图一为场景底板" in shot["prompt_zh"]
+        assert "图三为场景底板" in shot["prompt_zh"]
         assert "<Image 1>" in shot["h3_prompt"]
         assert "左一的少年" in shot["h3_prompt"]
         assert shot["character_count"] == 2
+        assert len(shot["slots"]) <= 3
         assert "林砚之" not in shot["h3_prompt"].replace("我母亲叫苏晚卿", "")
 
         png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 32

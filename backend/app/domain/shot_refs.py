@@ -30,10 +30,18 @@ def _ref(
     position: str | None = None,
     note: str = "",
     required: bool = True,
+    mode: str = "image",
+    text: str = "",
 ) -> dict[str, Any]:
     name = (getattr(asset, "name", None) or "").strip() if asset else ""
-    path = _path_for(asset, image_key)
+    path = _path_for(asset, image_key) if mode == "image" else ""
     role = IMAGE_ROLE_ZH.get(image_key, image_key)
+    if mode == "text":
+        status = "文字描述补足"
+        uploaded = True  # not blocking image upload for text-only refs
+    else:
+        status = "已上传" if path else "尚未上传"
+        uploaded = bool(path)
     return {
         "slot_index": slot_index,
         "kind": getattr(asset, "kind", None)
@@ -44,10 +52,12 @@ def _ref(
         "asset_name": name or "（未匹配资产）",
         "position": position or "",
         "path": path,
-        "uploaded": bool(path),
-        "required": required,
+        "uploaded": uploaded,
+        "required": required and mode == "image",
         "note": note,
-        "status_zh": "已上传" if path else "尚未上传",
+        "status_zh": status,
+        "mode": mode,
+        "text": text,
     }
 
 
@@ -59,28 +69,22 @@ def build_shot_references(
     props: list[Any] | None = None,
     half_lock: bool = False,
     assets_by_id: dict[str, Any] | None = None,
+    text_fallbacks: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
-    """Ordered reference images for a shot.
-
-    Each character appears at most once — either 全身图 or 半身图, never both.
-    """
+    """Image slots (≤3) plus text-fallback assets that did not get a slot."""
     del half_lock
+    del lines
+    del props
+    del scene
     by_id = assets_by_id or {}
     refs: list[dict[str, Any]] = []
-    seen_assets: set[str] = set()  # one portrait ref per character asset
-    seen_keys: set[tuple[str, str]] = set()
+    seen: set[tuple[str, str]] = set()
 
     for slot in slots:
         image_key = str(slot.get("image_key") or "")
         asset_id = str(slot.get("asset_id") or "")
         asset = by_id.get(asset_id)
-        if image_key == "scene" and scene is not None:
-            asset = scene
-            asset_id = getattr(scene, "id", "") or asset_id
         if image_key in ("half", "full"):
-            if asset_id in seen_assets:
-                continue
-            seen_assets.add(asset_id)
             image_key = normalize_portrait_key(image_key)
         note = ""
         if image_key == "half":
@@ -89,10 +93,12 @@ def build_shot_references(
             note = "本镜用全身"
         elif image_key == "scene":
             note = "场景底板"
+        elif image_key == "prop":
+            note = "本镜核心物品"
         key = (asset_id, image_key)
-        if key in seen_keys:
+        if key in seen:
             continue
-        seen_keys.add(key)
+        seen.add(key)
         refs.append(
             _ref(
                 image_key=image_key,
@@ -101,38 +107,29 @@ def build_shot_references(
                 slot_index=int(slot["index"]) if slot.get("index") is not None else None,
                 position=slot.get("position") or "",
                 note=note,
+                mode="image",
             )
         )
 
-    if scene is not None:
-        sid = getattr(scene, "id", "") or ""
-        if (sid, "scene") not in seen_keys:
-            seen_keys.add((sid, "scene"))
-            refs.insert(0, _ref(image_key="scene", asset=scene, asset_id=sid, note="本镜场景"))
-
-    for line in lines:
-        asset_id = str(line.get("asset_id") or "")
-        if not asset_id or asset_id in seen_assets:
+    for fb in text_fallbacks or []:
+        image_key = str(fb.get("image_key") or "")
+        asset_id = str(fb.get("asset_id") or "")
+        key = (asset_id, image_key or fb.get("kind") or "text")
+        if key in seen:
             continue
+        seen.add(key)
         asset = by_id.get(asset_id)
-        image_key = normalize_portrait_key(line.get("image_key") or line.get("portrait"))
-        seen_assets.add(asset_id)
-        seen_keys.add((asset_id, image_key))
         refs.append(
             _ref(
-                image_key=image_key,
+                image_key=image_key or ("scene" if fb.get("kind") == "scene" else "prop"),
                 asset=asset,
                 asset_id=asset_id,
-                position=line.get("position") or "",
-                note="本镜用半身" if image_key == "half" else "本镜用全身",
+                position=fb.get("position") or "",
+                note=fb.get("note") or "文字描述补足",
+                required=False,
+                mode="text",
+                text=fb.get("text") or "",
             )
         )
-
-    for prop in props or []:
-        pid = getattr(prop, "id", "") or ""
-        if not pid or (pid, "prop") in seen_keys:
-            continue
-        seen_keys.add((pid, "prop"))
-        refs.append(_ref(image_key="prop", asset=prop, asset_id=pid, note="本镜核心物品"))
 
     return refs

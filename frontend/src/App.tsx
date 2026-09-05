@@ -747,7 +747,7 @@ function ShotCard({
   const refs = shot.references?.length
     ? shot.references
     : fallbackShotRefs(shot, assets);
-  const missing = refs.filter((r) => !r.uploaded).length;
+  const missing = refs.filter((r) => r.mode !== "text" && !r.uploaded).length;
 
   return (
     <article className="shot-card">
@@ -768,8 +768,13 @@ function ShotCard({
         </div>
         <div className="shot-ref-grid">
           {refs.map((ref, i) => (
-            <div key={`${ref.asset_id}-${ref.image_key}-${i}`} className={`shot-ref ${ref.uploaded ? "ok" : "miss"}`}>
-              {ref.uploaded && ref.path ? (
+            <div
+              key={`${ref.asset_id}-${ref.image_key}-${i}`}
+              className={`shot-ref ${ref.mode === "text" ? "text" : ref.uploaded ? "ok" : "miss"}`}
+            >
+              {ref.mode === "text" ? (
+                <div className="ph text-ph">{(ref.text || "文字描述补足").slice(0, 72)}</div>
+              ) : ref.uploaded && ref.path ? (
                 <img src={mediaUrl(ref.path)} alt={ref.image_role} />
               ) : (
                 <div className="ph">{ref.status_zh || "尚未上传"}</div>
@@ -781,7 +786,9 @@ function ShotCard({
                 </strong>
                 <span>{ref.asset_name}{ref.position ? ` · ${ref.position}` : ""}</span>
                 {ref.note ? <span className="muted">{ref.note}</span> : null}
-                <span className={ref.uploaded ? "ok-text" : "warn-text"}>{ref.status_zh}</span>
+                <span className={ref.mode === "text" ? "muted" : ref.uploaded ? "ok-text" : "warn-text"}>
+                  {ref.status_zh}
+                </span>
               </div>
             </div>
           ))}

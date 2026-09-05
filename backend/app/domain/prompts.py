@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from app.domain.slots import PackedSlot
+from app.domain.slots import PackedSlot, TextFallback
 
 CN_NUM = {1: "一", 2: "二", 3: "三"}
 
@@ -30,9 +30,9 @@ class FirstFramePrompts:
 
 
 def _slot_zh(slot: PackedSlot, actions: dict[str, str] | None = None) -> str:
-    if slot.kind == "scene":
-        return ""
     n = CN_NUM.get(slot.index, str(slot.index))
+    if slot.kind == "scene":
+        return f"以图{n}为场景底板，保持其空间、光线、陈设，不得换成别的地点。"
     if slot.kind == "prop":
         return f"图{n}是核心物品参考，保持其形制与材质。"
     pos = slot.position or "中"
@@ -46,7 +46,10 @@ def _slot_zh(slot: PackedSlot, actions: dict[str, str] | None = None) -> str:
 
 def _slot_en(slot: PackedSlot, actions: dict[str, str] | None = None) -> str:
     if slot.kind == "scene":
-        return ""
+        return (
+            f"Use image {slot.index} as the environment plate; keep layout and lighting; "
+            "do not change location."
+        )
     if slot.kind == "prop":
         return f"image {slot.index} is the key prop; keep its shape and material."
     pos = slot.position or "中"
@@ -64,6 +67,28 @@ def _slot_en(slot: PackedSlot, actions: dict[str, str] | None = None) -> str:
     )
 
 
+def _fallback_zh(item: TextFallback) -> str:
+    name = item.name or "未名"
+    text = (item.text or "").strip() or "（无详细描述）"
+    if item.kind == "scene":
+        return f"场景「{name}」无参考图槽，按文字绘制：{text}。"
+    if item.kind == "prop":
+        return f"核心物品「{name}」无参考图槽，按文字绘制：{text}。"
+    pos = item.position or "中"
+    return f"{pos}人物「{name}」无参考图槽，按外貌文字绘制：{text}。"
+
+
+def _fallback_en(item: TextFallback) -> str:
+    name = item.name or "unnamed"
+    text = (item.text or "").strip() or "(no description)"
+    if item.kind == "scene":
+        return f"Scene '{name}' has no image slot; paint from text: {text}."
+    if item.kind == "prop":
+        return f"Prop '{name}' has no image slot; paint from text: {text}."
+    pos = POS_EN.get(item.position or "中", item.position or "center")
+    return f"{pos} person '{name}' has no image slot; paint from look text: {text}."
+
+
 def compile_first_frame(
     *,
     style: str,
@@ -71,40 +96,46 @@ def compile_first_frame(
     character_count: int,
     background: str = "",
     actions: dict[str, str] | None = None,
+    text_fallbacks: list[TextFallback] | None = None,
 ) -> FirstFramePrompts:
-    has_scene = any(s.kind == "scene" for s in slots)
+    scene_slot = next((s for s in slots if s.kind == "scene"), None)
+    fallbacks = text_fallbacks or []
+    scene_fb = next((f for f in fallbacks if f.kind == "scene"), None)
 
-    person_zh = "".join(_slot_zh(s, actions) for s in slots if s.kind != "scene")
-    person_en = " ".join(_slot_en(s, actions) for s in slots if s.kind != "scene")
+    parts_zh: list[str] = [f"画幅16:9。画风：{style}。"]
+    parts_en: list[str] = [f"16:9. Style: {style}."]
 
-    if has_scene:
-        zh = (
-            f"画幅16:9。画风：{style}。"
-            "以图一为场景底板，保持其空间、光线、陈设，不得换成别的地点。"
-            f"在图一的背景下，{person_zh}"
-            f"画面中可辨认人物恰好{character_count}人，禁止增加面孔；远处只允许不可辨认剪影。"
-            "不要文字、水印、字幕。"
-        )
-        en = (
-            f"16:9. Style: {style}. Use image 1 as the environment plate; keep layout and lighting. "
-            f"In the setting of image 1, {person_en} "
-            f"Exactly {character_count} identifiable people. No extra faces. No text, no watermark."
-        )
-        return FirstFramePrompts(zh=zh, en=en)
+    if scene_slot:
+        parts_zh.append(_slot_zh(scene_slot, actions))
+        parts_en.append(_slot_en(scene_slot, actions))
+    elif scene_fb and scene_fb.text.strip():
+        parts_zh.append(_fallback_zh(scene_fb))
+        parts_en.append(_fallback_en(scene_fb))
+    else:
+        bg = background.strip() or "符合画风的环境"
+        parts_zh.append(f"按以下描述绘制背景：{bg}。")
+        parts_en.append(f"Paint the background from this description: {bg}.")
 
-    bg = background.strip() or "符合画风的环境"
-    zh = (
-        f"画幅16:9。画风：{style}。按以下描述绘制背景：{bg}。"
-        f"{person_zh}"
+    for slot in slots:
+        if slot.kind == "scene":
+            continue
+        parts_zh.append(_slot_zh(slot, actions))
+        parts_en.append(_slot_en(slot, actions))
+
+    for fb in fallbacks:
+        if fb.kind == "scene":
+            continue  # already handled above
+        parts_zh.append(_fallback_zh(fb))
+        parts_en.append(_fallback_en(fb))
+
+    parts_zh.append(
         f"画面中可辨认人物恰好{character_count}人，禁止增加面孔；远处只允许不可辨认剪影。"
         "不要文字、水印、字幕。"
     )
-    en = (
-        f"16:9. Style: {style}. Paint the background from this description: {bg}. "
-        f"{person_en} "
+    parts_en.append(
         f"Exactly {character_count} identifiable people. No extra faces. No text, no watermark."
     )
-    return FirstFramePrompts(zh=zh, en=en)
+    return FirstFramePrompts(zh="".join(parts_zh), en=" ".join(parts_en))
 
 
 def compile_h3(

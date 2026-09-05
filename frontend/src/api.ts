@@ -44,6 +44,8 @@ export type ShotReference = {
   required: boolean;
   note: string;
   status_zh: string;
+  mode?: "image" | "text" | string;
+  text?: string;
 };
 
 export type Shot = {

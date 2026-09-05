@@ -14,6 +14,7 @@ from app.domain.prompts import compile_first_frame, compile_h3
 from app.domain.registry import (
     apply_registry_delta,
     is_registry_complete,
+    look_text,
     normalize_kind,
     registry_completeness,
     sanitize_aliases,
@@ -25,6 +26,7 @@ from app.domain.shot_refs import build_shot_references
 from app.domain.slots import (
     CAMERAS,
     FACINGS,
+    MAX_NAMED_CHARACTERS,
     SlotSubject,
     max_named_characters,
     normalize_portrait_key,
@@ -95,6 +97,7 @@ def serialize_shot(shot: Shot, chapter_title: str = "", assets: list[Asset] | No
     props = [by_id[pid] for pid in prop_ids if pid in by_id]
     lines = _load(shot.lines_json, [])
     slots = _load(shot.slots_json, [])
+    text_fallbacks = _load(getattr(shot, "text_fallbacks_json", None) or "[]", [])
     references = (
         build_shot_references(
             scene=scene,
@@ -103,6 +106,7 @@ def serialize_shot(shot: Shot, chapter_title: str = "", assets: list[Asset] | No
             props=props,
             half_lock=bool(shot.half_lock),
             assets_by_id=by_id,
+            text_fallbacks=text_fallbacks,
         )
         if assets is not None
         else []
@@ -127,6 +131,7 @@ def serialize_shot(shot: Shot, chapter_title: str = "", assets: list[Asset] | No
         "h3_prompt": shot.h3_prompt,
         "background": shot.background,
         "slots": slots,
+        "text_fallbacks": text_fallbacks,
         "lines": lines,
         "half_lock": shot.half_lock,
         "references": references,
@@ -799,24 +804,31 @@ def _match_name(assets: list[Asset], name: str, kind: str | None = None) -> Asse
 
 def _shot_unready(
     project: Project,
-    scene: Asset | None,
-    char_reqs: list[tuple[Asset, str]],
-    props: list[Asset] | None = None,
+    image_reqs: list[tuple[Asset, str]],
 ) -> bool:
     if not (project.style or "").strip():
         return True
-    if scene and not scene.image_path:
-        return True
-    for ch, image_key in char_reqs:
-        key = normalize_portrait_key(image_key)
-        if key == "half" and not ch.half_path:
+    for asset, image_key in image_reqs:
+        key = image_key if image_key in ("scene", "prop") else normalize_portrait_key(image_key)
+        if key == "half" and not asset.half_path:
             return True
-        if key == "full" and not ch.full_path:
+        if key == "full" and not asset.full_path:
             return True
-    for prop in props or []:
-        if not prop.image_path:
+        if key in ("scene", "prop") and not asset.image_path:
             return True
     return False
+
+
+def _asset_desc(asset: Asset) -> str:
+    kind = normalize_kind(asset.kind)
+    if kind == "character":
+        return look_text(
+            {
+                "desc_zh": asset.desc_zh,
+                "appearance": _load(asset.appearance_json, {}),
+            }
+        )
+    return (asset.desc_zh or "").strip()
 
 
 def _pick_portrait(raw_shot: dict[str, Any], person: dict[str, Any], named_count: int) -> str:
@@ -875,6 +887,11 @@ def shot_needs_portrait_repair(shot: Shot) -> bool:
     if any(m in prompt for m in LEGACY_DUAL_PORTRAIT_MARKERS):
         return True
     slots = _load(shot.slots_json, [])
+    if len(slots) > 3:
+        return True
+    # Old packing put scene first; new priority puts characters first.
+    if slots and slots[0].get("kind") == "scene" and any(s.get("kind") == "character" for s in slots):
+        return True
     seen: set[str] = set()
     for slot in slots:
         if slot.get("image_key") not in ("half", "full"):
@@ -895,7 +912,6 @@ def compile_shot_prompts(project: Project, shot: Shot, assets: list[Asset]) -> N
     prop_ids = _load(getattr(shot, "prop_asset_ids_json", None) or "[]", [])
     prop_assets = [by_id[pid] for pid in prop_ids if pid in by_id]
     chars: list[SlotSubject] = []
-    char_reqs: list[tuple[Asset, str]] = []
     seen_char_ids: set[str] = set()
     for line in lines:
         asset = by_id.get(line.get("asset_id") or "")
@@ -905,37 +921,54 @@ def compile_shot_prompts(project: Project, shot: Shot, assets: list[Asset]) -> N
         image_key = _line_portrait_key(line, shot=shot, line_count=len(lines))
         line["image_key"] = image_key
         line["portrait"] = image_key
-        char_reqs.append((asset, image_key))
         chars.append(
             SlotSubject(
                 asset_id=asset.id,
+                kind="character",
                 position=line.get("position") or "中",
                 facing=line.get("facing") or "面向镜头",
                 image_key=image_key,
                 refer_as=asset.refer_as or "人",
+                name=asset.name,
+                desc_zh=_asset_desc(asset),
             )
         )
     shot.lines_json = _dump(lines)
+    shot.character_count = len(chars)
     shot.half_lock = bool(len(chars) == 1 and chars and chars[0].image_key == "half")
-    has_scene = bool(scene)
-    prop_subject = None
-    if prop_assets:
-        prop_subject = SlotSubject(asset_id=prop_assets[0].id, kind="prop", image_key="prop")
-    packed = pack_qwen_slots(
-        has_scene=has_scene,
-        characters=chars,
-        prop=prop_subject,
-    )
+
+    scene_subject = None
     if scene:
-        packed[0].asset_id = scene.id
-        packed[0].image_key = "scene"
+        scene_subject = SlotSubject(
+            asset_id=scene.id,
+            kind="scene",
+            image_key="scene",
+            name=scene.name,
+            desc_zh=_asset_desc(scene),
+        )
+    prop_subjects = [
+        SlotSubject(
+            asset_id=p.id,
+            kind="prop",
+            image_key="prop",
+            name=p.name,
+            desc_zh=_asset_desc(p),
+        )
+        for p in prop_assets
+    ]
+    packed = pack_qwen_slots(
+        characters=chars,
+        scene=scene_subject,
+        props=prop_subjects,
+    )
     actions = {ln.get("position"): ln.get("action") or ln.get("transient") or "" for ln in lines}
     prompts = compile_first_frame(
         style=project.style,
-        slots=packed,
+        slots=packed.slots,
         character_count=shot.character_count,
         background=shot.background,
         actions=actions,
+        text_fallbacks=packed.text_fallbacks,
     )
     h3_lines = []
     for ln in lines:
@@ -960,16 +993,14 @@ def compile_shot_prompts(project: Project, shot: Shot, assets: list[Asset]) -> N
         narration=shot.narration,
     )
     slot_dump = []
-    for p in packed:
+    for p in packed.slots:
         asset = by_id.get(p.asset_id or "") if p.asset_id else None
-        if p.kind == "scene" and scene:
-            asset = scene
         slot_dump.append(
             {
                 "index": p.index,
                 "kind": p.kind,
                 "asset_id": p.asset_id,
-                "asset_name": asset.name if asset else "",
+                "asset_name": (asset.name if asset else "") or p.name,
                 "position": p.position,
                 "facing": p.facing,
                 "image_key": p.image_key,
@@ -977,7 +1008,27 @@ def compile_shot_prompts(project: Project, shot: Shot, assets: list[Asset]) -> N
             }
         )
     shot.slots_json = _dump(slot_dump)
-    shot.first_frame_unready = _shot_unready(project, scene, char_reqs, prop_assets)
+    shot.text_fallbacks_json = _dump(
+        [
+            {
+                "kind": fb.kind,
+                "asset_id": fb.asset_id,
+                "image_key": fb.image_key,
+                "name": fb.name,
+                "position": fb.position,
+                "text": fb.text,
+                "note": fb.note,
+            }
+            for fb in packed.text_fallbacks
+        ]
+    )
+    image_reqs: list[tuple[Asset, str]] = []
+    for p in packed.slots:
+        asset = by_id.get(p.asset_id or "") if p.asset_id else None
+        if asset:
+            image_reqs.append((asset, p.image_key))
+    shot.first_frame_unready = _shot_unready(project, image_reqs)
+
 
 
 def repair_shot_prompts_if_needed(db: Session, project: Project, assets: list[Asset] | None = None) -> int:
@@ -1027,7 +1078,7 @@ async def generate_storyboard(
         named = raw.get("characters") or []
         scene_name = raw.get("scene_name")
         scene = _match_name(scenes, scene_name, "scene") if scene_name else None
-        cap = max_named_characters(has_scene=bool(scene))
+        cap = max_named_characters()
         named = named[:cap]
         duration = float(raw.get("duration_s") or 6)
         duration = min(15.0, max(4.0, duration))

@@ -28,9 +28,14 @@ CAMERAS = (
 VARIANT_REASONS = ("outfit", "age", "injury", "season", "other")
 H3_ENCODER = "qwen3vl_32b_heretic_minimax_h3_nvfp4.safetensors"
 
+MAX_REF_IMAGES = 3
+MAX_NAMED_CHARACTERS = 3
 
-def max_named_characters(has_scene: bool) -> int:
-    return 2 if has_scene else 3
+
+def max_named_characters(has_scene: bool = False) -> int:
+    """Hard cap: at most 3 named people per shot (scene no longer shrinks this)."""
+    del has_scene
+    return MAX_NAMED_CHARACTERS
 
 
 def normalize_portrait_key(raw: str | None) -> str:
@@ -49,6 +54,8 @@ class SlotSubject:
     facing: str | None = None
     image_key: str = "full"
     refer_as: str = ""
+    name: str = ""
+    desc_zh: str = ""
     extra: dict = field(default_factory=dict)
 
 
@@ -61,18 +68,45 @@ class PackedSlot:
     facing: str | None = None
     image_key: str = "full"
     refer_as: str = ""
+    name: str = ""
+
+
+@dataclass
+class TextFallback:
+    """Asset that belongs to the shot but did not get an image slot."""
+
+    kind: str  # scene | prop | character
+    asset_id: str
+    image_key: str
+    name: str = ""
+    position: str = ""
+    text: str = ""
+    note: str = "文字描述补足"
+
+
+@dataclass
+class PackResult:
+    slots: list[PackedSlot]
+    text_fallbacks: list[TextFallback]
 
 
 def pack_qwen_slots(
     *,
-    has_scene: bool,
+    has_scene: bool = False,
     characters: list[SlotSubject],
-    half_lock: bool = False,  # kept for callers; ignored — one portrait per person
+    half_lock: bool = False,
     prop: SlotSubject | None = None,
-) -> list[PackedSlot]:
-    """Pack at most 3 reference images. Each character uses exactly one of half|full."""
-    del half_lock  # legacy flag; dual half+full packing removed
-    # One slot per person — drop accidental duplicates.
+    props: list[SlotSubject] | None = None,
+    scene: SlotSubject | None = None,
+) -> PackResult:
+    """Pack ≤3 reference images.
+
+    Priority: character portraits → core scene → core props.
+    Overflow assets become text_fallbacks (use look/desc prompts instead of images).
+    """
+    del half_lock
+    del has_scene  # scene no longer changes character cap or forced first slot
+
     unique_chars: list[SlotSubject] = []
     seen_ids: set[str] = set()
     for char in characters:
@@ -82,39 +116,63 @@ def pack_qwen_slots(
         unique_chars.append(char)
     characters = unique_chars
 
-    cap = max_named_characters(has_scene)
-    if len(characters) > cap:
-        raise ValueError(f"具名出镜人物不能超过 {cap} 人（有场景时最多 2 人）")
+    if len(characters) > MAX_NAMED_CHARACTERS:
+        raise ValueError(f"具名出镜人物不能超过 {MAX_NAMED_CHARACTERS} 人")
+
+    prop_list: list[SlotSubject] = []
+    if props:
+        prop_list.extend(props)
+    elif prop:
+        prop_list.append(prop)
+
+    candidates: list[tuple[int, SlotSubject]] = []
+    # priority rank: lower = earlier
+    for char in characters:
+        candidates.append((0, char))
+    if scene and scene.asset_id:
+        candidates.append((1, scene))
+    for p in prop_list:
+        if p and p.asset_id:
+            candidates.append((2, p))
 
     slots: list[PackedSlot] = []
+    text_fallbacks: list[TextFallback] = []
     n = 1
-    if has_scene:
-        slots.append(PackedSlot(index=n, kind="scene", image_key="scene"))
-        n += 1
+    for _rank, subject in candidates:
+        kind = subject.kind
+        if kind == "character":
+            image_key = normalize_portrait_key(subject.image_key)
+        elif kind == "scene":
+            image_key = "scene"
+        else:
+            image_key = subject.image_key or "prop"
+            kind = "prop"
 
-    for char in characters:
-        key = normalize_portrait_key(char.image_key)
-        slots.append(
-            PackedSlot(
-                index=n,
-                kind="character",
-                asset_id=char.asset_id,
-                position=char.position,
-                facing=char.facing,
-                image_key=key,
-                refer_as=char.refer_as,
+        if n <= MAX_REF_IMAGES:
+            slots.append(
+                PackedSlot(
+                    index=n,
+                    kind=kind,
+                    asset_id=subject.asset_id,
+                    position=subject.position,
+                    facing=subject.facing,
+                    image_key=image_key,
+                    refer_as=subject.refer_as,
+                    name=subject.name or "",
+                )
             )
-        )
-        n += 1
-
-    if prop and n <= 3:
-        slots.append(
-            PackedSlot(
-                index=n,
-                kind="prop",
-                asset_id=prop.asset_id,
-                image_key=prop.image_key or "prop",
+            n += 1
+        else:
+            text_fallbacks.append(
+                TextFallback(
+                    kind=kind,
+                    asset_id=subject.asset_id,
+                    image_key=image_key,
+                    name=subject.name or "",
+                    position=subject.position or "",
+                    text=(subject.desc_zh or "").strip(),
+                    note="文字描述补足",
+                )
             )
-        )
 
-    return slots[:3]
+    return PackResult(slots=slots, text_fallbacks=text_fallbacks)
