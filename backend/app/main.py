@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.db import Asset, Chapter, Project, Proposal, Shot, init_db
 from app import db as database
+from app.domain.registry import sanitize_aliases, sanitize_character_fields
 from app.services import (
     confirm_proposals,
     export_project,
@@ -336,6 +337,19 @@ def api_patch_asset(project_id: str, asset_id: str, body: AssetPatch):
         if not asset or asset.project_id != project_id:
             raise HTTPException(404, "资产不存在")
         data = body.model_dump(exclude_unset=True)
+        if "aliases" in data or "refer_as" in data or "name" in data:
+            name = data.get("name", asset.name)
+            refer_as = data.get("refer_as", asset.refer_as)
+            aliases = data.get("aliases", _load(asset.aliases_json, []))
+            if asset.kind == "character" or data.get("kind") == "character":
+                cleaned = sanitize_character_fields(
+                    {"name": name, "aliases": aliases, "refer_as": refer_as}
+                )
+                data["aliases"] = cleaned["aliases"]
+                if "refer_as" in data or cleaned.get("refer_as"):
+                    data["refer_as"] = cleaned["refer_as"] or refer_as
+            else:
+                data["aliases"] = sanitize_aliases(aliases, name=name, refer_as=refer_as or "")
         if "aliases" in data:
             asset.aliases_json = json_dumps(data.pop("aliases"))
         if "appearance" in data:

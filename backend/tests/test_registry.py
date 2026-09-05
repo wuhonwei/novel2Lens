@@ -94,3 +94,44 @@ def test_pass1_chinese_keys_force_character_kind():
     assert by_name["林砚之"] == "character"
     assert by_name["渡口"] == "scene"
     assert by_name["玉佩"] == "prop"
+
+
+def test_sanitize_aliases_drops_refer_as_and_kinship():
+    from app.domain.registry import sanitize_aliases, sanitize_character_fields, apply_registry_delta
+
+    cleaned = sanitize_aliases(
+        ["砚之", "少年", "母亲", "陈伯", "人"],
+        name="林砚之",
+        refer_as="少年",
+    )
+    assert cleaned == ["砚之", "陈伯"]
+
+    row = sanitize_character_fields(
+        {
+            "name": "林砚之",
+            "aliases": ["少年", "母亲", "砚之"],
+            "refer_as": "",
+        }
+    )
+    assert row["aliases"] == ["砚之"]
+    assert row["refer_as"] == "少年"
+
+    assets: list[dict] = []
+    apply_registry_delta(
+        assets,
+        [
+            {
+                "kind": "character",
+                "name": "林砚之",
+                "aliases": ["少年", "母亲", "砚之"],
+                "refer_as": "少年",
+                "notes": "清俊",
+            },
+            {"kind": "character", "name": "母亲", "aliases": [], "notes": "亡母"},
+        ],
+    )
+    assert len(assets) == 1
+    assert assets[0]["name"] == "林砚之"
+    assert "少年" not in assets[0]["aliases"]
+    assert "母亲" not in assets[0]["aliases"]
+    assert "砚之" in assets[0]["aliases"]

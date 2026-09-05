@@ -68,8 +68,10 @@ PRESCAN_PASS1_SYSTEM = """你是长篇小说的影视资产登记员。这是第
 
 硬规则：
 - 必须使用英文键名 characters / scenes / props 三个数组（不要用中文键，不要合成一个 assets 列表）。
-- characters：凡有姓名或稳定称呼的出场人物都要列入（含别名：陈伯=陈守义）。人物绝不能放进 props。
-- 每个 character 必须写 refer_as（少年/老者/女子/男子…）、age_band、notes（外貌衣着身材，尽量从原文摘）、appearance 分项。
+- characters：凡有姓名或稳定专名称呼的出场人物都要列入（含别名：陈伯=陈守义）。人物绝不能放进 props。
+- aliases 只能写专名异称/小名/字号（砚之、陈伯）。禁止写入：少年/老者/女子/男子等 refer_as；禁止写入母亲/父亲/娘/爹等亲属称呼或职业通称。
+- refer_as 单独字段写 少年/老者/女子/男子…，供「左一的{refer_as}」，不要放进 aliases，不要用人名。
+- 每个 character 必须写 refer_as、age_band、notes（外貌衣着身材，尽量从原文摘）、appearance 分项。
 - scenes：只列反复出现或主场地点（渡口、茅草屋、主街），过场一句带过的路边不要。
 - props：只列影响认图的核心信物/武器/特殊载具；桌椅杯碟不要；不要把人物放进 props。
 - 不要编造原文没有的现代服装。
@@ -86,6 +88,7 @@ PRESCAN_AUDIT_SYSTEM = """你是影视资产完整性审计员。这是查漏补
 
 硬规则：
 - kind 只能用 character | scene | prop（不要用人名当 kind，不要写半身/全身）。
+- aliases 只补专名异称；不要把少年/母亲等通称写进 aliases（通称放 refer_as 或不写）。
 - 人物必须有可画的外貌或衣着描述才算齐全。
 - 场景/物品必须有可视化 notes/desc_zh。
 - 不要重复已完整的条目。

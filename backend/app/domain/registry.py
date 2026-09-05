@@ -25,6 +25,109 @@ KIND_ALIASES = {
     "信物": "prop",
 }
 
+# Generic labels that belong in refer_as / prose, never in aliases.
+NON_ALIAS_TERMS = frozenset(
+    {
+        # refer_as vocabulary
+        "少年",
+        "少女",
+        "老者",
+        "老人",
+        "老汉",
+        "老头",
+        "女子",
+        "妇人",
+        "男子",
+        "男人",
+        "女人",
+        "青年",
+        "中年",
+        "孩童",
+        "孩子",
+        "儿童",
+        "姑娘",
+        "小姐",
+        "公子",
+        "书生",
+        "侠客",
+        "剑客",
+        "人",
+        "此人",
+        "那人",
+        # kinship / role words (not proper-name aliases)
+        "母亲",
+        "父亲",
+        "妈妈",
+        "爸爸",
+        "娘",
+        "爹",
+        "母",
+        "父",
+        "娘亲",
+        "爹爹",
+        "祖父",
+        "祖母",
+        "爷爷",
+        "奶奶",
+        "外公",
+        "外婆",
+        "叔叔",
+        "伯父",
+        "舅舅",
+        "姑姑",
+        "姨妈",
+        "阿姨",
+        "哥哥",
+        "姐姐",
+        "弟弟",
+        "妹妹",
+        "兄长",
+        "大哥",
+        "兄弟",
+        "姐妹",
+        "丈夫",
+        "妻子",
+        "夫人",
+        "娘子",
+        "相公",
+        "儿子",
+        "女儿",
+        "小孩",
+        "徒弟",
+        "师父",
+        "师傅",
+        "主人",
+        "仆人",
+        "侍女",
+        "丫鬟",
+        "船夫",
+        "船工",
+        "店小二",
+        "路人",
+        "众人",
+        "旁人",
+        "自己",
+        "对方",
+    }
+)
+
+REFER_AS_CANDIDATES = frozenset(
+    {
+        "少年",
+        "少女",
+        "老者",
+        "老人",
+        "女子",
+        "妇人",
+        "男子",
+        "青年",
+        "孩童",
+        "姑娘",
+        "公子",
+        "书生",
+    }
+)
+
 
 def normalize_kind(raw: str | None) -> str:
     key = (raw or "").strip().lower()
@@ -32,30 +135,74 @@ def normalize_kind(raw: str | None) -> str:
         return "prop"
     if key in KIND_ALIASES:
         return KIND_ALIASES[key]
-    # Chinese keys are case-sensitive in map above via exact; try original strip
     key_cn = (raw or "").strip()
     return KIND_ALIASES.get(key_cn, KIND_ALIASES.get(key, "prop"))
 
 
-def _uniq_aliases(values: list[Any]) -> list[str]:
+def is_non_alias_term(value: str | None) -> bool:
+    s = (value or "").strip()
+    return (not s) or (s in NON_ALIAS_TERMS)
+
+
+def sanitize_aliases(
+    aliases: list[Any] | None,
+    *,
+    name: str = "",
+    refer_as: str = "",
+) -> list[str]:
+    """Keep only proper-name aliases; drop refer_as labels and kinship roles."""
     out: list[str] = []
-    for v in values:
-        s = str(v or "").strip()
-        if s and s not in out:
+    name = (name or "").strip()
+    refer_as = (refer_as or "").strip()
+    for raw in aliases or []:
+        s = str(raw or "").strip()
+        if not s or s == name or s == refer_as:
+            continue
+        if is_non_alias_term(s):
+            continue
+        if s not in out:
             out.append(s)
+    return out
+
+
+def sanitize_character_fields(row: dict[str, Any]) -> dict[str, Any]:
+    """Normalize character name/aliases/refer_as after LLM output."""
+    out = dict(row)
+    name = (out.get("name") or "").strip()
+    refer_as = (out.get("refer_as") or "").strip()
+    aliases_in = list(out.get("aliases") or [])
+
+    if not refer_as:
+        for a in aliases_in:
+            s = str(a or "").strip()
+            if s in REFER_AS_CANDIDATES:
+                refer_as = s
+                break
+    if is_non_alias_term(name) and name in REFER_AS_CANDIDATES and not refer_as:
+        refer_as = name
+
+    out["name"] = name
+    out["refer_as"] = refer_as or (out.get("refer_as") or "")
+    out["aliases"] = sanitize_aliases(aliases_in, name=name, refer_as=out["refer_as"])
     return out
 
 
 def merge_registry_entry(existing: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]:
     merged = dict(existing)
-    merged["kind"] = normalize_kind(incoming.get("kind") or existing.get("kind"))
+    kind = normalize_kind(incoming.get("kind") or existing.get("kind"))
+    if kind == "character":
+        incoming = sanitize_character_fields(incoming)
+    merged["kind"] = kind
     if incoming.get("name"):
         merged["name"] = str(incoming["name"]).strip()
     aliases = list(existing.get("aliases") or [])
     aliases.extend(incoming.get("aliases") or [])
-    if incoming.get("name") and incoming["name"] != existing.get("name"):
+    if (
+        incoming.get("name")
+        and incoming["name"] != existing.get("name")
+        and not is_non_alias_term(incoming["name"])
+    ):
         aliases.append(incoming["name"])
-    merged["aliases"] = _uniq_aliases(aliases)
     if incoming.get("refer_as") and not (existing.get("refer_as") or "").strip():
         merged["refer_as"] = incoming["refer_as"]
     elif incoming.get("refer_as"):
@@ -69,10 +216,7 @@ def merge_registry_entry(existing: dict[str, Any], incoming: dict[str, Any]) -> 
     for key, value in (incoming.get("appearance") or {}).items():
         if value in (None, ""):
             continue
-        if key not in appearance or not appearance.get(key):
-            appearance[key] = value
-        else:
-            appearance[key] = value
+        appearance[key] = value
     merged["appearance"] = appearance
 
     desc_zh = (existing.get("desc_zh") or "").strip()
@@ -90,6 +234,13 @@ def merge_registry_entry(existing: dict[str, Any], incoming: dict[str, Any]) -> 
         merged["desc_en"] = add_en
     elif add_en and add_en not in desc_en:
         merged["desc_en"] = f"{desc_en}; {add_en}"
+
+    if merged["kind"] == "character":
+        cleaned = sanitize_character_fields({**merged, "aliases": aliases})
+        merged["aliases"] = cleaned["aliases"]
+        merged["refer_as"] = cleaned["refer_as"] or merged.get("refer_as") or "人"
+    else:
+        merged["aliases"] = sanitize_aliases(aliases, name=merged.get("name") or "")
     return merged
 
 
@@ -151,6 +302,9 @@ def apply_registry_delta(
         name = (row.get("name") or "").strip()
         if not name:
             continue
+        # Generic role-only rows (母亲/少年) are not registry people
+        if kind == "character" and is_non_alias_term(name) and not (row.get("aliases") or []):
+            continue
         payload = {
             "kind": kind,
             "name": name,
@@ -161,7 +315,13 @@ def apply_registry_delta(
             "desc_zh": row.get("desc_zh") or row.get("notes") or "",
             "desc_en": row.get("desc_en") or "",
         }
+        if kind == "character":
+            payload = sanitize_character_fields(payload)
+            if is_non_alias_term(payload["name"]) and not payload["aliases"]:
+                continue
         idx = _find_index(assets, name, kind)
+        if idx < 0 and kind == "character":
+            idx = _find_index(assets, payload["name"], kind)
         if idx < 0:
             assets.append(payload)
             created += 1

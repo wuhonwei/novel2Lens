@@ -16,6 +16,8 @@ from app.domain.registry import (
     is_registry_complete,
     normalize_kind,
     registry_completeness,
+    sanitize_aliases,
+    sanitize_character_fields,
 )
 from app.domain.slots import (
     CAMERAS,
@@ -220,13 +222,21 @@ def _apply_registry_rows_to_db(
         if not name:
             continue
         asset = _find_db_asset(existing, name, kind)
+        if kind == "character":
+            row = sanitize_character_fields(row)
+            name = (row.get("name") or "").strip()
+        aliases = sanitize_aliases(
+            row.get("aliases") or [],
+            name=name,
+            refer_as=str(row.get("refer_as") or ""),
+        )
         if asset is None:
             asset = Asset(
                 id=_uid(),
                 project_id=project.id,
                 kind=kind,
                 name=name,
-                aliases_json=_dump(row.get("aliases") or []),
+                aliases_json=_dump(aliases),
                 refer_as=row.get("refer_as") or ("人" if kind == "character" else ""),
                 age_band=row.get("age_band") or "",
                 appearance_json=_dump(row.get("appearance") or {}),
@@ -239,7 +249,7 @@ def _apply_registry_rows_to_db(
             existing.append(asset)
         else:
             asset.kind = kind
-            asset.aliases_json = _dump(row.get("aliases") or _load(asset.aliases_json, []))
+            asset.aliases_json = _dump(aliases)
             if row.get("refer_as"):
                 asset.refer_as = row["refer_as"]
             if row.get("age_band"):
@@ -398,9 +408,24 @@ async def full_registry_scan(db: Session, project: Project, *, replace: bool = F
             break
 
     assets = db.query(Asset).filter(Asset.project_id == project.id).all()
-    # Normalize kinds + auto-confirm book registry (no chapter gate)
+    # Normalize kinds + scrub bad aliases + auto-confirm book registry
     for asset in assets:
         asset.kind = normalize_kind(asset.kind)
+        if asset.kind == "character":
+            cleaned = sanitize_character_fields(
+                {
+                    "name": asset.name,
+                    "aliases": _load(asset.aliases_json, []),
+                    "refer_as": asset.refer_as,
+                }
+            )
+            asset.aliases_json = _dump(cleaned["aliases"])
+            if cleaned.get("refer_as"):
+                asset.refer_as = cleaned["refer_as"]
+        else:
+            asset.aliases_json = _dump(
+                sanitize_aliases(_load(asset.aliases_json, []), name=asset.name)
+            )
         asset.confirmed = True
         asset.created_chapter_id = asset.created_chapter_id or ""
 
