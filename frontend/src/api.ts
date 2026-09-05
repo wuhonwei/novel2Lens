@@ -6,6 +6,7 @@ export type Asset = {
   refer_as: string;
   age_band: string;
   appearance: Record<string, string>;
+  background_zh?: string;
   desc_zh: string;
   desc_en: string;
   parent_id: string | null;

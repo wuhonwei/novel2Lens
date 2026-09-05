@@ -434,6 +434,29 @@ input, select { width: 100%; }
   border-color: color-mix(in srgb, #c4a35a 40%, transparent);
 }
 
+.desc-block {
+  margin: 0.55rem 0 0.35rem;
+  padding: 0.55rem 0.65rem;
+  border-radius: 10px;
+}
+.desc-block label {
+  display: block;
+  margin-bottom: 0.35rem;
+  font-weight: 600;
+}
+.desc-block.view-only {
+  background: color-mix(in srgb, #8a9bb0 12%, transparent);
+  border: 1px solid color-mix(in srgb, #8a9bb0 28%, transparent);
+}
+.desc-block.look-gen {
+  background: color-mix(in srgb, #c4a35a 14%, transparent);
+  border: 1px solid color-mix(in srgb, #c4a35a 40%, transparent);
+}
+.desc-block textarea {
+  width: 100%;
+  min-height: 4.5rem;
+}
+
 @media (max-width: 980px) {
   .home-steps { grid-template-columns: 1fr 1fr; }
   .pipeline { grid-template-columns: 1fr 1fr; }

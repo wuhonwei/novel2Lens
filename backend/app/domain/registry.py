@@ -219,8 +219,28 @@ def merge_registry_entry(existing: dict[str, Any], incoming: dict[str, Any]) -> 
         appearance[key] = value
     merged["appearance"] = appearance
 
+    # background_zh = identity/backstory (user-facing only)
+    bg = (existing.get("background_zh") or "").strip()
+    add_bg = (incoming.get("background_zh") or incoming.get("background") or incoming.get("identity") or "").strip()
+    if add_bg:
+        if not bg:
+            merged["background_zh"] = add_bg
+        elif add_bg not in bg:
+            merged["background_zh"] = f"{bg}；{add_bg}"
+        else:
+            merged["background_zh"] = bg
+
+    # desc_zh = look only (face/body/clothing) for image generation
     desc_zh = (existing.get("desc_zh") or "").strip()
-    add_zh = (incoming.get("desc_zh") or incoming.get("notes") or "").strip()
+    add_zh = (
+        incoming.get("look_zh")
+        or incoming.get("desc_zh")
+        or incoming.get("notes")
+        or ""
+    ).strip()
+    # If model stuffed both into notes, prefer look_zh/desc_zh; never copy background into look
+    if add_zh and add_bg and add_zh == add_bg:
+        add_zh = ""
     if add_zh:
         if not desc_zh:
             merged["desc_zh"] = add_zh
@@ -229,7 +249,7 @@ def merge_registry_entry(existing: dict[str, Any], incoming: dict[str, Any]) -> 
         else:
             merged["desc_zh"] = desc_zh
     desc_en = (existing.get("desc_en") or "").strip()
-    add_en = (incoming.get("desc_en") or "").strip()
+    add_en = (incoming.get("desc_en") or incoming.get("look_en") or "").strip()
     if add_en and not desc_en:
         merged["desc_en"] = add_en
     elif add_en and add_en not in desc_en:
@@ -244,16 +264,30 @@ def merge_registry_entry(existing: dict[str, Any], incoming: dict[str, Any]) -> 
     return merged
 
 
+def look_text(asset: dict[str, Any]) -> str:
+    """Visual look string used for portrait generation (never includes background)."""
+    parts: list[str] = []
+    desc = (asset.get("desc_zh") or asset.get("look_zh") or "").strip()
+    if desc:
+        parts.append(desc)
+    appearance = asset.get("appearance") or {}
+    for key in ("face", "hair", "eyes", "skin", "body", "posture", "marks", "clothing", "condition"):
+        val = (appearance.get(key) or "").strip()
+        if val and val not in desc:
+            parts.append(val)
+    return "，".join(parts)
+
+
 def _entry_incomplete(asset: dict[str, Any]) -> dict[str, Any] | None:
     kind = normalize_kind(asset.get("kind"))
     name = (asset.get("name") or "").strip()
     if not name:
         return {"name": name or "?", "kind": kind, "reason": "缺少名称"}
+    if kind == "character":
+        if not look_text(asset):
+            return {"name": name, "kind": kind, "reason": "缺少样貌/身材/服饰描述"}
+        return None
     desc = (asset.get("desc_zh") or asset.get("notes") or "").strip()
-    appearance = asset.get("appearance") or {}
-    has_look = bool(desc) or any(bool(v) for v in appearance.values())
-    if kind == "character" and not has_look:
-        return {"name": name, "kind": kind, "reason": "缺少外貌/衣着描述"}
     if kind in ("scene", "prop") and not desc:
         return {"name": name, "kind": kind, "reason": "缺少可视化描述"}
     return None
@@ -312,13 +346,23 @@ def apply_registry_delta(
             "refer_as": row.get("refer_as") or ("人" if kind == "character" else ""),
             "age_band": row.get("age_band") or "",
             "appearance": row.get("appearance") or {},
-            "desc_zh": row.get("desc_zh") or row.get("notes") or "",
-            "desc_en": row.get("desc_en") or "",
+            "background_zh": row.get("background_zh") or row.get("background") or row.get("identity") or "",
+            "desc_zh": row.get("look_zh") or row.get("desc_zh") or row.get("notes") or "",
+            "desc_en": row.get("desc_en") or row.get("look_en") or "",
         }
         if kind == "character":
             payload = sanitize_character_fields(payload)
+            # notes without look_zh often mixed bio+look — prefer explicit look_zh; keep notes only if no look_zh/desc_zh
+            if row.get("look_zh") or row.get("desc_zh"):
+                payload["desc_zh"] = (row.get("look_zh") or row.get("desc_zh") or "").strip()
+            elif row.get("notes") and not payload.get("background_zh"):
+                # ambiguous notes → treat as look (generation-critical)
+                payload["desc_zh"] = (row.get("notes") or "").strip()
             if is_non_alias_term(payload["name"]) and not payload["aliases"]:
                 continue
+            # Never let background bleed into look when both provided equal
+            if payload.get("background_zh") and payload.get("desc_zh") == payload.get("background_zh"):
+                payload["desc_zh"] = look_text({"appearance": payload.get("appearance") or {}})
         idx = _find_index(assets, name, kind)
         if idx < 0 and kind == "character":
             idx = _find_index(assets, payload["name"], kind)

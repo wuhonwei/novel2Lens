@@ -68,6 +68,7 @@ def serialize_asset(asset: Asset) -> dict[str, Any]:
         "refer_as": asset.refer_as,
         "age_band": asset.age_band,
         "appearance": _load(asset.appearance_json, {}),
+        "background_zh": getattr(asset, "background_zh", "") or "",
         "desc_zh": asset.desc_zh,
         "desc_en": asset.desc_en,
         "parent_id": asset.parent_id,
@@ -164,6 +165,7 @@ def _registry(assets: list[Asset]) -> str:
                 "aliases": _load(a.aliases_json, []),
                 "refer_as": a.refer_as,
                 "parent_id": a.parent_id,
+                "background_zh": getattr(a, "background_zh", "") or "",
                 "desc_zh": a.desc_zh,
                 "appearance": _load(a.appearance_json, {}),
             }
@@ -181,6 +183,7 @@ def _asset_dicts(assets: list[Asset]) -> list[dict[str, Any]]:
             "refer_as": a.refer_as,
             "age_band": a.age_band,
             "appearance": _load(a.appearance_json, {}),
+            "background_zh": getattr(a, "background_zh", "") or "",
             "desc_zh": a.desc_zh,
             "desc_en": a.desc_en,
         }
@@ -230,6 +233,18 @@ def _apply_registry_rows_to_db(
             name=name,
             refer_as=str(row.get("refer_as") or ""),
         )
+        background_zh = (
+            row.get("background_zh") or row.get("background") or row.get("identity") or ""
+        ).strip()
+        look_zh = (row.get("look_zh") or row.get("desc_zh") or "").strip()
+        if kind == "character":
+            if not look_zh:
+                look_zh = (row.get("notes") or "").strip()
+            # Prefer explicit look; if notes equals background, drop from look
+            if look_zh and background_zh and look_zh == background_zh:
+                look_zh = ""
+        else:
+            look_zh = look_zh or (row.get("notes") or "").strip()
         if asset is None:
             asset = Asset(
                 id=_uid(),
@@ -240,8 +255,9 @@ def _apply_registry_rows_to_db(
                 refer_as=row.get("refer_as") or ("人" if kind == "character" else ""),
                 age_band=row.get("age_band") or "",
                 appearance_json=_dump(row.get("appearance") or {}),
-                desc_zh=row.get("desc_zh") or "",
-                desc_en=row.get("desc_en") or "",
+                background_zh=background_zh if kind == "character" else "",
+                desc_zh=look_zh,
+                desc_en=row.get("desc_en") or row.get("look_en") or "",
                 confirmed=True,
                 created_chapter_id=chapter_id,
             )
@@ -255,9 +271,17 @@ def _apply_registry_rows_to_db(
             if row.get("age_band"):
                 asset.age_band = row["age_band"]
             asset.appearance_json = _dump(row.get("appearance") or {})
-            asset.desc_zh = row.get("desc_zh") or asset.desc_zh
-            if row.get("desc_en"):
-                asset.desc_en = row["desc_en"]
+            if kind == "character" and background_zh:
+                if not (asset.background_zh or "").strip():
+                    asset.background_zh = background_zh
+                elif background_zh not in asset.background_zh:
+                    asset.background_zh = f"{asset.background_zh}；{background_zh}"
+            if look_zh:
+                asset.desc_zh = look_zh if not asset.desc_zh else (
+                    asset.desc_zh if look_zh in asset.desc_zh else f"{asset.desc_zh}；{look_zh}"
+                )
+            if row.get("desc_en") or row.get("look_en"):
+                asset.desc_en = row.get("desc_en") or row.get("look_en") or asset.desc_en
             asset.confirmed = True
     db.flush()
     return created_n, updated_n
@@ -603,16 +627,24 @@ def confirm_proposals(
                 existing.appearance_json = _dump(
                     _merge_appearance(_load(existing.appearance_json, {}), row.get("appearance") or {})
                 )
-                if row.get("desc_zh"):
+                bg = (row.get("background_zh") or row.get("background") or "").strip()
+                if bg:
+                    if not (getattr(existing, "background_zh", "") or "").strip():
+                        existing.background_zh = bg
+                    elif bg not in existing.background_zh:
+                        existing.background_zh = f"{existing.background_zh}；{bg}"
+                look = (row.get("look_zh") or row.get("desc_zh") or "").strip()
+                if look:
                     if not existing.desc_zh:
-                        existing.desc_zh = row["desc_zh"]
-                    elif row["desc_zh"] not in existing.desc_zh:
-                        existing.desc_zh = f"{existing.desc_zh}；{row['desc_zh']}"
+                        existing.desc_zh = look
+                    elif look not in existing.desc_zh:
+                        existing.desc_zh = f"{existing.desc_zh}；{look}"
                 if row.get("desc_en") and not existing.desc_en:
                     existing.desc_en = row["desc_en"]
                 existing.confirmed = True
                 existing.kind = kind
             else:
+                look = (row.get("look_zh") or row.get("desc_zh") or "").strip()
                 asset = Asset(
                     id=_uid(),
                     project_id=project.id,
@@ -622,7 +654,8 @@ def confirm_proposals(
                     refer_as=row.get("refer_as") or "",
                     age_band=row.get("age_band") or "",
                     appearance_json=_dump(row.get("appearance") or {}),
-                    desc_zh=row.get("desc_zh") or "",
+                    background_zh=(row.get("background_zh") or row.get("background") or "") if kind == "character" else "",
+                    desc_zh=look,
                     desc_en=row.get("desc_en") or "",
                     confirmed=True,
                     created_chapter_id=chapter.id,

@@ -47,7 +47,7 @@ def test_merge_registry_supplements_missing_fields_without_duplicating():
 
 def test_completeness_requires_description_for_each_kind():
     assets = [
-        {"kind": "character", "name": "林砚之", "desc_zh": "", "appearance": {}},
+        {"kind": "character", "name": "林砚之", "desc_zh": "", "appearance": {}, "background_zh": "青川渡遗孤"},
         {"kind": "scene", "name": "青川渡口", "desc_zh": "雾中渡口"},
         {"kind": "prop", "name": "玉佩", "desc_zh": "苏字玉佩"},
     ]
@@ -56,6 +56,39 @@ def test_completeness_requires_description_for_each_kind():
     assert any(i["name"] == "林砚之" for i in report["incomplete"])
     assets[0]["desc_zh"] = "苍白少年，发白长衫"
     assert is_registry_complete(assets)
+
+
+def test_character_background_and_look_stay_split():
+    from app.domain.registry import apply_registry_delta, look_text, merge_registry_entry
+
+    base: list[dict] = []
+    apply_registry_delta(
+        base,
+        [
+            {
+                "kind": "character",
+                "name": "林砚之",
+                "background": "青川渡遗孤，寻母苏晚卿",
+                "look_zh": "眉眼清俊，洗白长衫",
+                "appearance": {"face": "眉眼清俊", "clothing": "发白长衫"},
+                "refer_as": "少年",
+            }
+        ],
+    )
+    assert base[0]["background_zh"] == "青川渡遗孤，寻母苏晚卿"
+    assert "遗孤" not in base[0]["desc_zh"]
+    assert "眉眼清俊" in base[0]["desc_zh"]
+    assert "遗孤" not in look_text(base[0])
+    assert "眉眼清俊" in look_text(base[0])
+
+    merged = merge_registry_entry(
+        base[0],
+        {"kind": "character", "name": "林砚之", "background": "陈伯旧友之子", "look_zh": "清瘦"},
+    )
+    assert "寻母" in merged["background_zh"]
+    assert "旧友" in merged["background_zh"]
+    assert "清瘦" in merged["desc_zh"]
+    assert "旧友" not in merged["desc_zh"]
 
 
 def test_apply_registry_delta_creates_and_supplements():

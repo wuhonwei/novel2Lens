@@ -603,13 +603,23 @@ function AssetSection({
 }
 
 function AssetCard({ asset, projectId, onUpdated }: { asset: Asset; projectId: string; onUpdated: (a: Asset) => void }) {
+  const [background, setBackground] = useState(asset.background_zh || "");
   const [desc, setDesc] = useState(asset.desc_zh);
+  useEffect(() => setBackground(asset.background_zh || ""), [asset.background_zh]);
   useEffect(() => setDesc(asset.desc_zh), [asset.desc_zh]);
   const kind = normalizeKind(asset.kind);
 
   async function upload(field: string, file?: File) {
     if (!file) return;
     onUpdated(await api.uploadAsset(projectId, asset.id, field, file));
+  }
+
+  async function saveFields() {
+    const patch =
+      kind === "character"
+        ? { background_zh: background, desc_zh: desc }
+        : { desc_zh: desc };
+    onUpdated(await api.patchAsset(projectId, asset.id, patch));
   }
 
   const ready =
@@ -627,10 +637,34 @@ function AssetCard({ asset, projectId, onUpdated }: { asset: Asset; projectId: s
         {asset.age_band ? ` · ${asset.age_band}` : ""}
       </p>
       {(asset.aliases || []).length > 0 && <p className="muted">别名：{(asset.aliases || []).join("、")}</p>}
-      <label>描述（中文）</label>
-      <textarea value={desc} onChange={(e) => setDesc(e.target.value)} />
+
+      {kind === "character" ? (
+        <>
+          <div className="desc-block view-only">
+            <label>① 背景与身份<span className="muted"> · 仅查阅，不参与生图</span></label>
+            <textarea
+              value={background}
+              onChange={(e) => setBackground(e.target.value)}
+              placeholder="出身、身份、与剧情关系……不要写五官衣着"
+            />
+          </div>
+          <div className="desc-block look-gen">
+            <label>② 样貌身材服饰<span className="muted"> · 生图关键字段</span></label>
+            <textarea
+              value={desc}
+              onChange={(e) => setDesc(e.target.value)}
+              placeholder="五官、发型、身材、衣着……不要写身世剧情"
+            />
+          </div>
+        </>
+      ) : (
+        <>
+          <label>可视化描述（中文）</label>
+          <textarea value={desc} onChange={(e) => setDesc(e.target.value)} />
+        </>
+      )}
       <div className="row">
-        <button onClick={() => api.patchAsset(projectId, asset.id, { desc_zh: desc }).then(onUpdated)}>保存描述</button>
+        <button onClick={() => saveFields()}>保存描述</button>
       </div>
       <div className="thumbs">
         {kind === "character" ? (

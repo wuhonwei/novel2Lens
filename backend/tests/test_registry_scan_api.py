@@ -13,8 +13,21 @@ NOVEL = """青川渡
 
 PASS1 = {
     "人物": [  # Chinese key must still map to character
-        {"name": "林砚之", "aliases": ["砚之"], "refer_as": "少年", "age_band": "十七岁", "notes": ""},
-        {"name": "陈守义", "aliases": ["陈伯"], "refer_as": "老者", "notes": "老船工"},
+        {
+            "name": "林砚之",
+            "aliases": ["砚之"],
+            "refer_as": "少年",
+            "age_band": "十七岁",
+            "background": "青川渡少年",
+            "look_zh": "",
+        },
+        {
+            "name": "陈守义",
+            "aliases": ["陈伯"],
+            "refer_as": "老者",
+            "background": "渡口老船工",
+            "look_zh": "花白头发，藏青短打",
+        },
     ],
     "scenes": [{"name": "青川渡口", "notes": "晨雾渡口"}],
     "核心物品": [{"name": "苏字玉佩", "notes": ""}],
@@ -27,7 +40,8 @@ PASS2 = {
             "kind": "character",
             "name": "林砚之",
             "action": "supplement",
-            "desc_zh": "眉眼清俊，脸色苍白，洗白长衫",
+            "background": "青川渡遗孤",
+            "look_zh": "眉眼清俊，脸色苍白，洗白长衫",
             "appearance": {"face": "眉眼清俊", "clothing": "发白长衫"},
         },
         {
@@ -86,6 +100,10 @@ def test_one_click_generate_book_assets(tmp_path, monkeypatch):
         lin = next(a for a in assets if a["name"] == "林砚之")
         assert lin["kind"] == "character"
         assert "眉眼清俊" in lin["desc_zh"]
+        assert "遗孤" not in lin["desc_zh"] or "遗孤" in (lin.get("background_zh") or "")
+        # background must not be used as the look field
+        if lin.get("background_zh"):
+            assert lin["background_zh"] != lin["desc_zh"]
         prop = next(a for a in assets if a["name"] == "苏字玉佩")
         assert prop["kind"] == "prop"
         assert prop["half_path"] == ""

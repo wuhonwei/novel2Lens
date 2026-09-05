@@ -67,6 +67,7 @@ class Asset(Base):
     refer_as: Mapped[str] = mapped_column(String(40), default="")
     age_band: Mapped[str] = mapped_column(String(40), default="")
     appearance_json: Mapped[str] = mapped_column(Text, default="{}")
+    background_zh: Mapped[str] = mapped_column(Text, default="")
     desc_zh: Mapped[str] = mapped_column(Text, default="")
     desc_en: Mapped[str] = mapped_column(Text, default="")
     parent_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
@@ -144,6 +145,9 @@ def ensure_schema() -> None:
         cols = {row[1] for row in conn.execute(text("PRAGMA table_info(projects)")).fetchall()}
         if "registry_scan_json" not in cols:
             conn.execute(text("ALTER TABLE projects ADD COLUMN registry_scan_json TEXT DEFAULT '{}'"))
+        asset_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(assets)")).fetchall()}
+        if "background_zh" not in asset_cols:
+            conn.execute(text("ALTER TABLE assets ADD COLUMN background_zh TEXT DEFAULT ''"))
 
 
 def init_db() -> None:

@@ -119,6 +119,7 @@ class AssetPatch(BaseModel):
     refer_as: str | None = None
     age_band: str | None = None
     appearance: dict | None = None
+    background_zh: str | None = None
     desc_zh: str | None = None
     desc_en: str | None = None
     confirmed: bool | None = None
