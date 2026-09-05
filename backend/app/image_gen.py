@@ -48,7 +48,9 @@ def list_image_output_files(project: Project) -> list[dict[str, str]]:
 def _style_for(kind: str, project_style: str) -> str:
     blob = project_style or ""
     if kind == "character":
-        if any(x in blob for x in ("国风", "古风", "江湖", "武侠", "仙侠")):
+        if any(x in blob for x in ("国风", "古风", "江湖", "武侠", "仙侠")) or (
+            "3D" in blob.upper() and ("东方" in blob or "国" in blob)
+        ):
             return "guofeng_cg"
         if "动漫" in blob or "anime" in blob.lower():
             return "anime"
@@ -98,14 +100,22 @@ def build_field_prompt(project: Project, asset: Asset, field: str) -> str:
         )
         en = identity_lock_en(gender=gender, age_tier=age_tier)
         identity = "。".join(x for x in (lock, en) if x)
+        style_key = _style_for("character", style)
+        period = ""
+        if style_key == "guofeng_cg":
+            period = (
+                "国风三维角色，古装/汉服或江湖劲装，东方古代服饰纹样，"
+                "不要现代衬衫西裤运动鞋，不要真人摄影棚写真"
+            )
         if field == "full":
             return (
-                f"{style}。{identity}。角色名：{asset.name}。{look}。"
+                f"{style}。{period}。{identity}。角色名：{asset.name}。{look}。"
                 "全身站立人像，从头到脚完整入镜，正面或微侧，可见鞋子，无背景白底，单人。"
             )
         if field == "half":
             return (
                 f"保持人物身份、性别、年龄感、五官、发型与服饰完全一致（{identity}），"
+                f"{period}。"
                 "生成正面半身胸像，头肩构图，面部清晰，无背景白底，不要全身。"
             )
     if kind == "scene" and field == "far":

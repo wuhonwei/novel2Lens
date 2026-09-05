@@ -45,16 +45,43 @@ STYLE_SUFFIX = {
         "doll-like idealized face, soft cinematic glow, smooth porcelain skin, "
         "ultra detailed hair strands, masterpiece"
     ),
+    "guofeng_cg_male": (
+        "stylized 3D CGI donghua male character, Unreal Engine 5, octane render, "
+        "masculine Chinese historical hero look, ancient Chinese costume or jianghu outfit, "
+        "hanfu or martial robe, soft cinematic glow, ultra detailed hair strands, masterpiece, "
+        "NOT a real photo, NOT modern clothing"
+    ),
+    "guofeng_cg_elder": (
+        "stylized 3D CGI donghua elderly character, Unreal Engine 5, octane render, "
+        "aged wrinkled face, gray-white hair, traditional Chinese costume, "
+        "soft cinematic glow, masterpiece, NOT a young idol face, NOT a real photo"
+    ),
     "guofeng_cg_fullbody": (
         "stylized 3D CGI donghua full-body character standing, Unreal Engine 5, "
         "octane render, entire figure head to toe in frame, visible shoes, "
         "soft cinematic glow, masterpiece"
+    ),
+    "guofeng_cg_male_fullbody": (
+        "stylized 3D CGI donghua full-body male character standing, Unreal Engine 5, "
+        "octane render, ancient Chinese / jianghu costume, entire figure head to toe, "
+        "visible period shoes, soft cinematic glow, masterpiece, NOT modern clothes, NOT photoreal"
+    ),
+    "guofeng_cg_elder_fullbody": (
+        "stylized 3D CGI donghua full-body elderly character standing, Unreal Engine 5, "
+        "octane render, traditional Chinese costume, wrinkled aged face, "
+        "entire figure head to toe, soft cinematic glow, masterpiece, NOT young, NOT photoreal"
     ),
     "anime": "anime style, clean lineart, vibrant colors, detailed eyes",
     "product": "product photography, studio softbox lighting, clean background",
     "scenery": "cinematic landscape, atmospheric perspective, rich depth",
     "concept": "concept art, design sheet, clear silhouette, masterful composition",
 }
+
+GUOFENG_PERIOD_NEGATIVE = (
+    "modern clothes, contemporary fashion, blue dress shirt, jeans, chinos, sneakers, "
+    "suit, necktie, photorealistic photo, real photograph, DSLR photo, studio catalog photo, "
+    "western business casual, t-shirt, hoodie"
+)
 
 STYLE_DEFAULT_NEGATIVE = (
     "blurry, low quality, deformed, extra fingers, watermark, text artifacts, "
@@ -167,10 +194,22 @@ def ckpt_for_backend(backend: str) -> str | None:
     return BACKEND_CKPT.get(backend)
 
 
-def build_positive(prompt: str, style: str) -> str:
+def build_positive(
+    prompt: str,
+    style: str,
+    *,
+    gender: str = "unknown",
+    age_tier: str = "unknown",
+) -> str:
     key = style
-    if style == "guofeng_cg" and is_fullbody_prompt(prompt):
-        key = "guofeng_cg_fullbody"
+    if style == "guofeng_cg":
+        full = is_fullbody_prompt(prompt)
+        if age_tier == "elder":
+            key = "guofeng_cg_elder_fullbody" if full else "guofeng_cg_elder"
+        elif gender == "male":
+            key = "guofeng_cg_male_fullbody" if full else "guofeng_cg_male"
+        elif full:
+            key = "guofeng_cg_fullbody"
     suffix = STYLE_SUFFIX.get(key) or STYLE_SUFFIX.get(style, "")
     base = (prompt or "").strip()
     return f"{base}, {suffix}" if suffix else base

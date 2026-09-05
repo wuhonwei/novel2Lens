@@ -132,9 +132,7 @@ def _t2i_payload(asset: Asset, project: Project, field: str, aspect: str) -> dic
         gender, age_tier = character_persona(asset)
         payload["gender"] = gender
         payload["age_tier"] = age_tier
-        # Guofeng XL heavily biases young women; males/elders use RealVis path.
-        if gender == "male" or age_tier == "elder":
-            payload["prefer_backend"] = "sdxl_realvis"
+        # Keep Guofeng for 国风3D; gender/age locks handle female bias (do NOT force RealVis).
     return payload
 
 

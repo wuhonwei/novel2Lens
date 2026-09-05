@@ -13,6 +13,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.comfy_pipeline.workflows import (
+    GUOFENG_PERIOD_NEGATIVE,
     QUALITY_PARAMS,
     STYLE_DEFAULT_NEGATIVE,
     build_positive,
@@ -239,11 +240,8 @@ class ImageWorker:
             en_lock = identity_lock_en(gender=gender, age_tier=age_tier)
             if en_lock:
                 t2i_prompt = f"{en_lock}. {t2i_prompt}"
-            # Drop doll-beauty bias for males / elders before style suffix.
-            if gender == "male" or age_tier == "elder":
-                style_for_suffix = "guofeng" if style == "guofeng_cg" else style
-            else:
-                style_for_suffix = style
+            # Keep guofeng_cg for 国风3D males/elders; gender-specific CGI suffixes handle bias.
+            style_for_suffix = style
             t2i_prompt = enrich_character_prompt(
                 t2i_prompt,
                 style_for_suffix,
@@ -266,20 +264,20 @@ class ImageWorker:
         except ValueError:
             backend = "sdxl_realvis"
 
+        # prefer_backend only when explicitly set (no longer auto-forced for males)
         if prefer_backend == "sdxl_realvis" and (
-            live_ckpts is None
-            or not live_ckpts
-            or "RealVisXL_V5.0_fp16.safetensors" in live_ckpts
+            "RealVisXL_V5.0_fp16.safetensors" in (live_ckpts or set())
             or (self.models_dir / "checkpoints" / "RealVisXL_V5.0_fp16.safetensors").exists()
         ):
-            # Prefer RealVis when Guofeng would paint every male as a young woman.
-            if "RealVisXL_V5.0_fp16.safetensors" in (live_ckpts or set()) or (
-                self.models_dir / "checkpoints" / "RealVisXL_V5.0_fp16.safetensors"
-            ).exists():
-                backend = "sdxl_realvis"
+            backend = "sdxl_realvis"
 
         if subject_type == "character":
-            positive = build_positive(t2i_prompt, style_for_suffix)
+            positive = build_positive(
+                t2i_prompt,
+                style_for_suffix,
+                gender=gender,
+                age_tier=age_tier,
+            )
             negative = enrich_character_negative(
                 t2i_prompt,
                 STYLE_DEFAULT_NEGATIVE,
@@ -291,6 +289,8 @@ class ImageWorker:
             extra_neg = identity_negative(gender=gender, age_tier=age_tier)
             if extra_neg:
                 negative = f"{negative}, {extra_neg}"
+            if style_for_suffix in ("guofeng_cg", "guofeng"):
+                negative = f"{negative}, {GUOFENG_PERIOD_NEGATIVE}"
         else:
             positive = build_positive(prompt, style)
             negative = STYLE_DEFAULT_NEGATIVE

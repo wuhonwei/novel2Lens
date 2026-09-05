@@ -19,7 +19,7 @@ def test_infer_elder_female_from_婆婆():
 
 
 def test_build_field_prompt_locks_male_and_elder():
-    project = Project(id="p", title="t", style="半写实江湖", source_text="x")
+    project = Project(id="p", title="t", style="国风3D、东方江湖", source_text="x")
     male = Asset(
         id="a1",
         project_id="p",
@@ -40,10 +40,30 @@ def test_build_field_prompt_locks_male_and_elder():
     )
     m = build_field_prompt(project, male, "full")
     assert "男性" in m or "男子" in m
-    assert "woman" not in m.lower() or "man" in m.lower()
+    assert "国风" in m or "古装" in m or "汉服" in m
+    assert "不要现代衬衫" in m
     g = build_field_prompt(project, grandma, "full")
     assert "老年" in g or "苍老" in g
     assert "不可年轻化" in g or "皱纹" in g
+
+
+def test_male_guofeng_payload_keeps_guofeng_not_realvis():
+    from app.image_jobs import _t2i_payload
+
+    project = Project(id="p", title="t", style="国风3D、东方江湖", source_text="x")
+    male = Asset(
+        id="a1",
+        project_id="p",
+        kind="character",
+        name="林砚之",
+        refer_as="少年",
+        age_band="17岁",
+        desc_zh="清瘦少年，洗白长衫",
+    )
+    payload = _t2i_payload(male, project, "full", "9:16")
+    assert payload["style"] == "guofeng_cg"
+    assert payload.get("prefer_backend") != "sdxl_realvis"
+    assert payload["gender"] == "male"
 
 
 def test_enrich_no_longer_hardcodes_woman_for_male():
