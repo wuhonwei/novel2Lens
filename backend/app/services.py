@@ -64,10 +64,20 @@ def _dump(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False)
 
 
+def _effective_far_path(asset: Asset) -> str:
+    far = getattr(asset, "far_path", "") or ""
+    if far:
+        return far
+    return asset.image_path or ""
+
+
 def serialize_asset(asset: Asset) -> dict[str, Any]:
+    kind = normalize_kind(asset.kind)
+    far_path = _effective_far_path(asset)
+    near_path = getattr(asset, "near_path", "") or ""
     return {
         "id": asset.id,
-        "kind": normalize_kind(asset.kind),
+        "kind": kind,
         "name": asset.name,
         "aliases": _load(asset.aliases_json, []),
         "refer_as": asset.refer_as,
@@ -81,12 +91,14 @@ def serialize_asset(asset: Asset) -> dict[str, Any]:
         "confirmed": asset.confirmed,
         "half_path": asset.half_path,
         "full_path": asset.full_path,
+        "far_path": far_path,
+        "near_path": near_path,
         "image_path": asset.image_path,
         "voice_path": asset.voice_path,
         "created_chapter_id": asset.created_chapter_id,
         "portrait_ready": bool(asset.half_path and asset.full_path)
-        if normalize_kind(asset.kind) == "character"
-        else bool(asset.image_path),
+        if kind == "character"
+        else bool(far_path if kind == "scene" else asset.image_path),
     }
 
 
@@ -816,7 +828,9 @@ def _shot_unready(
             return True
         if key == "full" and not asset.full_path:
             return True
-        if key in ("scene", "prop") and not asset.image_path:
+        if key == "scene" and not _effective_far_path(asset):
+            return True
+        if key == "prop" and not asset.image_path:
             return True
     return False
 

@@ -16,6 +16,11 @@ class Settings(BaseSettings):
     fallback_llm_base_url: str = "http://127.0.0.1:11434/v1"
     fallback_llm_model: str = "qwen2.5:32b"
     zaoxiang_base_url: str = "http://127.0.0.1:8000"
+    comfy_base_url: str = "http://127.0.0.1:8189"
+    comfy_root: str = r"D:\Develop\ComfyUI"
+    comfy_python: str = r"D:\Develop\ComfyUI\venv\Scripts\python.exe"
+    image_idle_unload_seconds: int = 180
+    stop_comfy_when_idle: bool = True
 
 
 settings = Settings()

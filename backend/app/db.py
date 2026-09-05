@@ -77,11 +77,31 @@ class Asset(Base):
     confirmed: Mapped[bool] = mapped_column(Boolean, default=False)
     half_path: Mapped[str] = mapped_column(String(400), default="")
     full_path: Mapped[str] = mapped_column(String(400), default="")
+    far_path: Mapped[str] = mapped_column(String(400), default="")
+    near_path: Mapped[str] = mapped_column(String(400), default="")
     image_path: Mapped[str] = mapped_column(String(400), default="")
     voice_path: Mapped[str] = mapped_column(String(400), default="")
     created_chapter_id: Mapped[str] = mapped_column(String(36), default="")
 
     project: Mapped[Project] = relationship(back_populates="assets")
+
+
+class ImageJob(Base):
+    __tablename__ = "image_jobs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    project_id: Mapped[str] = mapped_column(String(36), index=True)
+    asset_id: Mapped[str] = mapped_column(String(36), index=True)
+    kind: Mapped[str] = mapped_column(String(20))  # t2i | edit
+    target_field: Mapped[str] = mapped_column(String(20))
+    status: Mapped[str] = mapped_column(String(20), default="queued")
+    phase: Mapped[str] = mapped_column(String(40), default="")
+    prompt: Mapped[str] = mapped_column(Text, default="")
+    payload_json: Mapped[str] = mapped_column(Text, default="{}")
+    error: Mapped[str] = mapped_column(Text, default="")
+    batch_id: Mapped[str] = mapped_column(String(36), default="", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
 class Proposal(Base):
@@ -156,6 +176,10 @@ def ensure_schema() -> None:
         asset_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(assets)")).fetchall()}
         if "background_zh" not in asset_cols:
             conn.execute(text("ALTER TABLE assets ADD COLUMN background_zh TEXT DEFAULT ''"))
+        if "far_path" not in asset_cols:
+            conn.execute(text("ALTER TABLE assets ADD COLUMN far_path VARCHAR(400) DEFAULT ''"))
+        if "near_path" not in asset_cols:
+            conn.execute(text("ALTER TABLE assets ADD COLUMN near_path VARCHAR(400) DEFAULT ''"))
         shot_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(shots)")).fetchall()}
         if "prop_asset_ids_json" not in shot_cols:
             conn.execute(text("ALTER TABLE shots ADD COLUMN prop_asset_ids_json TEXT DEFAULT '[]'"))

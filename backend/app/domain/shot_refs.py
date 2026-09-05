@@ -18,6 +18,11 @@ def _path_for(asset: Any, image_key: str) -> str:
         return (getattr(asset, "half_path", None) or "") if asset else ""
     if image_key == "full":
         return (getattr(asset, "full_path", None) or "") if asset else ""
+    if image_key == "scene" and asset:
+        far = getattr(asset, "far_path", None) or ""
+        if far:
+            return far
+        return getattr(asset, "image_path", None) or ""
     return (getattr(asset, "image_path", None) or "") if asset else ""
 
 
