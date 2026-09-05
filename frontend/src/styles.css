@@ -384,10 +384,13 @@ input, select { width: 100%; }
 
 .asset-card.asset-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 148px;
+  grid-template-columns: minmax(0, 1fr) minmax(148px, 220px);
   gap: 0.75rem;
   align-items: start;
   width: 100%;
+}
+.asset-card[data-kind="scene"].asset-row {
+  grid-template-columns: minmax(0, 1fr) minmax(200px, 340px);
 }
 
 .asset-row-main { min-width: 0; width: 100%; }
@@ -469,8 +472,21 @@ input, select { width: 100%; }
   font-size: 0.8rem;
 }
 .thumbs .ph.wide, .thumbs img.wide { width: 160px; height: 90px; }
-.thumb-slot { display: flex; flex-direction: column; gap: 0.35rem; }
+.thumb-slot { display: flex; flex-direction: column; gap: 0.35rem; position: relative; }
 .thumb-slot.wide-slot .ph.wide, .thumb-slot.wide-slot img.wide { width: 160px; height: 90px; }
+.slot-badge {
+  position: absolute;
+  top: 0.35rem;
+  left: 0.35rem;
+  max-width: calc(100% - 0.7rem);
+  font-size: 0.68rem;
+  line-height: 1.2;
+  padding: 0.15rem 0.35rem;
+  border-radius: 6px;
+  background: rgba(12, 18, 16, 0.88);
+  color: var(--warm);
+  border: 1px solid rgba(201, 166, 107, 0.35);
+}
 .thumb-actions {
   display: flex;
   flex-wrap: wrap;
@@ -630,4 +646,50 @@ input, select { width: 100%; }
 @media (max-width: 640px) {
   .home-steps { grid-template-columns: 1fr; }
   .brand { font-size: 1.6rem; }
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: rgba(6, 10, 8, 0.72);
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+}
+.modal-panel {
+  width: min(560px, 100%);
+  max-height: min(86vh, 720px);
+  overflow: auto;
+  background: rgba(18, 26, 22, 0.98);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 1rem 1.1rem 1.15rem;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+}
+.modal-panel .panel-head h3 {
+  margin: 0;
+  font-family: var(--serif);
+  font-size: 1.15rem;
+}
+.edit-file-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  max-height: 180px;
+  overflow: auto;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.2);
+}
+.edit-file-item {
+  align-items: flex-start;
+  gap: 0.45rem;
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+.edit-file-item span {
+  word-break: break-all;
+  color: var(--muted);
 }

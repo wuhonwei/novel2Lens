@@ -11,3 +11,9 @@ Task 3: complete (commits e5c3b09..bb03508, review clean after mutex/idle fixes)
 
 Task 4: complete (see task-4-report.md — ImageWorker + enqueue APIs)
 
+Task 4: complete (commits 2b8ab74..b7194ab, review clean after field=None + cancel fixes)
+
+Task 5: complete (f8a8bb3, review clean)
+
+Task 6: complete (see task-6-report.md — queue UI, scene far/near, edit modal)
+

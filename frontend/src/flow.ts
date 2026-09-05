@@ -37,8 +37,11 @@ export function pipelineSteps() {
 function missingRefCount(assets: Asset[]): number {
   let n = 0;
   for (const a of assets) {
-    if (normalizeKind(a.kind) === "character") {
+    const kind = normalizeKind(a.kind);
+    if (kind === "character") {
       if (!a.half_path || !a.full_path) n += 1;
+    } else if (kind === "scene") {
+      if (!(a.near_path || a.far_path || a.image_path)) n += 1;
     } else if (!a.image_path) {
       n += 1;
     }

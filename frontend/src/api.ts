@@ -14,11 +14,39 @@ export type Asset = {
   confirmed: boolean;
   half_path: string;
   full_path: string;
+  far_path: string;
+  near_path: string;
   image_path: string;
   voice_path: string;
   portrait_ready: boolean;
   created_chapter_id?: string;
 };
+
+export type ImageJob = {
+  id: string;
+  project_id: string;
+  asset_id: string;
+  kind: string;
+  target_field: string;
+  status: string;
+  phase: string;
+  prompt: string;
+  error: string;
+  batch_id: string;
+  payload?: Record<string, unknown>;
+  created_at?: string | null;
+  updated_at?: string | null;
+};
+
+/** Human-readable phase/status for image job badges. */
+export function jobPhaseLabel(j: ImageJob): string {
+  if (j.phase === "loading_t2i" || j.phase === "ensuring_comfy") return "文生图模型加载中";
+  if (j.phase === "loading_edit") return "图片编辑模型加载中";
+  if (j.status === "queued") return "排队中";
+  if (j.status === "running") return "生成中";
+  if (j.status === "failed") return "失败";
+  return "";
+}
 
 export type Chapter = {
   id: string;
@@ -136,6 +164,7 @@ export type Bundle = {
   assets: Asset[];
   shots: Shot[];
   proposals: Proposal[];
+  active_image_jobs?: ImageJob[];
 };
 
 async function req<T>(url: string, init?: RequestInit): Promise<T> {
@@ -226,13 +255,29 @@ export const api = {
     return req<Asset>(`/api/projects/${pid}/assets/${aid}/upload`, { method: "POST", body: data });
   },
   generateImages: (pid: string) =>
-    req<Bundle & { image_gen?: Record<string, unknown> }>(`/api/projects/${pid}/generate-images`, { method: "POST" }),
+    req<Bundle & { batch_id?: string; jobs?: ImageJob[]; image_gen?: Record<string, unknown> }>(
+      `/api/projects/${pid}/generate-images`,
+      { method: "POST" },
+    ),
   generateAssetImage: (pid: string, aid: string, field?: string) => {
     const qs = field ? `?field=${encodeURIComponent(field)}` : "";
-    return req<Asset>(`/api/projects/${pid}/assets/${aid}/generate-image${qs}`, { method: "POST" });
+    return req<{ ok: boolean; job: ImageJob; jobs: ImageJob[]; asset: Asset }>(
+      `/api/projects/${pid}/assets/${aid}/generate-image${qs}`,
+      { method: "POST" },
+    );
   },
   clearAssetImage: (pid: string, aid: string, field: string) =>
     req<Asset>(`/api/projects/${pid}/assets/${aid}/image?field=${encodeURIComponent(field)}`, { method: "DELETE" }),
+  listImageJobs: (pid: string, activeOnly = true) =>
+    req<{ jobs: ImageJob[] }>(`/api/projects/${pid}/image-jobs?active_only=${activeOnly}`),
+  cancelImageBatch: (pid: string, batchId: string) =>
+    req<{ ok: boolean; cancelled: number }>(`/api/projects/${pid}/image-batches/${batchId}/cancel`, { method: "POST" }),
+  editAssetImage: (pid: string, aid: string, form: FormData) =>
+    req<{ ok: boolean; job: ImageJob }>(`/api/projects/${pid}/assets/${aid}/edit-image`, { method: "POST", body: form }),
+  listImageOutputFiles: (pid: string) =>
+    req<{ image_output_dir?: string; files: { name: string; path: string; rel?: string }[] }>(
+      `/api/projects/${pid}/image-output-files`,
+    ),
   export: (pid: string) => req<{ document: unknown; markdown: string; path: string }>(`/api/projects/${pid}/export`, { method: "POST" }),
 };
 

@@ -1,5 +1,16 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { api, mediaUrl, normalizeKind, type Asset, type Bundle, type Project, type Shot, type ShotReference } from "./api";
+import {
+  api,
+  jobPhaseLabel,
+  mediaUrl,
+  normalizeKind,
+  type Asset,
+  type Bundle,
+  type ImageJob,
+  type Project,
+  type Shot,
+  type ShotReference,
+} from "./api";
 import {
   assetsByKind,
   bookAssetsReady,
@@ -12,6 +23,7 @@ import {
 } from "./flow";
 
 const CAMERAS = ["固定", "缓慢推近", "缓慢拉远", "慢摇左", "慢摇右", "微仰", "微俯", "轻度跟随左一", "轻度跟随中", "轻度跟随右一"];
+const LLM_BUSY_TITLE = "参考图生成中";
 
 export default function App() {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -27,6 +39,17 @@ export default function App() {
   const [keepId, setKeepId] = useState("");
   const [dropId, setDropId] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [imageJobs, setImageJobs] = useState<ImageJob[]>([]);
+  const [imageBatch, setImageBatch] = useState<{ id: string; total: number } | null>(null);
+  const imageJobsActiveRef = useRef(false);
+  const prevActiveCountRef = useRef(0);
+  const imageBatchRef = useRef<{ id: string; total: number } | null>(null);
+
+  function noteImageBatch(batchId: string, total: number) {
+    const next = { id: batchId, total: Math.max(total, 1) };
+    imageBatchRef.current = next;
+    setImageBatch(next);
+  }
 
   async function refreshList() {
     setProjects(await api.list());
@@ -34,6 +57,68 @@ export default function App() {
   useEffect(() => {
     refreshList().catch((e) => setError(String(e)));
   }, []);
+
+  useEffect(() => {
+    if (!bundle) {
+      setImageJobs([]);
+      setImageBatch(null);
+      imageBatchRef.current = null;
+      imageJobsActiveRef.current = false;
+      prevActiveCountRef.current = 0;
+      return;
+    }
+    const pid = bundle.project.id;
+    let stop = false;
+
+    async function poll() {
+      try {
+        const { jobs } = await api.listImageJobs(pid, true);
+        if (stop) return;
+        const prev = prevActiveCountRef.current;
+        setImageJobs(jobs);
+        prevActiveCountRef.current = jobs.length;
+        if (jobs.length > 0) {
+          imageJobsActiveRef.current = true;
+          if (!imageBatchRef.current) {
+            const bid = jobs.find((j) => j.batch_id)?.batch_id || "";
+            if (bid) noteImageBatch(bid, jobs.length);
+          } else if (jobs.length > imageBatchRef.current.total) {
+            noteImageBatch(imageBatchRef.current.id, jobs.length);
+          }
+        }
+        const finishedSome = imageJobsActiveRef.current && jobs.length < prev;
+        const finishedAll = imageJobsActiveRef.current && jobs.length === 0;
+        if (finishedSome || finishedAll) {
+          const next = await api.get(pid);
+          if (stop) return;
+          setBundle(next);
+        }
+        if (finishedAll) {
+          imageJobsActiveRef.current = false;
+          imageBatchRef.current = null;
+          setImageBatch(null);
+        }
+      } catch {
+        /* keep last known jobs */
+      }
+    }
+
+    if (bundle.active_image_jobs?.length) {
+      setImageJobs(bundle.active_image_jobs);
+      imageJobsActiveRef.current = true;
+      prevActiveCountRef.current = bundle.active_image_jobs.length;
+    }
+
+    poll();
+    const timer = window.setInterval(poll, 1500);
+    return () => {
+      stop = true;
+      window.clearInterval(timer);
+    };
+  }, [bundle?.project.id]);
+
+  const imageBusy = imageJobs.length > 0;
+  const llmBlocked = imageBusy;
 
   const chapter = bundle?.chapters.find((c) => c.id === chapterId) || bundle?.chapters[0];
   const chapterShots = useMemo(
@@ -283,7 +368,8 @@ export default function App() {
             <button
               className="primary coach-cta"
               data-testid="btn-coach-cta"
-              disabled={!!busy}
+              disabled={!!busy || llmBlocked}
+              title={llmBlocked ? LLM_BUSY_TITLE : undefined}
               onClick={() => actOnGuide(guide)}
             >
               {guide.cta}
@@ -330,7 +416,8 @@ export default function App() {
               <button
                 data-testid="btn-prescan"
                 className="primary"
-                disabled={!!busy}
+                disabled={!!busy || llmBlocked}
+                title={llmBlocked ? LLM_BUSY_TITLE : undefined}
                 onClick={() =>
                   run("一键生成全书资产", async () => {
                     setBundle(await api.generateAssets(p.id, true));
@@ -388,7 +475,8 @@ export default function App() {
                 <button
                   data-testid="btn-generate-assets"
                   className={guide?.step === "generate_assets" ? "primary" : ""}
-                  disabled={!!busy}
+                  disabled={!!busy || llmBlocked}
+                  title={llmBlocked ? LLM_BUSY_TITLE : undefined}
                   onClick={() =>
                     run("一键生成全书资产", async () => {
                       setBundle(await api.generateAssets(p.id, true));
@@ -405,7 +493,8 @@ export default function App() {
                 <button
                   data-testid="btn-storyboard"
                   className={guide?.step === "storyboard" ? "primary" : ""}
-                  disabled={!!busy || !chapter || !bookAssetsReady(bundle)}
+                  disabled={!!busy || llmBlocked || !chapter || !bookAssetsReady(bundle)}
+                  title={llmBlocked ? LLM_BUSY_TITLE : undefined}
                   onClick={() =>
                     run("生成分镜", async () => {
                       setBundle(await api.storyboard(p.id, chapter!.id, overwrite));
@@ -432,12 +521,20 @@ export default function App() {
               <BookAssets
                 bundle={bundle}
                 busy={!!busy}
+                imageJobs={imageJobs}
+                imageBatch={imageBatch}
+                llmBlocked={llmBlocked}
                 keepId={keepId}
                 dropId={dropId}
                 setKeepId={setKeepId}
                 setDropId={setDropId}
                 onChange={setBundle}
                 onRun={run}
+                onBatchQueued={noteImageBatch}
+                onJobsSeen={(jobs) => {
+                  setImageJobs(jobs);
+                  if (jobs.length) imageJobsActiveRef.current = true;
+                }}
               />
             )}
 
@@ -474,22 +571,28 @@ export default function App() {
 }
 
 function BookAssets({
-  bundle, busy, keepId, dropId, setKeepId, setDropId, onChange, onRun,
+  bundle, busy, imageJobs, imageBatch, llmBlocked, keepId, dropId, setKeepId, setDropId, onChange, onRun, onBatchQueued, onJobsSeen,
 }: {
   bundle: Bundle;
   busy: boolean;
+  imageJobs: ImageJob[];
+  imageBatch: { id: string; total: number } | null;
+  llmBlocked: boolean;
   keepId: string;
   dropId: string;
   setKeepId: (v: string) => void;
   setDropId: (v: string) => void;
   onChange: (b: Bundle) => void;
   onRun: (label: string, job: () => Promise<void>) => void;
+  onBatchQueued: (batchId: string, total: number) => void;
+  onJobsSeen: (jobs: ImageJob[]) => void;
 }) {
   const { characters, scenes, props } = assetsByKind(bundle);
   const scan = bundle.project.registry_scan;
   const ready = bookAssetsReady(bundle);
   const [view, setView] = useState<"character" | "scene" | "prop">("character");
   const [outDir, setOutDir] = useState(bundle.project.image_output_dir || "");
+  const [cancelBusy, setCancelBusy] = useState(false);
   useEffect(() => setOutDir(bundle.project.image_output_dir || ""), [bundle.project.image_output_dir]);
 
   const tabs = [
@@ -498,6 +601,34 @@ function BookAssets({
     { id: "prop" as const, label: "核心物品", count: props.length, empty: "还没有核心物品。", assets: props },
   ];
   const active = tabs.find((t) => t.id === view)!;
+  const imageBusy = imageJobs.length > 0;
+  const batchId = imageBatch?.id || imageJobs.find((j) => j.batch_id)?.batch_id || "";
+  const total = imageBatch?.total || imageJobs.length;
+  const done = Math.max(0, total - imageJobs.length);
+  const jobsByAsset = useMemo(() => {
+    const map = new Map<string, ImageJob[]>();
+    for (const j of imageJobs) {
+      const list = map.get(j.asset_id) || [];
+      list.push(j);
+      map.set(j.asset_id, list);
+    }
+    return map;
+  }, [imageJobs]);
+
+  async function cancelBatch() {
+    if (!batchId) return;
+    setCancelBusy(true);
+    try {
+      await api.cancelImageBatch(bundle.project.id, batchId);
+      const { jobs } = await api.listImageJobs(bundle.project.id, true);
+      onJobsSeen(jobs);
+      onChange(await api.get(bundle.project.id));
+    } catch (e) {
+      alert(e instanceof Error ? e.message : String(e));
+    } finally {
+      setCancelBusy(false);
+    }
+  }
 
   return (
     <div className="stack">
@@ -515,7 +646,8 @@ function BookAssets({
           <button
             data-testid="btn-one-click-assets"
             className="primary"
-            disabled={busy}
+            disabled={busy || llmBlocked}
+            title={llmBlocked ? LLM_BUSY_TITLE : undefined}
             onClick={() =>
               onRun("一键生成全书资产", async () => onChange(await api.generateAssets(bundle.project.id, true)))
             }
@@ -524,7 +656,7 @@ function BookAssets({
           </button>
         </div>
         <div className="stack" style={{ marginTop: "0.85rem" }}>
-          <label>参考图保存目录（造像生成落盘；可填绝对路径）</label>
+          <label>参考图保存目录（生成落盘；可填绝对路径）</label>
           <div className="row">
             <input
               data-testid="image-output-dir"
@@ -545,18 +677,42 @@ function BookAssets({
             <button
               data-testid="btn-generate-images"
               className="primary"
-              disabled={busy || bundle.assets.length === 0}
+              disabled={busy || imageBusy || bundle.assets.length === 0}
               onClick={() =>
                 onRun("一键生成参考图", async () => {
                   const next = await api.generateImages(bundle.project.id);
+                  const jobs = next.jobs || [];
+                  const bid = next.batch_id || jobs[0]?.batch_id || "";
+                  const queued =
+                    jobs.length ||
+                    (typeof next.image_gen?.queued === "number" ? next.image_gen.queued : 0) ||
+                    1;
+                  if (bid) onBatchQueued(bid, queued);
+                  onJobsSeen(jobs);
                   onChange(next);
                 })
               }
             >
               一键生成参考图
             </button>
+            {imageBusy ? (
+              <>
+                <span className="busy-line" data-testid="image-gen-progress">
+                  生成中 ({done}/{total})
+                </span>
+                <button
+                  type="button"
+                  className="danger"
+                  data-testid="btn-cancel-image-batch"
+                  disabled={!batchId || cancelBusy}
+                  onClick={() => cancelBatch()}
+                >
+                  {cancelBusy ? "取消中…" : "取消批次"}
+                </button>
+              </>
+            ) : null}
           </div>
-          <p className="hint">人物：全身 9:16 → 半身 3:4（由全身编辑）。场景 16:9，物品 1:1。需造像服务 :8000 已启动。</p>
+          <p className="hint">人物：全身 9:16 → 半身 3:4（由全身编辑）。场景远景 16:9 + 近景 3:4，物品 1:1。Comfy 按需启动 :8189。</p>
         </div>
       </section>
 
@@ -592,8 +748,14 @@ function BookAssets({
                 key={asset.id}
                 asset={asset}
                 projectId={bundle.project.id}
+                jobs={jobsByAsset.get(asset.id) || []}
                 onUpdated={(next) => {
                   onChange({ ...bundle, assets: bundle.assets.map((a) => (a.id === next.id ? next : a)) });
+                }}
+                onJobsEnqueued={(jobs) => {
+                  onJobsSeen([...imageJobs.filter((j) => j.asset_id !== asset.id), ...jobs]);
+                  const bid = jobs[0]?.batch_id;
+                  if (bid) onBatchQueued(bid, (imageBatch?.id === bid ? imageBatch.total : 0) + jobs.length);
                 }}
               />
             ))}
@@ -618,7 +780,8 @@ function BookAssets({
             </select>
             <button
               data-testid="btn-merge"
-              disabled={!keepId || !dropId || keepId === dropId}
+              disabled={!keepId || !dropId || keepId === dropId || llmBlocked}
+              title={llmBlocked ? LLM_BUSY_TITLE : undefined}
               onClick={() => onRun("合并", async () => onChange(await api.merge(bundle.project.id, keepId, dropId)))}
             >
               合并角色
@@ -675,13 +838,42 @@ function AutoTextarea({
   );
 }
 
-function AssetCard({ asset, projectId, onUpdated }: { asset: Asset; projectId: string; onUpdated: (a: Asset) => void }) {
+function defaultAspectForField(kind: string, field: string): string {
+  if (field === "full") return "9:16";
+  if (field === "half" || field === "near") return "3:4";
+  if (field === "far") return "16:9";
+  if (kind === "scene") return "16:9";
+  if (kind === "prop" || field === "image") return "1:1";
+  return "3:4";
+}
+
+function assetReady(kind: string, asset: Asset): boolean {
+  if (kind === "character") return Boolean(asset.half_path && asset.full_path);
+  if (kind === "scene") return Boolean(asset.near_path || asset.far_path || asset.image_path);
+  return Boolean(asset.image_path);
+}
+
+function AssetCard({
+  asset,
+  projectId,
+  jobs,
+  onUpdated,
+  onJobsEnqueued,
+}: {
+  asset: Asset;
+  projectId: string;
+  jobs: ImageJob[];
+  onUpdated: (a: Asset) => void;
+  onJobsEnqueued: (jobs: ImageJob[]) => void;
+}) {
   const [background, setBackground] = useState(asset.background_zh || "");
   const [desc, setDesc] = useState(asset.desc_zh);
   const [imgBusy, setImgBusy] = useState("");
+  const [editOpen, setEditOpen] = useState(false);
   useEffect(() => setBackground(asset.background_zh || ""), [asset.background_zh]);
   useEffect(() => setDesc(asset.desc_zh), [asset.desc_zh]);
   const kind = normalizeKind(asset.kind);
+  const slotBusy = jobs.length > 0 || !!imgBusy;
 
   async function upload(field: string, file?: File) {
     if (!file) return;
@@ -697,9 +889,11 @@ function AssetCard({ asset, projectId, onUpdated }: { asset: Asset; projectId: s
   }
 
   async function regen(field?: string) {
-    setImgBusy(field ? `生成${field}` : "生成参考图");
+    setImgBusy(field ? `排队${field}` : "排队参考图");
     try {
-      onUpdated(await api.generateAssetImage(projectId, asset.id, field));
+      const res = await api.generateAssetImage(projectId, asset.id, field);
+      onUpdated(res.asset);
+      onJobsEnqueued(res.jobs || (res.job ? [res.job] : []));
     } catch (e) {
       alert(e instanceof Error ? e.message : String(e));
     } finally {
@@ -715,8 +909,52 @@ function AssetCard({ asset, projectId, onUpdated }: { asset: Asset; projectId: s
     }
   }
 
-  const ready =
-    kind === "character" ? Boolean(asset.half_path && asset.full_path) : Boolean(asset.image_path);
+  const ready = assetReady(kind, asset);
+  const phaseHints = jobs
+    .map((j) => {
+      const label = jobPhaseLabel(j);
+      const slot = j.target_field ? `${j.target_field}·` : "";
+      return label ? `${slot}${label}` : "";
+    })
+    .filter(Boolean);
+
+  function slotBadge(field: string) {
+    const j = jobs.find((x) => x.target_field === field);
+    if (!j) return null;
+    const label = jobPhaseLabel(j);
+    return label ? <span className="slot-badge">{label}</span> : null;
+  }
+
+  function renderSlot(opts: {
+    field: string;
+    label: string;
+    path: string;
+    wide?: boolean;
+  }) {
+    const { field, label, path, wide } = opts;
+    return (
+      <div className={`thumb-slot ${wide ? "wide-slot" : ""}`} data-field={field}>
+        {path ? (
+          <img className={wide ? "wide" : undefined} src={mediaUrl(path)} alt={label} />
+        ) : (
+          <div className={`ph ${wide ? "wide" : ""}`}>{label}</div>
+        )}
+        {slotBadge(field)}
+        <div className="thumb-actions">
+          <label className="file-btn compact">
+            上传
+            <input type="file" accept="image/*" onChange={(e) => upload(field, e.target.files?.[0])} />
+          </label>
+          <button type="button" className="ghost compact" disabled={slotBusy} onClick={() => regen(field)}>
+            重生成
+          </button>
+          <button type="button" className="ghost compact" disabled={!path || slotBusy} onClick={() => clearImg(field)}>
+            删除
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <article className={`asset-card asset-row ${ready ? "ready" : "need-img"}`} data-kind={kind}>
@@ -724,6 +962,7 @@ function AssetCard({ asset, projectId, onUpdated }: { asset: Asset; projectId: s
         <div className="asset-head">
           <h3>{asset.name}</h3>
           <span className={`pill ${ready ? "ok" : "warn"}`}>{ready ? "图齐" : "缺图"}</span>
+          {phaseHints.length > 0 ? <span className="busy-line">{phaseHints.join(" · ")}</span> : null}
           {imgBusy ? <span className="busy-line">{imgBusy}…</span> : null}
         </div>
         <p className="muted">
@@ -760,8 +999,11 @@ function AssetCard({ asset, projectId, onUpdated }: { asset: Asset; projectId: s
         )}
         <div className="row">
           <button onClick={() => saveFields()}>保存描述</button>
-          <button className="primary" disabled={!!imgBusy} onClick={() => regen()}>
+          <button className="primary" disabled={slotBusy} onClick={() => regen()}>
             自动生成全部参考图
+          </button>
+          <button type="button" disabled={slotBusy} onClick={() => setEditOpen(true)}>
+            编辑生成
           </button>
         </div>
       </div>
@@ -770,40 +1012,200 @@ function AssetCard({ asset, projectId, onUpdated }: { asset: Asset; projectId: s
         <div className="thumbs">
           {kind === "character" ? (
             <>
-              <div className="thumb-slot">
-                {asset.full_path ? <img src={mediaUrl(asset.full_path)} alt="全身" /> : <div className="ph">全身 9:16</div>}
-                <div className="thumb-actions">
-                  <label className="file-btn compact">上传<input type="file" accept="image/*" onChange={(e) => upload("full", e.target.files?.[0])} /></label>
-                  <button type="button" className="ghost compact" disabled={!!imgBusy} onClick={() => regen("full")}>重生成</button>
-                  <button type="button" className="ghost compact" disabled={!asset.full_path || !!imgBusy} onClick={() => clearImg("full")}>删除</button>
-                </div>
-              </div>
-              <div className="thumb-slot">
-                {asset.half_path ? <img src={mediaUrl(asset.half_path)} alt="半身" /> : <div className="ph">半身 3:4</div>}
-                <div className="thumb-actions">
-                  <label className="file-btn compact">上传<input type="file" accept="image/*" onChange={(e) => upload("half", e.target.files?.[0])} /></label>
-                  <button type="button" className="ghost compact" disabled={!!imgBusy} onClick={() => regen("half")}>重生成</button>
-                  <button type="button" className="ghost compact" disabled={!asset.half_path || !!imgBusy} onClick={() => clearImg("half")}>删除</button>
-                </div>
-              </div>
+              {renderSlot({ field: "full", label: "全身 9:16", path: asset.full_path })}
+              {renderSlot({ field: "half", label: "半身 3:4", path: asset.half_path })}
+            </>
+          ) : kind === "scene" ? (
+            <>
+              {renderSlot({
+                field: "far",
+                label: "远景 16:9",
+                path: asset.far_path || "",
+                wide: true,
+              })}
+              {renderSlot({
+                field: "near",
+                label: "近景 3:4",
+                path: asset.near_path || "",
+              })}
             </>
           ) : (
-            <div className="thumb-slot wide-slot">
-              {asset.image_path ? (
-                <img className="wide" src={mediaUrl(asset.image_path)} alt={asset.name} />
-              ) : (
-                <div className="ph wide">{kind === "scene" ? "场景 16:9" : "物品 1:1"}</div>
-              )}
-              <div className="thumb-actions">
-                <label className="file-btn compact">上传<input type="file" accept="image/*" onChange={(e) => upload("image", e.target.files?.[0])} /></label>
-                <button type="button" className="ghost compact" disabled={!!imgBusy} onClick={() => regen("image")}>重生成</button>
-                <button type="button" className="ghost compact" disabled={!asset.image_path || !!imgBusy} onClick={() => clearImg("image")}>删除</button>
-              </div>
-            </div>
+            renderSlot({
+              field: "image",
+              label: "物品 1:1",
+              path: asset.image_path,
+              wide: true,
+            })
           )}
         </div>
       </div>
+
+      {editOpen ? (
+        <EditImageModal
+          asset={asset}
+          kind={kind}
+          projectId={projectId}
+          onClose={() => setEditOpen(false)}
+          onQueued={(job) => {
+            onJobsEnqueued([job]);
+            setEditOpen(false);
+          }}
+        />
+      ) : null}
     </article>
+  );
+}
+
+function EditImageModal({
+  asset,
+  kind,
+  projectId,
+  onClose,
+  onQueued,
+}: {
+  asset: Asset;
+  kind: string;
+  projectId: string;
+  onClose: () => void;
+  onQueued: (job: ImageJob) => void;
+}) {
+  const fieldOptions =
+    kind === "character"
+      ? [
+          { id: "full", label: "全身" },
+          { id: "half", label: "半身" },
+        ]
+      : kind === "scene"
+        ? [
+            { id: "far", label: "远景" },
+            { id: "near", label: "近景" },
+          ]
+        : [{ id: "image", label: "物品图" }];
+  const [targetField, setTargetField] = useState(fieldOptions[0].id);
+  const [prompt, setPrompt] = useState(asset.desc_zh || "");
+  const [files, setFiles] = useState<File[]>([]);
+  const [dirFiles, setDirFiles] = useState<{ name: string; path: string; rel?: string }[]>([]);
+  const [picked, setPicked] = useState<string[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [loadingList, setLoadingList] = useState(true);
+
+  useEffect(() => {
+    let stop = false;
+    setLoadingList(true);
+    api
+      .listImageOutputFiles(projectId)
+      .then((res) => {
+        if (!stop) setDirFiles(res.files || []);
+      })
+      .catch(() => {
+        if (!stop) setDirFiles([]);
+      })
+      .finally(() => {
+        if (!stop) setLoadingList(false);
+      });
+    return () => {
+      stop = true;
+    };
+  }, [projectId]);
+
+  function togglePath(path: string) {
+    setPicked((prev) => {
+      if (prev.includes(path)) return prev.filter((p) => p !== path);
+      if (prev.length >= 3) return prev;
+      return [...prev, path];
+    });
+  }
+
+  async function submit() {
+    if (!prompt.trim()) {
+      alert("请填写编辑提示词");
+      return;
+    }
+    if (picked.length === 0 && files.length === 0) {
+      alert("请至少选择或上传一张参考图（最多 3 张）");
+      return;
+    }
+    setLoading(true);
+    try {
+      const form = new FormData();
+      form.set("prompt", prompt.trim());
+      form.set("target_field", targetField);
+      form.set("aspect", defaultAspectForField(kind, targetField));
+      if (picked.length) form.set("ref_paths", JSON.stringify(picked));
+      for (const f of files.slice(0, 3 - picked.length)) form.append("files", f);
+      const res = await api.editAssetImage(projectId, asset.id, form);
+      onQueued(res.job);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation" onClick={onClose}>
+      <div
+        className="modal-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-label="编辑生成"
+        data-testid="edit-image-modal"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="panel-head">
+          <h3>编辑生成 · {asset.name}</h3>
+          <p className="hint">勾选输出目录中的图（最多 3 张），也可上传本地图，填写提示词后排队编辑。</p>
+        </div>
+        <div className="stack">
+          <label>目标槽位</label>
+          <select value={targetField} onChange={(e) => setTargetField(e.target.value)}>
+            {fieldOptions.map((f) => (
+              <option key={f.id} value={f.id}>
+                {f.label}
+              </option>
+            ))}
+          </select>
+          <label>编辑提示词</label>
+          <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={4} />
+          <label>输出目录参考图（已选 {picked.length}/3）</label>
+          {loadingList ? (
+            <p className="muted">加载文件列表…</p>
+          ) : dirFiles.length === 0 ? (
+            <p className="muted">目录下暂无图片</p>
+          ) : (
+            <div className="edit-file-list">
+              {dirFiles.map((f) => (
+                <label key={f.path} className="check edit-file-item">
+                  <input
+                    type="checkbox"
+                    checked={picked.includes(f.path)}
+                    disabled={!picked.includes(f.path) && picked.length >= 3}
+                    onChange={() => togglePath(f.path)}
+                  />
+                  <span title={f.path}>{f.rel || f.name}</span>
+                </label>
+              ))}
+            </div>
+          )}
+          <label>上传本地参考图</label>
+          <input
+            type="file"
+            accept="image/*"
+            multiple
+            onChange={(e) => setFiles(Array.from(e.target.files || []).slice(0, 3))}
+          />
+          {files.length > 0 ? <p className="muted">已选上传 {files.length} 张</p> : null}
+          <div className="row actions">
+            <button type="button" className="primary" disabled={loading} onClick={() => submit()}>
+              {loading ? "提交中…" : "排队编辑"}
+            </button>
+            <button type="button" className="ghost" disabled={loading} onClick={onClose}>
+              取消
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
