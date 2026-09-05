@@ -2,7 +2,7 @@
 
 **Status:** DONE  
 **Branch:** `feature/embedded-image-pipeline`  
-**Commit:** (see git log after commit)
+**Commit:** `fe8070e` — Replace 造像 HTTP with serial embedded image job worker.
 
 ## Summary
 
