@@ -29,3 +29,24 @@ npm run build
 1. Batch `n/m` uses enqueue total minus active count; mid-session jobs from other clients may skew the denominator until refresh.
 2. Manual browser smoke (enqueue → phase labels → cancel → edit modal) not run in this session.
 3. Polling refreshes the full bundle when active count drops; fine for book-scale asset counts.
+
+---
+
+## Review fix (idle polling + edit modal clamp)
+
+**Status:** DONE  
+**Commit:** `9f258d9`
+
+### Changes
+
+| File | Fix |
+|------|-----|
+| `frontend/src/App.tsx` | Image-job polling: one fetch on mount / after enqueue; 1.5s interval only while `jobs.length > 0` or `imageBatchRef` is set; clears timer when idle. Edit modal disables file input when 3 dir refs already picked. |
+
+### Verification
+
+```powershell
+Set-Location D:\Develop\novel2Lens\frontend
+npm run build
+# tsc --noEmit && vite build — OK
+```

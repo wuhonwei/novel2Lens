@@ -44,6 +44,7 @@ export default function App() {
   const imageJobsActiveRef = useRef(false);
   const prevActiveCountRef = useRef(0);
   const imageBatchRef = useRef<{ id: string; total: number } | null>(null);
+  const pollImageJobsRef = useRef<(() => void) | null>(null);
 
   function noteImageBatch(batchId: string, total: number) {
     const next = { id: batchId, total: Math.max(total, 1) };
@@ -69,6 +70,23 @@ export default function App() {
     }
     const pid = bundle.project.id;
     let stop = false;
+    let timer: ReturnType<typeof setInterval> | null = null;
+
+    function shouldKeepPolling(jobs: ImageJob[]) {
+      return jobs.length > 0 || imageBatchRef.current !== null;
+    }
+
+    function syncInterval(jobs: ImageJob[]) {
+      if (stop) return;
+      if (shouldKeepPolling(jobs) && !timer) {
+        timer = window.setInterval(() => {
+          void poll();
+        }, 1500);
+      } else if (!shouldKeepPolling(jobs) && timer) {
+        window.clearInterval(timer);
+        timer = null;
+      }
+    }
 
     async function poll() {
       try {
@@ -98,10 +116,15 @@ export default function App() {
           imageBatchRef.current = null;
           setImageBatch(null);
         }
+        syncInterval(jobs);
       } catch {
         /* keep last known jobs */
       }
     }
+
+    pollImageJobsRef.current = () => {
+      void poll();
+    };
 
     if (bundle.active_image_jobs?.length) {
       setImageJobs(bundle.active_image_jobs);
@@ -109,11 +132,11 @@ export default function App() {
       prevActiveCountRef.current = bundle.active_image_jobs.length;
     }
 
-    poll();
-    const timer = window.setInterval(poll, 1500);
+    void poll();
     return () => {
       stop = true;
-      window.clearInterval(timer);
+      pollImageJobsRef.current = null;
+      if (timer) window.clearInterval(timer);
     };
   }, [bundle?.project.id]);
 
@@ -534,6 +557,7 @@ export default function App() {
                 onJobsSeen={(jobs) => {
                   setImageJobs(jobs);
                   if (jobs.length) imageJobsActiveRef.current = true;
+                  pollImageJobsRef.current?.();
                 }}
               />
             )}
@@ -1192,9 +1216,14 @@ function EditImageModal({
             type="file"
             accept="image/*"
             multiple
-            onChange={(e) => setFiles(Array.from(e.target.files || []).slice(0, 3))}
+            disabled={picked.length >= 3}
+            onChange={(e) => setFiles(Array.from(e.target.files || []).slice(0, 3 - picked.length))}
           />
-          {files.length > 0 ? <p className="muted">已选上传 {files.length} 张</p> : null}
+          {picked.length >= 3 ? (
+            <p className="muted">已选满 3 张目录参考图，请先取消勾选再上传</p>
+          ) : files.length > 0 ? (
+            <p className="muted">已选上传 {files.length} 张</p>
+          ) : null}
           <div className="row actions">
             <button type="button" className="primary" disabled={loading} onClick={() => submit()}>
               {loading ? "提交中…" : "排队编辑"}
