@@ -129,14 +129,30 @@ def pack_qwen_slots(
     # priority rank: lower = earlier
     for char in characters:
         candidates.append((0, char))
+    # With 2+ named people, keep image slots for faces; describe scene in text.
+    # Qwen-Image-Edit often clones one face when a third scene plate shares the 3-ref budget.
+    early_scene_fallback: TextFallback | None = None
     if scene and scene.asset_id:
-        candidates.append((1, scene))
+        if len(characters) >= 2:
+            early_scene_fallback = TextFallback(
+                kind="scene",
+                asset_id=scene.asset_id,
+                image_key="scene",
+                name=scene.name or "",
+                position="",
+                text=(scene.desc_zh or "").strip(),
+                note="双人镜优先人物参考槽，场景改文字",
+            )
+        else:
+            candidates.append((1, scene))
     for p in prop_list:
         if p and p.asset_id:
             candidates.append((2, p))
 
     slots: list[PackedSlot] = []
     text_fallbacks: list[TextFallback] = []
+    if early_scene_fallback is not None:
+        text_fallbacks.append(early_scene_fallback)
     n = 1
     for _rank, subject in candidates:
         kind = subject.kind

@@ -3,7 +3,7 @@ from app.domain.slots import SlotSubject, pack_qwen_slots
 
 
 def test_first_frame_with_scene_uses_image_one_as_plate():
-    # Legacy name kept; with character-first packing, scene becomes 图三 when 2 people present.
+    # With 2 people, scene is text-fallback so both faces keep image slots.
     result = pack_qwen_slots(
         characters=[
             SlotSubject(asset_id="c1", kind="character", position="左一", facing="朝右", image_key="full", refer_as="少年"),
@@ -18,13 +18,12 @@ def test_first_frame_with_scene_uses_image_one_as_plate():
         actions={"左一": "神色苍白，双手递出玉佩", "右一": "接过玉佩，指尖颤抖"},
         text_fallbacks=result.text_fallbacks,
     )
-    assert "图三为场景底板" in out.zh
+    assert "场景「青川渡口」无参考图槽" in out.zh or "雾渡" in out.zh
     assert "图一是左一" in out.zh
     assert "图二是右一" in out.zh
     assert "恰好2人" in out.zh
     assert "互不相同" in out.zh or "不同面孔" in out.zh or "禁止复制同一张脸" in out.zh
     assert "半身或全身二选一" not in out.zh
-    assert "image 3 as the environment plate" in out.en.lower()
     assert "林砚" not in out.zh
 
 
@@ -59,6 +58,7 @@ def test_first_frame_slot_includes_character_name_when_present():
     assert "林砚之" in out.zh
     assert "陈守义" in out.zh
     assert "禁止复制同一张脸" in out.zh or "互不相同" in out.zh
+    assert [s.kind for s in result.slots] == ["character", "character"]
 
 
 def test_first_frame_half_only_does_not_mention_full_companion():
