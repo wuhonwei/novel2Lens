@@ -470,6 +470,14 @@ class ImageWorker:
                 "Do not invent a new character; keep the exact face, hair, and outfit from the reference. "
                 f"Output image aspect ratio {aspect}, resolution {width}x{height}."
             )
+        elif (job.target_field or "") == "first_frame" and len(names) >= 2:
+            wrapped = (
+                f"Using {', '.join(labeled)}, create one new image: {edit_prompt}. "
+                "CRITICAL: each labeled person reference is a DIFFERENT identity. "
+                "Do not clone one face onto both people. Keep each person's age, hair color, "
+                "beard/no-beard, and clothing distinct as in their own reference image. "
+                f"Output image aspect ratio {aspect}, resolution {width}x{height}."
+            )
         else:
             wrapped = (
                 f"Using {', '.join(labeled)}, create one new image: {edit_prompt}. "
@@ -479,7 +487,13 @@ class ImageWorker:
 
         last_err = ""
         last_png: bytes | None = None
-        for attempt in range(2):
+        # Multi-character first frames: skip Lightning — 4-step often collapses faces.
+        attempts = 2
+        start_attempt = 0
+        if (job.target_field or "") == "first_frame" and len(names) >= 2:
+            start_attempt = 1
+            attempts = 2
+        for attempt in range(start_attempt, start_attempt + attempts):
             use_lightning = attempt < 1
             steps = 4 if use_lightning else 28
             cfg = 1.0 if use_lightning else 3.5
