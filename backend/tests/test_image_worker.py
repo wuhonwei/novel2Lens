@@ -116,6 +116,10 @@ def _seed_project(db, *, with_chapter: bool = False):
 def test_one_click_orders_t2i_before_edit(tmp_path, monkeypatch):
     monkeypatch.setattr("app.config.settings.data_dir", tmp_path)
     reset_engine(f"sqlite:///{tmp_path / 't.sqlite'}")
+    monkeypatch.setattr(
+        "app.comfy_pipeline.qa.assess_image_bytes",
+        lambda *_a, **_k: {"ok": True, "passed": True, "reasons": []},
+    )
 
     from app.comfy_supervisor import ComfySupervisor
     from app.image_jobs import enqueue_one_click
@@ -161,8 +165,7 @@ def test_one_click_orders_t2i_before_edit(tmp_path, monkeypatch):
         db.expire_all()
         jobs2 = db.query(ImageJob).order_by(ImageJob.created_at).all()
         assert all(j.status == "succeeded" for j in jobs2), [(j.target_field, j.status, j.error) for j in jobs2]
-        # 3 T2I + 2 edit jobs; each edit may queue Lightning then non-Lightning when QA rejects tiny PNG
-        assert fake.queue_calls in (5, 7)
+        assert fake.queue_calls == 5
     finally:
         db.close()
 
@@ -347,6 +350,10 @@ def test_save_skips_when_db_already_cancelled(tmp_path, monkeypatch):
 def test_worker_serial_never_two_running(tmp_path, monkeypatch):
     monkeypatch.setattr("app.config.settings.data_dir", tmp_path)
     reset_engine(f"sqlite:///{tmp_path / 't.sqlite'}")
+    monkeypatch.setattr(
+        "app.comfy_pipeline.qa.assess_image_bytes",
+        lambda *_a, **_k: {"ok": True, "passed": True, "reasons": []},
+    )
 
     from app.comfy_supervisor import ComfySupervisor
     from app.image_jobs import enqueue_one_click
@@ -383,9 +390,7 @@ def test_worker_serial_never_two_running(tmp_path, monkeypatch):
     )
     worker.drain_once()
     assert fake.max_concurrent == 1
-    # 3 T2I + 2 edits (×1 or ×2 attempts if QA rejects tiny PNG)
-    assert fake.queue_calls in (5, 7)
-    # Light strengthening: every job finished succeeded under serial drain
+    assert fake.queue_calls == 5
     db = database.SessionLocal()
     try:
         statuses = [j.status for j in db.query(ImageJob).all()]

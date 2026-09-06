@@ -13,6 +13,7 @@ def test_score_images_persists_and_clears_on_delete(tmp_path, monkeypatch):
     reset_engine(f"sqlite:///{tmp_path / 't.sqlite'}")
     monkeypatch.setattr("app.main._start_image_worker", lambda: None)
     monkeypatch.setattr("app.main._stop_image_worker", lambda: None)
+    monkeypatch.setattr("app.main._prepare_llm", lambda _db, _project=None: None)
 
     async def fake_score_image_file(*, image_path, brief, chat=None, **_kwargs):
         return {"score": 88, "comment": f"ok:{image_path.name}"}

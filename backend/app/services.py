@@ -469,6 +469,23 @@ def _audit_rows(data: Any) -> list[dict[str, Any]]:
     return rows
 
 
+def detach_shot_asset_refs(db: Session, project_id: str) -> None:
+    """Clear shot→asset id links so deleting/replacing assets cannot leave dangling refs."""
+    for shot in db.query(Shot).filter(Shot.project_id == project_id):
+        shot.scene_asset_id = ""
+        slots = _load(shot.slots_json, [])
+        lines = _load(shot.lines_json, [])
+        for slot in slots:
+            if isinstance(slot, dict):
+                slot["asset_id"] = ""
+        for line in lines:
+            if isinstance(line, dict):
+                line["asset_id"] = ""
+        shot.slots_json = _dump(slots)
+        shot.lines_json = _dump(lines)
+        shot.prop_asset_ids_json = "[]"
+
+
 async def full_registry_scan(
     db: Session, project: Project, *, replace: bool = False, is_cancelled=None
 ) -> dict[str, Any]:
@@ -478,6 +495,7 @@ async def full_registry_scan(
     """
     novel = (project.source_text or "")[:NOVEL_SCAN_CHARS]
     if replace:
+        detach_shot_asset_refs(db, project.id)
         db.query(Asset).filter(Asset.project_id == project.id).delete()
         db.flush()
     assets = db.query(Asset).filter(Asset.project_id == project.id).all()
@@ -1344,8 +1362,12 @@ def save_upload(asset: Asset, field: str, filename: str, data: bytes) -> str:
     suffix = Path(filename).suffix.lower() or ".png"
     kind = normalize_kind(asset.kind)
     asset.kind = kind
-    # Non-characters only accept a single reference image.
-    if kind != "character" and field in ("half", "full"):
+    # Characters: half/full/voice/image. Scenes: far/near (also accept legacy image). Props: image.
+    if kind == "character" and field in ("far", "near"):
+        field = "image"
+    if kind == "scene" and field in ("half", "full"):
+        field = "far" if field == "full" else "near"
+    if kind == "prop" and field in ("half", "full", "far", "near"):
         field = "image"
     dest = folder / f"{field}{suffix}"
     dest.write_bytes(data)
@@ -1359,6 +1381,16 @@ def save_upload(asset: Asset, field: str, filename: str, data: bytes) -> str:
             asset.voice_path = stored
         else:
             asset.image_path = stored
+    elif kind == "scene":
+        if field == "near":
+            asset.near_path = stored
+        elif field == "voice":
+            asset.voice_path = stored
+        else:
+            # far (default) + legacy image
+            asset.far_path = stored
+            if field == "image" or not asset.image_path:
+                asset.image_path = stored
     else:
         if field == "voice":
             asset.voice_path = stored
@@ -1369,11 +1401,12 @@ def save_upload(asset: Asset, field: str, filename: str, data: bytes) -> str:
     return stored
 
 
-def refresh_shot_readiness(db: Session, project: Project) -> None:
+def refresh_shot_readiness(db: Session, project: Project, *, commit: bool = True) -> None:
     assets = db.query(Asset).filter(Asset.project_id == project.id).all()
     for shot in db.query(Shot).filter(Shot.project_id == project.id):
         compile_shot_prompts(project, shot, assets)
-    db.commit()
+    if commit:
+        db.commit()
 
 
 def export_project(db: Session, project: Project) -> tuple[dict[str, Any], str, Path]:

@@ -89,13 +89,21 @@ def _reject_if_image_busy(db: Session) -> None:
         raise HTTPException(409, "参考图生成中，请稍后再试")
 
 
-def _prepare_llm(db: Session) -> None:
-    """Block if image jobs active; free Comfy VRAM so Ollama/Flash-Next can load."""
+def _prepare_llm(db: Session, project: Project | None = None) -> None:
+    """Block if image jobs active; free Comfy VRAM; restart Flash-Next when the project needs it."""
     _reject_if_image_busy(db)
     try:
         comfy_supervisor.release_for_llm()
     except Exception:
         logging.getLogger(__name__).exception("release_for_llm failed")
+    primary = (project.llm_base_url if project is not None else "") or ""
+    # Default stack and Flash-Next primaries listen on :8080. Ollama-only projects skip restart.
+    if project is None or ":8080" in primary:
+        try:
+            llm_supervisor.ensure_llm()
+        except Exception:
+            logging.getLogger(__name__).exception("ensure_llm failed")
+            raise HTTPException(503, "语言模型未就绪，请稍后重试") from None
 
 
 @asynccontextmanager
@@ -350,7 +358,7 @@ async def api_prescan(project_id: str, request: Request, replace: bool = False):
     db = db_session()
     try:
         project = get_project(db, project_id)
-        _prepare_llm(db)
+        _prepare_llm(db, project)
         try:
             result = await prescan_project(
                 db, project, replace=replace, is_cancelled=lambda: _request_cancelled(request)
@@ -372,7 +380,7 @@ async def api_generate_assets(project_id: str, request: Request, replace: bool =
     db = db_session()
     try:
         project = get_project(db, project_id)
-        _prepare_llm(db)
+        _prepare_llm(db, project)
         if not (project.source_text or "").strip():
             raise HTTPException(400, "项目没有正文，请先上传或粘贴小说 TXT")
         try:
@@ -394,7 +402,7 @@ async def api_extract(project_id: str, chapter_id: str, overwrite: bool = False)
     try:
         project = get_project(db, project_id)
         chapter = get_chapter(db, project_id, chapter_id)
-        _prepare_llm(db)
+        _prepare_llm(db, project)
         try:
             result = await extract_assets(db, project, chapter, overwrite=overwrite)
         except ValueError as exc:
@@ -428,7 +436,7 @@ async def api_storyboard(project_id: str, chapter_id: str, request: Request, ove
     try:
         project = get_project(db, project_id)
         chapter = get_chapter(db, project_id, chapter_id)
-        _prepare_llm(db)
+        _prepare_llm(db, project)
         try:
             result = await generate_storyboard(
                 db,
@@ -455,7 +463,7 @@ async def api_storyboard_all(project_id: str, request: Request, overwrite: bool 
     db = db_session()
     try:
         project = get_project(db, project_id)
-        _prepare_llm(db)
+        _prepare_llm(db, project)
         result = await generate_all_storyboards(
             db,
             project,
@@ -538,8 +546,8 @@ async def api_upload_asset(
     field: str = Form(...),
     file: UploadFile = File(...),
 ):
-    if field not in ("half", "full", "image", "voice"):
-        raise HTTPException(400, "field 必须是 half/full/image/voice")
+    if field not in ("half", "full", "image", "voice", "far", "near"):
+        raise HTTPException(400, "field 必须是 half/full/image/voice/far/near")
     db = db_session()
     try:
         project = get_project(db, project_id)
@@ -745,6 +753,7 @@ async def api_score_images(project_id: str, request: Request, body: ScoreImagesI
     db = db_session()
     try:
         project = get_project(db, project_id)
+        _prepare_llm(db, project)
         scope = (body.scope or "assets").strip().lower()
         if scope not in ("assets", "shots", "all"):
             raise HTTPException(400, "scope 必须是 assets、shots 或 all")

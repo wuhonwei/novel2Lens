@@ -775,6 +775,12 @@ export default function App() {
                 onChange={setBundle}
                 onRun={run}
                 onBatchQueued={noteImageBatch}
+                onBatchCleared={() => {
+                  setImageBatch(null);
+                  imageBatchRef.current = null;
+                  imageJobsActiveRef.current = false;
+                  prevActiveCountRef.current = 0;
+                }}
                 onJobsSeen={(jobs) => {
                   setImageJobs(jobs);
                   if (jobs.length) {
@@ -806,7 +812,8 @@ export default function App() {
                           type="button"
                           className="primary"
                           data-testid="btn-score-first-frames"
-                          disabled={!!busy || !chapterShots.some((s) => s.first_frame_path)}
+                          disabled={!!busy || llmBlocked || !chapterShots.some((s) => s.first_frame_path)}
+                          title={llmBlocked ? LLM_BUSY_TITLE : undefined}
                           onClick={() =>
                             run("评估首帧", async (signal) => {
                               const next = await api.scoreImages(p.id, { scope: "shots" }, { signal });
@@ -848,7 +855,7 @@ export default function App() {
 }
 
 function BookAssets({
-  bundle, busy, imageJobs, imageBatch, llmBlocked, keepId, dropId, setKeepId, setDropId, onChange, onRun, onBatchQueued, onJobsSeen,
+  bundle, busy, imageJobs, imageBatch, llmBlocked, keepId, dropId, setKeepId, setDropId, onChange, onRun, onBatchQueued, onBatchCleared, onJobsSeen,
 }: {
   bundle: Bundle;
   busy: boolean;
@@ -862,6 +869,7 @@ function BookAssets({
   onChange: (b: Bundle) => void;
   onRun: (label: string, job: (signal: AbortSignal) => Promise<void>) => void;
   onBatchQueued: (batchId: string, total: number) => void;
+  onBatchCleared: () => void;
   onJobsSeen: (jobs: ImageJob[]) => void;
 }) {
   const { characters, scenes, props } = assetsByKind(bundle);
@@ -898,6 +906,7 @@ function BookAssets({
     try {
       const next = await api.cancelProjectImageJobs(bundle.project.id);
       onJobsSeen([]);
+      onBatchCleared();
       onChange(next);
     } catch (e) {
       alert(e instanceof Error ? e.message : String(e));
@@ -1023,7 +1032,8 @@ function BookAssets({
             type="button"
             className="primary"
             data-testid="btn-score-images"
-            disabled={busy || active.assets.length === 0}
+            disabled={busy || imageBusy || active.assets.length === 0}
+            title={imageBusy ? LLM_BUSY_TITLE : undefined}
             onClick={() =>
               onRun("评估图片", async (signal) => {
                 const next = await api.scoreImages(

@@ -12,7 +12,7 @@ def _seed(tmp_path, monkeypatch):
     reset_engine(f"sqlite:///{tmp_path / 't.sqlite'}")
     monkeypatch.setattr("app.main._start_image_worker", lambda: None)
     monkeypatch.setattr("app.main._stop_image_worker", lambda: None)
-    monkeypatch.setattr("app.main._prepare_llm", lambda _db: None)
+    monkeypatch.setattr("app.main._prepare_llm", lambda _db, _project=None: None)
 
     async def fake_storyboard(db, project, chapter, overwrite=False, is_cancelled=None):
         from app.llm import ensure_not_cancelled

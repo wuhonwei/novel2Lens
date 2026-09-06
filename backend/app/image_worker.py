@@ -147,6 +147,14 @@ class ImageWorker:
         db.commit()
         return True
 
+    def _job_was_cancelled(self, job_id: str) -> bool:
+        check = self.session_factory()
+        try:
+            fresh = check.get(ImageJob, job_id)
+            return fresh is not None and fresh.status == "cancelled"
+        finally:
+            check.close()
+
     def _client(self) -> Any:
         return self.comfy._client()
 
@@ -193,15 +201,10 @@ class ImageWorker:
                 png = self._run_edit(db, client, job, payload)
 
             # Abort before write/succeed if cancelled while generating
-            check = self.session_factory()
-            try:
-                fresh = check.get(ImageJob, job.id)
-                if fresh is not None and fresh.status == "cancelled":
-                    db.rollback()
-                    db.refresh(job)
-                    return
-            finally:
-                check.close()
+            if self._job_was_cancelled(job.id):
+                db.rollback()
+                db.refresh(job)
+                return
 
             project = db.get(Project, job.project_id)
             if not project:
@@ -215,13 +218,19 @@ class ImageWorker:
                 if not shot or shot.project_id != project.id:
                     raise RuntimeError("shot missing for first_frame")
                 write_shot_first_frame(project, shot, png)
-                db.commit()
             else:
                 asset = db.get(Asset, job.asset_id)
                 if not asset:
                     raise RuntimeError("project or asset missing")
                 write_asset_image(project, asset, job.target_field, png)
-                refresh_shot_readiness(db, project)
+                refresh_shot_readiness(db, project, commit=False)
+
+            # Re-check after disk/ORM write: never commit paths if user cancelled.
+            if self._job_was_cancelled(job.id):
+                db.rollback()
+                db.refresh(job)
+                return
+
             job.status = "succeeded"
             job.phase = ""
             job.error = ""
@@ -524,6 +533,4 @@ class ImageWorker:
             if qa.get("ok") or qa.get("passed"):
                 return last_png
             last_err = f"qa_failed:{','.join(qa.get('reasons') or [])}"
-        if last_png is not None:
-            return last_png
         raise RuntimeError(last_err or "Comfy edit failed")
