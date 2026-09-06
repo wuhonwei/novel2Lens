@@ -834,6 +834,21 @@ export default function App() {
                         key={shot.id}
                         shot={shot}
                         assets={bundle.assets}
+                        regenDisabled={!!busy || imageJobs.length > 0 || shot.first_frame_unready}
+                        onRegen={() =>
+                          run(`重跑镜${shot.order_index}首帧`, async (signal) => {
+                            const next = await api.generateShotFirstFrame(p.id, shot.id, { signal });
+                            const job = next.job;
+                            if (job) {
+                              const bid = job.batch_id || job.id;
+                              noteImageBatch(bid, 1);
+                              setImageJobs([job]);
+                              imageJobsActiveRef.current = true;
+                              if (prevActiveCountRef.current === 0) prevActiveCountRef.current = 1;
+                            }
+                            setBundle(next);
+                          })
+                        }
                         onChange={async (next) => {
                           const updated = await api.patchShot(p.id, shot.id, next);
                           setBundle({
@@ -1653,10 +1668,14 @@ function EditImageModal({
 function ShotCard({
   shot,
   assets,
+  regenDisabled,
+  onRegen,
   onChange,
 }: {
   shot: Shot;
   assets: Asset[];
+  regenDisabled?: boolean;
+  onRegen?: () => void;
   onChange: (patch: Partial<Shot> & { recompile?: boolean }) => Promise<void>;
 }) {
   const [local, setLocal] = useState(shot);
@@ -1675,6 +1694,24 @@ function ShotCard({
           {shot.first_frame_unready ? "首帧未就绪" : "首帧就绪"}
         </span>
         {shot.first_frame_path ? <span className="pill ok">已出图</span> : null}
+        {onRegen ? (
+          <button
+            type="button"
+            className="primary compact"
+            data-testid={`btn-shot-first-frame-${shot.order_index}`}
+            disabled={regenDisabled}
+            title={
+              shot.first_frame_unready
+                ? "参考图未齐，无法生成首帧"
+                : shot.first_frame_path
+                  ? "覆盖当前首帧重新生成"
+                  : "生成本镜首帧"
+            }
+            onClick={onRegen}
+          >
+            {shot.first_frame_path ? "重新生成首帧" : "生成首帧"}
+          </button>
+        ) : null}
       </div>
 
       {shot.first_frame_path ? (
