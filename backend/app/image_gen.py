@@ -187,6 +187,7 @@ def build_field_prompt(project: Project, asset: Asset, field: str) -> str:
             return (
                 f"{style}。{period}。{identity}。{clothes_lock}{look}。"
                 "全身站立人像，从头到脚完整入镜，正面或微侧，可见鞋子，"
+                "脖子皮肤完整可见，领口自然浅阴影，不要领口黑洞，不要黑色高领中衣，"
                 "纯白色不透明实底背景，不要透明，不要棋盘格，单人。"
                 + (
                     "禁止白衣金甲、禁止华丽仙女战甲、禁止露出大腿的铠甲短打。"
@@ -201,6 +202,7 @@ def build_field_prompt(project: Project, asset: Asset, field: str) -> str:
                 "五官、发型、妆造、服饰颜色与纹样必须与参考图像素级一致，"
                 "禁止换脸、换年龄性别、换装、换配色或重新设计角色。"
                 "头肩构图，面部清晰，不要全身。"
+                "保持颈部与领口连续完整，不要脖子黑洞或黑色高领填空。"
                 "纯白色不透明实底背景，不要透明，不要棋盘格。"
             )
     if kind == "scene" and field == "far":

@@ -204,6 +204,28 @@ FULLBODY_NEGATIVE = [
     "head and shoulders only",
 ]
 
+# Guofeng often collapses open collars into a featureless black void / fake turtleneck.
+NECK_INTEGRITY_POSITIVE = [
+    "continuous intact neck skin visible between chin and collar",
+    "natural soft collar shadow only",
+    "no black void at the throat",
+    "closed or gently overlapping collar without a dark hole",
+]
+
+NECK_INTEGRITY_NEGATIVE = [
+    "black hole on neck",
+    "hole in neck",
+    "missing neck",
+    "void at throat",
+    "black void under chin",
+    "crushed black collar shadow",
+    "solid black triangle at neckline",
+    "black turtleneck under hanfu",
+    "black high collar undergarment",
+    "pitch-black neck gap",
+    "floating head without neck",
+]
+
 CLOSEUP_NEGATIVE = [
     "full body",
     "wide shot",
@@ -328,6 +350,7 @@ def enrich_character_prompt(
         if fullbody:
             extras.extend([solo, "Chinese historical costume"])
             extras.extend(GUOFENG_CG_FULLBODY_SHOT)
+            extras.extend(NECK_INTEGRITY_POSITIVE)
             extras.extend(_hair_extras(raw))
             if want_nobg:
                 text, extras = apply_no_background(text, extras)
@@ -337,6 +360,7 @@ def enrich_character_prompt(
             )
         extras.extend([solo, "Chinese historical costume", "detailed face"])
         extras.extend(GUOFENG_CG_CLOSEUP_SHOT)
+        extras.extend(NECK_INTEGRITY_POSITIVE)
         extras.extend(_hair_extras(raw))
         if want_nobg:
             text, extras = apply_no_background(text, extras)
@@ -347,6 +371,7 @@ def enrich_character_prompt(
 
     if fullbody:
         extras.extend(FULLBODY_EXTRAS)
+        extras.extend(NECK_INTEGRITY_POSITIVE)
         extras.extend(_hair_extras(raw))
         if _FRONT_RE.search(raw):
             extras.extend(["front view", "facing camera", "looking at viewer", "symmetrical standing pose"])
@@ -420,6 +445,9 @@ def enrich_character_negative(
 
     if _WHITE_HAIR_RE.search(prompt or ""):
         extra.extend(["black hair", "dark hair", "brown hair", "brunette", "black-haired"])
+
+    # Always discourage collar-void artifacts on character sheets.
+    extra.extend(NECK_INTEGRITY_NEGATIVE)
 
     seen: set[str] = set()
     ordered: list[str] = []
