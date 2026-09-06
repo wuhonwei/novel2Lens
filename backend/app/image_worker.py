@@ -300,6 +300,7 @@ class ImageWorker:
                     "文献": "bound ancient Chinese rice-paper documents scroll stack",
                     "木盒": "carved rosewood wooden box",
                     "火折子": "ancient Chinese fire starter tube flint lighter",
+                    "乌木船": "small dark ebony hardwood carved wooden boat model, clear hull and oars, no people",
                     "千年古松": "miniature ancient pine tree bonsai",
                     "密道": "narrow wooden secret tunnel doorway entrance",
                 }

@@ -123,7 +123,7 @@ def character_persona(asset: Asset) -> tuple[str, str]:
 
 
 def _prop_visual_brief(name: str, desc: str) -> str:
-    """Keep physical props cues; drop narrative 'held by X / opens the vault' prose."""
+    """Keep physical props cues; drop narrative ownership / plot prose."""
     import re
 
     text = (desc or "").strip()
@@ -138,8 +138,28 @@ def _prop_visual_brief(name: str, desc: str) -> str:
     text = re.sub(r"[，,。；;]*藏在[^。；;]*", "，", text)
     text = re.sub(r"[，,。；;]*里面装有[^。；;]*", "，", text)
     text = re.sub(r"[，,。；;]*记载[^。；;]*", "，", text)
-    text = re.sub(r"[，,]{2,}", "，", text).strip("，,。；; ")
-    return text or name
+
+    narrative = re.compile(
+        r"(念想|心事|感情|帮忙|修好|砸坏|毁坏|抢走|送给|属于|曾经|后来|"
+        r"被.{0,16}(?:人|的人)|"
+        r"是他的|是她的|是他们的|"
+        r"[\u4e00-\u9fff]{1,8}的(?:船|剑|刀|枪|佩|盒|物|琴|笛|舟))"
+    )
+    damage_look = re.compile(r"(裂痕|破损|裂纹|锈迹|磨损|缺口|残缺)")
+    kept: list[str] = []
+    for part in re.split(r"[，,。；;]+", text):
+        clause = part.strip()
+        if not clause:
+            continue
+        if narrative.search(clause):
+            if damage_look.search(clause) and not re.search(
+                r"(念想|帮忙|的人|是他的|是她的|[\u4e00-\u9fff]{2,8}的船)", clause
+            ):
+                kept.append(clause)
+            continue
+        kept.append(clause)
+    cleaned = "，".join(kept).strip("，,。；; ")
+    return cleaned or name
 
 
 _PROP_SHAPE_HINTS = {
@@ -147,6 +167,7 @@ _PROP_SHAPE_HINTS = {
     "文献": "一叠用丝线捆扎的古旧宣纸文书卷轴，纸张纹理可见",
     "木盒": "紫檀木雕花小方盒，合盖静物",
     "火折子": "古代火折子点火器具，竹筒或金属小筒形随身火具",
+    "乌木船": "乌木或深色硬木雕成的小型木船模型静物，船体、船舷与船桨形制清晰，无人物",
     "千年古松": "一棵苍劲千年古松的微缩盆景式特写，树干与松针清晰",
     "密道": "木门后的狭窄地下密道入口特写，石阶与木框，无人物",
 }
