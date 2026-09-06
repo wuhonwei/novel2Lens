@@ -415,9 +415,14 @@ def _shot_ref_paths(project: Project, shot, assets: list[Asset]) -> tuple[list[s
             continue
         stored = (ref.get("path") or "").strip()
         role = str(ref.get("image_role") or ref.get("asset_name") or "reference")
-        # Prefer half portrait when available — clearer identity for multi-character Qwen edits.
+        # Prefer half only for single-character shots. Multi-char Qwen edits often clone
+        # the strongest face when both refs are tight busts; full-body keeps silhouette cues.
         asset = by_id.get(str(ref.get("asset_id") or ""))
-        if asset and normalize_kind(getattr(asset, "kind", "") or "") == "character":
+        if (
+            asset
+            and normalize_kind(getattr(asset, "kind", "") or "") == "character"
+            and int(getattr(shot, "character_count", 0) or 0) <= 1
+        ):
             half = (getattr(asset, "half_path", None) or "").strip()
             if half:
                 stored = half
