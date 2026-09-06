@@ -42,9 +42,13 @@ def test_build_field_prompt_locks_male_and_elder():
     assert "男性" in m or "男子" in m
     assert "国风" in m or "古装" in m or "汉服" in m
     assert "不要现代衬衫" in m
+    assert "角色名" not in m
+    assert "林砚之" not in m
     g = build_field_prompt(project, grandma, "full")
     assert "老年" in g or "苍老" in g
     assert "不可年轻化" in g or "皱纹" in g
+    assert "角色名" not in g
+    assert "苏婆婆" not in g
 
 
 def test_male_guofeng_payload_keeps_guofeng_not_realvis():

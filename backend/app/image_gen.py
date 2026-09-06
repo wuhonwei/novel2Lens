@@ -182,8 +182,10 @@ def build_field_prompt(project: Project, asset: Asset, field: str) -> str:
             except Exception:
                 clothing = ""
             clothes_lock = f"必须身着：{clothing}。" if clothing else ""
+            # Do not inject asset.name — Chinese proper names have no visual signal for SDXL/Guofeng
+            # and only dilute age/outfit locks.
             return (
-                f"{style}。{period}。{identity}。角色名：{asset.name}。{clothes_lock}{look}。"
+                f"{style}。{period}。{identity}。{clothes_lock}{look}。"
                 "全身站立人像，从头到脚完整入镜，正面或微侧，可见鞋子，"
                 "纯白色不透明实底背景，不要透明，不要棋盘格，单人。"
                 + (
