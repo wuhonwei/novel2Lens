@@ -82,6 +82,59 @@ def assess_fullbody_framing(img) -> str | None:
     return None
 
 
+def _skinish(r: int, g: int, b: int) -> bool:
+    """Loose skin cue for stylized 3D / guoman (not photographic Fitzpatrick)."""
+    if r < 70 or g < 40 or b < 25:
+        return False
+    if r + 8 < g or r + 8 < b:
+        return False
+    if max(r, g, b) - min(r, g, b) < 18:
+        return False  # near-gray mist / stone
+    return True
+
+
+def assess_dual_character_presence(img) -> str | None:
+    """Require separated skin peaks on left AND right (reject one centered person)."""
+    w, h = img.size
+    small = img.resize((max(160, w // 8), max(90, h // 8)))
+    sw, sh = small.size
+    px = small.load()
+    y0, y1 = int(sh * 0.10), int(sh * 0.70)
+    left_x1 = int(sw * 0.40)
+    right_x0 = int(sw * 0.60)
+    win = max(10, min(sw, sh) // 7)
+
+    def peak(x0: int, x1: int) -> tuple[int, float]:
+        best = 0
+        best_cx = (x0 + x1) / 2
+        x0 = max(0, x0)
+        x1 = min(sw, x1)
+        if x1 - x0 < win or y1 - y0 < win:
+            return 0, best_cx
+        for y in range(y0, y1 - win + 1, max(1, win // 3)):
+            for x in range(x0, x1 - win + 1, max(1, win // 3)):
+                n = 0
+                for yy in range(y, y + win):
+                    for xx in range(x, x + win):
+                        r, g, b = px[xx, yy]
+                        if _skinish(r, g, b):
+                            n += 1
+                if n > best:
+                    best = n
+                    best_cx = x + win / 2
+        return best, best_cx
+
+    left_peak, left_cx = peak(0, left_x1)
+    right_peak, right_cx = peak(right_x0, sw)
+    need = max(40, (win * win) // 3)
+    if left_peak < need or right_peak < need:
+        return "missing_second_character"
+    # One wide centered person can spill into both thirds — require separated peaks.
+    if (right_cx - left_cx) < sw * 0.28:
+        return "missing_second_character"
+    return None
+
+
 def assess_image_bytes(
     data: bytes,
     *,
@@ -90,6 +143,7 @@ def assess_image_bytes(
     near_white_mean: float = 250.0,
     low_variance: float = 8.0,
     require_fullbody: bool = False,
+    min_character_sides: int = 0,
     **kwargs: Any,
 ) -> dict[str, Any]:
     """Return dict with ok/passed for worker compatibility."""
@@ -127,6 +181,10 @@ def assess_image_bytes(
             fb = assess_fullbody_framing(img)
             if fb:
                 reasons.append(fb)
+        if int(min_character_sides or 0) >= 2 and not reasons:
+            dual = assess_dual_character_presence(img)
+            if dual:
+                reasons.append(dual)
         result = QaResult(
             passed=len(reasons) == 0,
             reasons=reasons,

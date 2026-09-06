@@ -23,11 +23,13 @@ def test_priority_characters_then_scene_then_prop():
         props=[SlotSubject(asset_id="p1", kind="prop", name="玉佩", desc_zh="半块玉佩")],
     )
     assert isinstance(result, PackResult)
-    # Dual-character shots reserve image slots for faces; scene becomes text.
-    assert [s.kind for s in result.slots] == ["character", "character", "prop"]
-    assert len(result.slots) == 3
-    assert any(f.kind == "scene" for f in result.text_fallbacks)
+    # Dual-character shots reserve image slots for faces; scene+prop become text.
+    assert [s.kind for s in result.slots] == ["character", "character"]
+    assert len(result.slots) == 2
+    fb_kinds = [f.kind for f in result.text_fallbacks]
+    assert "scene" in fb_kinds and "prop" in fb_kinds
     assert "青川渡口" in next(f.name for f in result.text_fallbacks if f.kind == "scene")
+    assert "玉佩" in next(f.name for f in result.text_fallbacks if f.kind == "prop")
 
 
 def test_three_characters_push_scene_to_text():

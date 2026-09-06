@@ -459,8 +459,10 @@ def _shot_ref_paths(project: Project, shot, assets: list[Asset]) -> tuple[list[s
         abs_path = settings.data_dir / stored
         if not abs_path.is_file():
             return [], [], f"缺少参考图文件: {stored}"
+        from app.domain.edit_identity import edit_ref_label
+
         paths.append(str(abs_path))
-        labels.append(role)
+        labels.append(edit_ref_label(asset, role, image_path=abs_path))
         if len(paths) >= 3:
             break
     if not paths:

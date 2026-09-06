@@ -129,30 +129,44 @@ def pack_qwen_slots(
     # priority rank: lower = earlier
     for char in characters:
         candidates.append((0, char))
-    # With 2+ named people, keep image slots for faces; describe scene in text.
-    # Qwen-Image-Edit often clones one face when a third scene plate shares the 3-ref budget.
-    early_scene_fallback: TextFallback | None = None
+    # With 2+ named people, keep image slots for faces; describe scene AND props in text.
+    # Qwen-Image-Edit often clones/drops a face when a 3rd plate (scene or prop) shares the budget.
+    early_text_fallbacks: list[TextFallback] = []
     if scene and scene.asset_id:
         if len(characters) >= 2:
-            early_scene_fallback = TextFallback(
-                kind="scene",
-                asset_id=scene.asset_id,
-                image_key="scene",
-                name=scene.name or "",
-                position="",
-                text=(scene.desc_zh or "").strip(),
-                note="双人镜优先人物参考槽，场景改文字",
+            early_text_fallbacks.append(
+                TextFallback(
+                    kind="scene",
+                    asset_id=scene.asset_id,
+                    image_key="scene",
+                    name=scene.name or "",
+                    position="",
+                    text=(scene.desc_zh or "").strip(),
+                    note="双人镜优先人物参考槽，场景改文字",
+                )
             )
         else:
             candidates.append((1, scene))
     for p in prop_list:
-        if p and p.asset_id:
+        if not (p and p.asset_id):
+            continue
+        if len(characters) >= 2:
+            early_text_fallbacks.append(
+                TextFallback(
+                    kind="prop",
+                    asset_id=p.asset_id,
+                    image_key=p.image_key or "prop",
+                    name=p.name or "",
+                    position="",
+                    text=(p.desc_zh or "").strip(),
+                    note="双人镜优先人物参考槽，物品改文字",
+                )
+            )
+        else:
             candidates.append((2, p))
 
     slots: list[PackedSlot] = []
-    text_fallbacks: list[TextFallback] = []
-    if early_scene_fallback is not None:
-        text_fallbacks.append(early_scene_fallback)
+    text_fallbacks: list[TextFallback] = list(early_text_fallbacks)
     n = 1
     for _rank, subject in candidates:
         kind = subject.kind

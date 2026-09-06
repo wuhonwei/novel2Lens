@@ -487,13 +487,20 @@ class ImageWorker:
                 f"Output image aspect ratio {aspect}, resolution {width}x{height}."
             )
         elif (job.target_field or "") == "first_frame" and len(names) >= 2:
-            wrapped = (
-                f"Using {', '.join(labeled)}, create one new image: {edit_prompt}. "
-                "CRITICAL: each labeled person reference is a DIFFERENT identity. "
-                "Do not clone one face onto both people. Keep each person's age, hair color, "
-                "beard/no-beard, and clothing distinct as in their own reference image. "
-                f"Output image aspect ratio {aspect}, resolution {width}x{height}."
+            from app.domain.edit_identity import (
+                multi_char_first_frame_negative,
+                wrap_multi_char_first_frame,
             )
+
+            wrapped = wrap_multi_char_first_frame(
+                labeled=labeled,
+                edit_prompt=edit_prompt,
+                aspect=aspect,
+                width=width,
+                height=height,
+            )
+            if not edit_negative:
+                edit_negative = multi_char_first_frame_negative()
         else:
             wrapped = (
                 f"Using {', '.join(labeled)}, create one new image: {edit_prompt}. "
@@ -504,11 +511,12 @@ class ImageWorker:
         last_err = ""
         last_png: bytes | None = None
         # Multi-character first frames: skip Lightning — 4-step often collapses faces.
+        # More seeds: Qwen still flaky on keeping both identities.
         attempts = 2
         start_attempt = 0
         if (job.target_field or "") == "first_frame" and len(names) >= 2:
             start_attempt = 1
-            attempts = 2
+            attempts = 4
         for attempt in range(start_attempt, start_attempt + attempts):
             use_lightning = attempt < 1
             steps = 4 if use_lightning else 28
@@ -534,6 +542,8 @@ class ImageWorker:
             qa = assess_image_bytes(
                 last_png,
                 require_fullbody=bool(payload.get("require_fullbody")),
+                min_character_sides=int(payload.get("min_character_sides") or 0)
+                or (2 if (job.target_field or "") == "first_frame" and len(names) >= 2 else 0),
             )
             if qa.get("ok") or qa.get("passed"):
                 return last_png
