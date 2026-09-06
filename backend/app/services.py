@@ -1246,6 +1246,72 @@ async def generate_storyboard(
     return [serialize_shot(s, chapter.title, assets) for s in saved]
 
 
+async def generate_all_storyboards(
+    db: Session,
+    project: Project,
+    *,
+    overwrite: bool = False,
+    is_cancelled=None,
+) -> dict[str, Any]:
+    """Generate storyboards for every chapter; skip chapters that already have shots unless overwrite."""
+    chapters = (
+        db.query(Chapter)
+        .filter(Chapter.project_id == project.id)
+        .order_by(Chapter.index.asc())
+        .all()
+    )
+    generated: list[str] = []
+    skipped: list[str] = []
+    errors: list[str] = []
+    for chapter in chapters:
+        try:
+            await ensure_not_cancelled(is_cancelled)
+        except OperationCancelled:
+            return {
+                "ok": False,
+                "cancelled": True,
+                "generated": generated,
+                "skipped": skipped,
+                "errors": errors + ["已终止"],
+            }
+        has_shots = db.query(Shot).filter(Shot.chapter_id == chapter.id).count() > 0
+        if has_shots and not overwrite:
+            skipped.append(chapter.id)
+            continue
+        try:
+            await generate_storyboard(
+                db,
+                project,
+                chapter,
+                overwrite=overwrite,
+                is_cancelled=is_cancelled,
+            )
+            generated.append(chapter.id)
+        except OperationCancelled:
+            return {
+                "ok": False,
+                "cancelled": True,
+                "generated": generated,
+                "skipped": skipped,
+                "errors": errors + ["已终止"],
+            }
+        except ValueError as exc:
+            errors.append(f"{chapter.title}: {exc}")
+            chapter.last_error = str(exc)
+            db.commit()
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"{chapter.title}: {exc}")
+            chapter.last_error = str(exc)
+            db.commit()
+    return {
+        "ok": len(errors) == 0,
+        "generated": generated,
+        "skipped": skipped,
+        "errors": errors,
+        "cancelled": False,
+    }
+
+
 def update_shot(db: Session, project: Project, shot: Shot, patch: dict[str, Any]) -> dict[str, Any]:
     for key in ("duration_s", "camera", "camera_detail", "narration", "action", "source_excerpt", "background", "prompt_zh", "prompt_en", "h3_prompt"):
         if key in patch and patch[key] is not None:

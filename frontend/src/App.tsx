@@ -682,6 +682,31 @@ export default function App() {
                   生成本章分镜
                 </button>
                 <button
+                  data-testid="btn-storyboard-all"
+                  disabled={!!busy || llmBlocked || !bookAssetsReady(bundle) || !bundle.chapters.length}
+                  title={llmBlocked ? LLM_BUSY_TITLE : undefined}
+                  onClick={() =>
+                    run("生成全部章节分镜", async (signal) => {
+                      const next = await api.storyboardAll(p.id, overwrite, { signal });
+                      setBundle(next);
+                      setTab("分镜");
+                      if (next.cancelled) return;
+                      const gen = next.generated?.length ?? 0;
+                      const skip = next.skipped?.length ?? 0;
+                      const errs = next.errors || [];
+                      if (errs.length) {
+                        alert(
+                          `完成 ${gen} 章，跳过 ${skip} 章；部分失败：\n${errs.slice(0, 8).join("\n")}`,
+                        );
+                      } else {
+                        setNotice(`全部章节分镜：生成 ${gen} 章，跳过 ${skip} 章`);
+                      }
+                    })
+                  }
+                >
+                  一键生成全部章节分镜
+                </button>
+                <button
                   data-testid="btn-chapter-first-frames"
                   disabled={!!busy || imageJobs.length > 0 || !chapter || chapterShots.length === 0}
                   onClick={() =>

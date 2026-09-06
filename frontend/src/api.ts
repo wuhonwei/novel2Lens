@@ -249,6 +249,19 @@ export const api = {
       method: "POST",
       signal: opts?.signal,
     }),
+  storyboardAll: (pid: string, overwrite = false, opts?: ReqSignal) =>
+    req<
+      Bundle & {
+        ok?: boolean;
+        cancelled?: boolean;
+        generated?: string[];
+        skipped?: string[];
+        errors?: string[];
+      }
+    >(`/api/projects/${pid}/storyboard-all?overwrite=${overwrite}`, {
+      method: "POST",
+      signal: opts?.signal,
+    }),
   patchShot: (pid: string, sid: string, body: Partial<Shot> & { recompile?: boolean }) =>
     req<Shot>(`/api/projects/${pid}/shots/${sid}`, {
       method: "PATCH",

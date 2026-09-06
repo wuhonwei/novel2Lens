@@ -39,6 +39,7 @@ from app.services import (
     export_project,
     extract_assets,
     full_registry_scan,
+    generate_all_storyboards,
     generate_storyboard,
     merge_assets,
     prescan_project,
@@ -445,6 +446,23 @@ async def api_storyboard(project_id: str, chapter_id: str, request: Request, ove
             db.commit()
             raise HTTPException(502, str(exc)) from exc
         return {**_bundle(db, project), "result": result}
+    finally:
+        db.close()
+
+
+@app.post("/api/projects/{project_id}/storyboard-all")
+async def api_storyboard_all(project_id: str, request: Request, overwrite: bool = False):
+    db = db_session()
+    try:
+        project = get_project(db, project_id)
+        _prepare_llm(db)
+        result = await generate_all_storyboards(
+            db,
+            project,
+            overwrite=overwrite,
+            is_cancelled=lambda: _request_cancelled(request),
+        )
+        return {**result, **_bundle(db, project)}
     finally:
         db.close()
 
