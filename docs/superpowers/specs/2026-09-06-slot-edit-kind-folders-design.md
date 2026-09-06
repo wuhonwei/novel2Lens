@@ -10,7 +10,7 @@
 2. Edit opens modal: up to 3 refs + prompt → existing Qwen Image Edit enqueue.
 3. New generated files land in `{image_output_dir}/{人物|场景|物品}/{safe_name}_{field}.png`.
 4. Edit modal lists that kind folder first; optional filter 全部/人物/场景/物品.
-5. Legacy `{asset_id}/` files remain readable; no forced migration.
+5. Legacy `{asset_id}/` under the output dir is ignored (new projects only use 人物/场景/物品).
 
 ## Non-goals
 

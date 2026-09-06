@@ -52,30 +52,31 @@ def resolve_image_output_dir(project: Project) -> Path:
 
 
 def list_image_output_files(project: Project, *, kind: str | None = None) -> list[dict[str, str]]:
+    """List images under 人物/场景/物品 only (no legacy per-asset_id folders)."""
     root = resolve_image_output_dir(project)
     out: list[dict[str, str]] = []
     if not root.is_dir():
         return out
-    want = kind_folder_name(kind) if kind else None
-    for path in sorted(root.rglob("*")):
-        if not path.is_file() or path.suffix.lower() not in {".png", ".jpg", ".jpeg", ".webp", ".gif"}:
+    folders = [kind_folder_name(kind)] if kind else list(KIND_FOLDERS.values())
+    for folder in folders:
+        base = root / folder
+        if not base.is_dir():
             continue
-        try:
-            rel = str(path.relative_to(root)).replace("\\", "/")
-        except ValueError:
-            rel = path.name
-        top = rel.split("/", 1)[0] if "/" in rel else ""
-        folder = top if top in KIND_FOLDERS.values() else ""
-        if want and folder != want:
-            continue
-        out.append(
-            {
-                "name": path.name,
-                "rel": rel,
-                "path": str(path),
-                "folder": folder or top or "",
-            }
-        )
+        for path in sorted(base.rglob("*")):
+            if not path.is_file() or path.suffix.lower() not in {".png", ".jpg", ".jpeg", ".webp", ".gif"}:
+                continue
+            try:
+                rel = str(path.relative_to(root)).replace("\\", "/")
+            except ValueError:
+                rel = f"{folder}/{path.name}"
+            out.append(
+                {
+                    "name": path.name,
+                    "rel": rel,
+                    "path": str(path),
+                    "folder": folder,
+                }
+            )
     return out
 
 

@@ -1471,7 +1471,6 @@ function EditImageModal({
   const [prompt, setPrompt] = useState(asset.desc_zh || "");
   const [files, setFiles] = useState<File[]>([]);
   const [dirFiles, setDirFiles] = useState<{ name: string; path: string; rel?: string; folder?: string }[]>([]);
-  const [folderFilter, setFolderFilter] = useState<"kind" | "all">("kind");
   const [outDir, setOutDir] = useState("");
   const [picked, setPicked] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
@@ -1480,9 +1479,8 @@ function EditImageModal({
   useEffect(() => {
     let stop = false;
     setLoadingList(true);
-    const listKind = folderFilter === "kind" ? kind : null;
     api
-      .listImageOutputFiles(projectId, listKind)
+      .listImageOutputFiles(projectId, kind)
       .then((res) => {
         if (stop) return;
         setDirFiles(res.files || []);
@@ -1497,7 +1495,7 @@ function EditImageModal({
     return () => {
       stop = true;
     };
-  }, [projectId, kind, folderFilter]);
+  }, [projectId, kind]);
 
   function togglePath(path: string) {
     setPicked((prev) => {
@@ -1546,8 +1544,8 @@ function EditImageModal({
         <div className="panel-head">
           <h3>编辑 · {asset.name}</h3>
           <p className="hint">
-            使用 Qwen Image Edit。默认浏览「{kindLabel}」文件夹（最多 3 张参考图 + 编辑文字）。
-            {outDir ? ` 目录：${outDir}` : ""}
+            使用 Qwen Image Edit。从「{kindLabel}」文件夹勾选最多 3 张参考图并填写编辑文字。
+            {outDir ? ` 目录：${outDir}\\${kindLabel}` : ""}
           </p>
         </div>
         <div className="stack">
@@ -1561,34 +1559,11 @@ function EditImageModal({
           </select>
           <label>编辑提示词</label>
           <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={4} />
-          <div className="row">
-            <label className="check">
-              <input
-                type="radio"
-                name="folder-filter"
-                checked={folderFilter === "kind"}
-                onChange={() => setFolderFilter("kind")}
-              />
-              仅 {kindLabel}
-            </label>
-            <label className="check">
-              <input
-                type="radio"
-                name="folder-filter"
-                checked={folderFilter === "all"}
-                onChange={() => setFolderFilter("all")}
-              />
-              全部（含旧目录）
-            </label>
-          </div>
-          <label>
-            参考图目录（已选 {picked.length}/3）
-            {folderFilter === "kind" ? ` · ${kindLabel}/` : ""}
-          </label>
+          <label>「{kindLabel}」目录参考图（已选 {picked.length}/3）</label>
           {loadingList ? (
             <p className="muted">加载文件列表…</p>
           ) : dirFiles.length === 0 ? (
-            <p className="muted">该分类下暂无图片（新生成会写入 人物/场景/物品）</p>
+            <p className="muted">「{kindLabel}」下暂无图片</p>
           ) : (
             <div className="edit-file-list">
               {dirFiles.map((f) => (

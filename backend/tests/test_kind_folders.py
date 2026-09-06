@@ -42,6 +42,7 @@ def test_list_files_filters_by_kind(tmp_path, monkeypatch):
     out = tmp_path / "refs"
     (out / "人物").mkdir(parents=True)
     (out / "场景").mkdir(parents=True)
+    (out / "物品").mkdir(parents=True)
     (out / "人物" / "a.png").write_bytes(b"1")
     (out / "场景" / "b.png").write_bytes(b"2")
     legacy = out / "legacy_id"
@@ -51,5 +52,6 @@ def test_list_files_filters_by_kind(tmp_path, monkeypatch):
     chars = list_image_output_files(project, kind="character")
     assert all(f.get("folder") == "人物" for f in chars)
     assert any(f["name"] == "a.png" for f in chars)
+    assert not any(f["name"] == "full.png" for f in chars)
     all_files = list_image_output_files(project)
-    assert len(all_files) >= 3
+    assert {f["name"] for f in all_files} == {"a.png", "b.png"}
