@@ -1,6 +1,7 @@
 """Asset image helpers: paths, prompts, clear — generation is via image_jobs enqueue."""
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -18,30 +19,63 @@ from app.comfy_pipeline.persona import (
 )
 from app.services import _load, refresh_shot_readiness, serialize_asset
 
+KIND_FOLDERS = {
+    "character": "人物",
+    "scene": "场景",
+    "prop": "物品",
+}
+
+_UNSAFE_NAME = re.compile(r'[<>:"/\\|?*\x00-\x1f]+')
+
+
+def kind_folder_name(kind: str) -> str:
+    return KIND_FOLDERS.get(normalize_kind(kind), "物品")
+
+
+def safe_asset_filename(name: str) -> str:
+    cleaned = _UNSAFE_NAME.sub("_", (name or "").strip()).strip(" .")
+    cleaned = re.sub(r"\s+", "_", cleaned)
+    cleaned = cleaned.strip("_")[:80]
+    return cleaned or "asset"
+
 
 def resolve_image_output_dir(project: Project) -> Path:
     raw = (getattr(project, "image_output_dir", None) or "").strip()
     if raw:
         path = Path(raw)
-        path.mkdir(parents=True, exist_ok=True)
-        return path
-    path = project_dir(project.id) / "generated"
+    else:
+        path = project_dir(project.id) / "generated"
     path.mkdir(parents=True, exist_ok=True)
+    for folder in KIND_FOLDERS.values():
+        (path / folder).mkdir(parents=True, exist_ok=True)
     return path
 
 
-def list_image_output_files(project: Project) -> list[dict[str, str]]:
+def list_image_output_files(project: Project, *, kind: str | None = None) -> list[dict[str, str]]:
     root = resolve_image_output_dir(project)
     out: list[dict[str, str]] = []
     if not root.is_dir():
         return out
+    want = kind_folder_name(kind) if kind else None
     for path in sorted(root.rglob("*")):
-        if path.is_file() and path.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp", ".gif"}:
-            try:
-                rel = str(path.relative_to(root)).replace("\\", "/")
-            except ValueError:
-                rel = path.name
-            out.append({"name": path.name, "rel": rel, "path": str(path)})
+        if not path.is_file() or path.suffix.lower() not in {".png", ".jpg", ".jpeg", ".webp", ".gif"}:
+            continue
+        try:
+            rel = str(path.relative_to(root)).replace("\\", "/")
+        except ValueError:
+            rel = path.name
+        top = rel.split("/", 1)[0] if "/" in rel else ""
+        folder = top if top in KIND_FOLDERS.values() else ""
+        if want and folder != want:
+            continue
+        out.append(
+            {
+                "name": path.name,
+                "rel": rel,
+                "path": str(path),
+                "folder": folder or top or "",
+            }
+        )
     return out
 
 
@@ -189,16 +223,17 @@ def write_asset_image(project: Project, asset: Asset, field: str, data: bytes) -
     from app.image_scores import clear_field_score
 
     out_root = resolve_image_output_dir(project)
-    folder = out_root / asset.id
+    kind = normalize_kind(asset.kind)
+    folder = out_root / kind_folder_name(kind)
     folder.mkdir(parents=True, exist_ok=True)
-    dest = folder / f"{field}.png"
+    fname = f"{safe_asset_filename(asset.name)}_{field}.png"
+    dest = folder / fname
     dest.write_bytes(data)
     mirror_dir = project_dir(project.id) / "assets" / asset.id
     mirror_dir.mkdir(parents=True, exist_ok=True)
     mirror = mirror_dir / f"{field}.png"
     mirror.write_bytes(data)
     stored = f"projects/{project.id}/assets/{asset.id}/{field}.png"
-    kind = normalize_kind(asset.kind)
     if kind == "character":
         if field == "half":
             asset.half_path = stored

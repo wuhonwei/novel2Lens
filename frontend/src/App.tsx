@@ -990,7 +990,7 @@ function BookAssets({
               </>
             ) : null}
           </div>
-          <p className="hint">人物：全身 9:16 → 半身 3:4（由全身编辑）。场景远景 16:9 + 近景 3:4，物品 1:1。Comfy 按需启动 :8189。</p>
+          <p className="hint">人物：全身 9:16 → 半身 3:4（由全身编辑）。场景远景 16:9 + 近景 3:4，物品 1:1。新图写入参考图目录下的「人物 / 场景 / 物品」。Comfy 按需启动 :8189。</p>
         </div>
       </section>
 
@@ -1173,6 +1173,7 @@ function AssetCard({
   const [desc, setDesc] = useState(asset.desc_zh);
   const [imgBusy, setImgBusy] = useState("");
   const [editOpen, setEditOpen] = useState(false);
+  const [editField, setEditField] = useState<string | undefined>(undefined);
   const [preview, setPreview] = useState<{ src: string; label: string } | null>(null);
   useEffect(() => setBackground(asset.background_zh || ""), [asset.background_zh]);
   useEffect(() => setDesc(asset.desc_zh), [asset.desc_zh]);
@@ -1281,6 +1282,18 @@ function AssetCard({
           <button type="button" className="ghost compact" disabled={slotBusy} onClick={() => regen(field)}>
             重生成
           </button>
+          <button
+            type="button"
+            className="ghost compact"
+            disabled={slotBusy}
+            data-testid={`btn-edit-${field}`}
+            onClick={() => {
+              setEditField(field);
+              setEditOpen(true);
+            }}
+          >
+            编辑
+          </button>
           <button type="button" className="ghost compact" disabled={!path || slotBusy} onClick={() => clearImg(field)}>
             删除
           </button>
@@ -1335,7 +1348,14 @@ function AssetCard({
           <button className="primary" disabled={slotBusy} onClick={() => regen()}>
             自动生成全部参考图
           </button>
-          <button type="button" disabled={slotBusy} onClick={() => setEditOpen(true)}>
+          <button
+            type="button"
+            disabled={slotBusy}
+            onClick={() => {
+              setEditField(undefined);
+              setEditOpen(true);
+            }}
+          >
             编辑生成
           </button>
         </div>
@@ -1378,10 +1398,15 @@ function AssetCard({
           asset={asset}
           kind={kind}
           projectId={projectId}
-          onClose={() => setEditOpen(false)}
+          initialField={editField}
+          onClose={() => {
+            setEditOpen(false);
+            setEditField(undefined);
+          }}
           onQueued={(job) => {
             onJobsEnqueued([job]);
             setEditOpen(false);
+            setEditField(undefined);
           }}
         />
       ) : null}
@@ -1416,12 +1441,14 @@ function EditImageModal({
   asset,
   kind,
   projectId,
+  initialField,
   onClose,
   onQueued,
 }: {
   asset: Asset;
   kind: string;
   projectId: string;
+  initialField?: string;
   onClose: () => void;
   onQueued: (job: ImageJob) => void;
 }) {
@@ -1437,10 +1464,15 @@ function EditImageModal({
             { id: "near", label: "近景" },
           ]
         : [{ id: "image", label: "物品图" }];
-  const [targetField, setTargetField] = useState(fieldOptions[0].id);
+  const kindLabel = kind === "character" ? "人物" : kind === "scene" ? "场景" : "物品";
+  const [targetField, setTargetField] = useState(
+    initialField && fieldOptions.some((f) => f.id === initialField) ? initialField : fieldOptions[0].id,
+  );
   const [prompt, setPrompt] = useState(asset.desc_zh || "");
   const [files, setFiles] = useState<File[]>([]);
-  const [dirFiles, setDirFiles] = useState<{ name: string; path: string; rel?: string }[]>([]);
+  const [dirFiles, setDirFiles] = useState<{ name: string; path: string; rel?: string; folder?: string }[]>([]);
+  const [folderFilter, setFolderFilter] = useState<"kind" | "all">("kind");
+  const [outDir, setOutDir] = useState("");
   const [picked, setPicked] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadingList, setLoadingList] = useState(true);
@@ -1448,10 +1480,13 @@ function EditImageModal({
   useEffect(() => {
     let stop = false;
     setLoadingList(true);
+    const listKind = folderFilter === "kind" ? kind : null;
     api
-      .listImageOutputFiles(projectId)
+      .listImageOutputFiles(projectId, listKind)
       .then((res) => {
-        if (!stop) setDirFiles(res.files || []);
+        if (stop) return;
+        setDirFiles(res.files || []);
+        setOutDir(res.image_output_dir || "");
       })
       .catch(() => {
         if (!stop) setDirFiles([]);
@@ -1462,7 +1497,7 @@ function EditImageModal({
     return () => {
       stop = true;
     };
-  }, [projectId]);
+  }, [projectId, kind, folderFilter]);
 
   function togglePath(path: string) {
     setPicked((prev) => {
@@ -1509,8 +1544,11 @@ function EditImageModal({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="panel-head">
-          <h3>编辑生成 · {asset.name}</h3>
-          <p className="hint">勾选输出目录中的图（最多 3 张），也可上传本地图，填写提示词后排队编辑。</p>
+          <h3>编辑 · {asset.name}</h3>
+          <p className="hint">
+            使用 Qwen Image Edit。默认浏览「{kindLabel}」文件夹（最多 3 张参考图 + 编辑文字）。
+            {outDir ? ` 目录：${outDir}` : ""}
+          </p>
         </div>
         <div className="stack">
           <label>目标槽位</label>
@@ -1523,11 +1561,34 @@ function EditImageModal({
           </select>
           <label>编辑提示词</label>
           <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={4} />
-          <label>输出目录参考图（已选 {picked.length}/3）</label>
+          <div className="row">
+            <label className="check">
+              <input
+                type="radio"
+                name="folder-filter"
+                checked={folderFilter === "kind"}
+                onChange={() => setFolderFilter("kind")}
+              />
+              仅 {kindLabel}
+            </label>
+            <label className="check">
+              <input
+                type="radio"
+                name="folder-filter"
+                checked={folderFilter === "all"}
+                onChange={() => setFolderFilter("all")}
+              />
+              全部（含旧目录）
+            </label>
+          </div>
+          <label>
+            参考图目录（已选 {picked.length}/3）
+            {folderFilter === "kind" ? ` · ${kindLabel}/` : ""}
+          </label>
           {loadingList ? (
             <p className="muted">加载文件列表…</p>
           ) : dirFiles.length === 0 ? (
-            <p className="muted">目录下暂无图片</p>
+            <p className="muted">该分类下暂无图片（新生成会写入 人物/场景/物品）</p>
           ) : (
             <div className="edit-file-list">
               {dirFiles.map((f) => (

@@ -767,13 +767,17 @@ async def api_score_images(project_id: str, request: Request, body: ScoreImagesI
 
 
 @app.get("/api/projects/{project_id}/image-output-files")
-def api_list_output_dir_files(project_id: str):
+def api_list_output_dir_files(project_id: str, kind: str | None = None):
     db = db_session()
     try:
         project = get_project(db, project_id)
+        k = (kind or "").strip().lower() or None
+        if k and k not in ("character", "scene", "prop"):
+            raise HTTPException(400, "kind 必须是 character、scene 或 prop")
         return {
             "image_output_dir": str(resolve_image_output_dir(project)),
-            "files": list_image_output_files(project),
+            "kind": k,
+            "files": list_image_output_files(project, kind=k),
         }
     finally:
         db.close()

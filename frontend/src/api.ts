@@ -347,10 +347,14 @@ export const api = {
       body: form,
       signal: opts?.signal,
     }),
-  listImageOutputFiles: (pid: string) =>
-    req<{ image_output_dir?: string; files: { name: string; path: string; rel?: string }[] }>(
-      `/api/projects/${pid}/image-output-files`,
-    ),
+  listImageOutputFiles: (pid: string, kind?: string | null) => {
+    const qs = kind ? `?kind=${encodeURIComponent(kind)}` : "";
+    return req<{
+      image_output_dir?: string;
+      kind?: string | null;
+      files: { name: string; path: string; rel?: string; folder?: string }[];
+    }>(`/api/projects/${pid}/image-output-files${qs}`);
+  },
   export: (pid: string) => req<{ document: unknown; markdown: string; path: string }>(`/api/projects/${pid}/export`, { method: "POST" }),
 };
 
