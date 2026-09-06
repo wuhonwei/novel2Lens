@@ -155,6 +155,7 @@ def serialize_asset(asset: Asset) -> dict[str, Any]:
         "near_path": near_path,
         "image_path": asset.image_path,
         "voice_path": asset.voice_path,
+        "image_scores": _load(getattr(asset, "image_scores_json", None) or "{}", {}),
         "media_version": _asset_media_version(asset),
         "created_chapter_id": asset.created_chapter_id,
         "portrait_ready": bool(asset.half_path and asset.full_path)
@@ -208,6 +209,8 @@ def serialize_shot(shot: Shot, chapter_title: str = "", assets: list[Asset] | No
         "lines": lines,
         "half_lock": shot.half_lock,
         "first_frame_path": getattr(shot, "first_frame_path", "") or "",
+        "first_frame_score": getattr(shot, "first_frame_score", None),
+        "first_frame_score_comment": getattr(shot, "first_frame_score_comment", "") or "",
         "references": references,
     }
 

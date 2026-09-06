@@ -220,6 +220,9 @@ def required_fields_for_asset(asset: Asset) -> list[str]:
 
 
 def enqueue_asset_field(db: Session, project: Project, asset: Asset, field: str) -> ImageJob:
+    from app.image_scores import clear_field_score
+
+    clear_field_score(asset, field if field in ("half", "full", "near", "far", "image") else "image")
     job = _build_asset_field_job(project, asset, field)
     db.add(job)
     db.commit()
@@ -231,11 +234,14 @@ def enqueue_asset_all_slots(db: Session, project: Project, asset: Asset) -> list
     """Enqueue all required slots for one asset (t2i then edit when both exist)."""
     from datetime import timedelta
 
+    from app.image_scores import clear_field_score
+
     fields = required_fields_for_asset(asset)
     base_ts = _utcnow()
     batch_id = _uid()
     jobs: list[ImageJob] = []
     for i, field in enumerate(fields):
+        clear_field_score(asset, field if field in ("half", "full", "near", "far", "image") else "image")
         job = _build_asset_field_job(project, asset, field)
         job.batch_id = batch_id
         job.created_at = base_ts + timedelta(microseconds=i)
@@ -258,10 +264,15 @@ def enqueue_manual_edit(
     ref_paths: list[str],
     aspect: str = "3:4",
 ) -> ImageJob:
+    from app.image_scores import clear_field_score
+
     if not (prompt or "").strip():
         raise ValueError("编辑提示词不能为空")
     if not ref_paths:
         raise ValueError("至少需要一张参考图")
+    clear_field_score(
+        asset, target_field if target_field in ("half", "full", "near", "far", "image") else "image"
+    )
     job = _make_job(
         project=project,
         asset=asset,
@@ -447,10 +458,13 @@ def _shot_ref_paths(project: Project, shot, assets: list[Asset]) -> tuple[list[s
 def enqueue_shot_first_frame(
     db: Session, project: Project, shot, *, batch_id: str = "", assets: list[Asset] | None = None
 ) -> ImageJob:
+    from app.image_scores import clear_shot_first_frame_score
+
     assets = assets if assets is not None else db.query(Asset).filter(Asset.project_id == project.id).all()
     paths, labels, err = _shot_ref_paths(project, shot, assets)
     if err:
         raise ValueError(err)
+    clear_shot_first_frame_score(shot)
     payload = {
         "aspect": "16:9",
         "ref_paths": paths,

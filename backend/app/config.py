@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     default_llm_model: str = "qwen3.8-flash-next"
     fallback_llm_base_url: str = "http://127.0.0.1:11434/v1"
     fallback_llm_model: str = "qwen2.5:32b"
+    vision_llm_base_url: str = "http://127.0.0.1:11434/v1"
+    vision_llm_model: str = "qwen2.5vl:7b"
     zaoxiang_base_url: str = "http://127.0.0.1:8000"
     comfy_base_url: str = "http://127.0.0.1:8189"
     comfy_root: str = r"D:\Develop\ComfyUI"

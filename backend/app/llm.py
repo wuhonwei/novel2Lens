@@ -46,7 +46,7 @@ async def chat_completion(
     *,
     base_url: str,
     model: str,
-    messages: list[dict[str, str]],
+    messages: list[dict[str, Any]],
     temperature: float = 0.2,
     timeout: float = 600.0,
     extra: dict | None = None,

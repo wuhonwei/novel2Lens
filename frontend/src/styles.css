@@ -456,7 +456,57 @@ input, select { width: 100%; }
 .pill.ok { color: var(--ok); border-color: rgba(111, 191, 154, 0.45); }
 .pill.warn { color: var(--warn); border-color: rgba(201, 166, 107, 0.45); }
 
+.score-panel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+.score-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.15rem 0.2rem;
+  margin-top: 0.45rem;
+  font-size: 0.88rem;
+  letter-spacing: 0.01em;
+}
+.score-chip.band-good { color: var(--ok); }
+.score-chip.band-ok { color: var(--warn); }
+.score-chip.band-bad { color: var(--danger); }
+.score-chip.band-none { color: var(--ink); }
+.score-sep { color: var(--muted); }
+
+.thumb-with-score {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+}
+.score-badge {
+  flex: 0 0 auto;
+  min-width: 2.6rem;
+  text-align: center;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.22rem 0.4rem;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: rgba(12, 18, 16, 0.72);
+  cursor: help;
+  align-self: center;
+}
+.score-badge.band-good { color: var(--ok); border-color: rgba(111, 191, 154, 0.5); }
+.score-badge.band-ok { color: var(--warn); border-color: rgba(201, 166, 107, 0.5); }
+.score-badge.band-bad { color: var(--danger); border-color: rgba(217, 122, 122, 0.5); }
+.score-badge.band-none { color: var(--ink); border-color: rgba(233, 240, 234, 0.25); }
+
 .thumbs { display: flex; gap: 0.5rem; margin: 0.55rem 0; flex-wrap: wrap; }
+.thumbs.thumbs-stack {
+  flex-direction: column;
+  flex-wrap: nowrap;
+  align-items: flex-start;
+}
 .thumbs img, .thumbs .ph {
   width: 92px;
   height: 122px;
@@ -575,14 +625,19 @@ input, select { width: 100%; }
 .shot-first-frame {
   margin: 0.6rem 0 0.8rem;
   border-radius: 8px;
-  overflow: hidden;
-  border: 1px solid var(--line);
-  max-width: 480px;
+  overflow: visible;
+  border: none;
+  max-width: 520px;
+}
+.shot-first-frame .thumb-with-score {
+  align-items: stretch;
 }
 .shot-first-frame img {
   display: block;
   width: 100%;
   height: auto;
+  border-radius: 8px;
+  border: 1px solid var(--line);
 }
 .shot-refs {
   margin: 0.55rem 0 0.85rem;

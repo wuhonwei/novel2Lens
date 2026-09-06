@@ -186,6 +186,8 @@ def build_field_prompt(project: Project, asset: Asset, field: str) -> str:
 
 
 def write_asset_image(project: Project, asset: Asset, field: str, data: bytes) -> str:
+    from app.image_scores import clear_field_score
+
     out_root = resolve_image_output_dir(project)
     folder = out_root / asset.id
     folder.mkdir(parents=True, exist_ok=True)
@@ -214,41 +216,13 @@ def write_asset_image(project: Project, asset: Asset, field: str, data: bytes) -
                 asset.image_path = stored
     else:
         asset.image_path = stored
+    clear_field_score(asset, field if field in ("half", "full", "near", "far", "image") else "image")
     return stored
 
 
-def clear_asset_image(db: Session, project: Project, asset: Asset, field: str) -> dict[str, Any]:
-    kind = normalize_kind(asset.kind)
-    if kind == "character":
-        if field == "half":
-            asset.half_path = ""
-        elif field == "full":
-            asset.full_path = ""
-        else:
-            raise ValueError("人物图 field 只能是 half 或 full")
-    elif kind == "scene":
-        if field == "near":
-            asset.near_path = ""
-        elif field in ("far", "image"):
-            asset.far_path = ""
-            if field == "image":
-                asset.image_path = ""
-        else:
-            raise ValueError("场景 field 只能是 far、near 或 image")
-    else:
-        asset.image_path = ""
-        asset.half_path = ""
-        asset.full_path = ""
-    refresh_shot_readiness(db, project)
-    db.commit()
-    return serialize_asset(asset)
-
-
-def abs_media_path(stored: str) -> Path:
-    return settings.data_dir / stored
-
-
 def write_shot_first_frame(project: Project, shot: Any, data: bytes) -> str:
+    from app.image_scores import clear_shot_first_frame_score
+
     out_root = resolve_image_output_dir(project)
     folder = out_root / "shots" / shot.id
     folder.mkdir(parents=True, exist_ok=True)
@@ -260,4 +234,44 @@ def write_shot_first_frame(project: Project, shot: Any, data: bytes) -> str:
     mirror.write_bytes(data)
     stored = f"projects/{project.id}/shots/{shot.id}/first_frame.png"
     shot.first_frame_path = stored
+    clear_shot_first_frame_score(shot)
     return stored
+
+
+def clear_asset_image(db: Session, project: Project, asset: Asset, field: str) -> dict[str, Any]:
+    from app.image_scores import clear_field_score
+
+    kind = normalize_kind(asset.kind)
+    if kind == "character":
+        if field == "half":
+            asset.half_path = ""
+            clear_field_score(asset, "half")
+        elif field == "full":
+            asset.full_path = ""
+            clear_field_score(asset, "full")
+        else:
+            raise ValueError("人物图 field 只能是 half 或 full")
+    elif kind == "scene":
+        if field == "near":
+            asset.near_path = ""
+            clear_field_score(asset, "near")
+        elif field in ("far", "image"):
+            asset.far_path = ""
+            clear_field_score(asset, "far")
+            if field == "image":
+                asset.image_path = ""
+                clear_field_score(asset, "image")
+        else:
+            raise ValueError("场景 field 只能是 far、near 或 image")
+    else:
+        asset.image_path = ""
+        asset.half_path = ""
+        asset.full_path = ""
+        clear_field_score(asset, "image")
+    refresh_shot_readiness(db, project)
+    db.commit()
+    return serialize_asset(asset)
+
+
+def abs_media_path(stored: str) -> Path:
+    return settings.data_dir / stored

@@ -21,6 +21,7 @@ export type Asset = {
   media_version?: number;
   portrait_ready: boolean;
   created_chapter_id?: string;
+  image_scores?: Record<string, { score?: number; comment?: string; updated_at?: string }>;
 };
 
 export type ImageJob = {
@@ -93,6 +94,8 @@ export type Shot = {
   character_count: number;
   first_frame_unready: boolean;
   first_frame_path?: string;
+  first_frame_score?: number | null;
+  first_frame_score_comment?: string;
   prompt_zh: string;
   prompt_en: string;
   h3_prompt: string;
@@ -286,6 +289,20 @@ export const api = {
     req<{ jobs: ImageJob[] }>(`/api/projects/${pid}/image-jobs?active_only=${activeOnly}`),
   cancelImageBatch: (pid: string, batchId: string) =>
     req<{ ok: boolean; cancelled: number }>(`/api/projects/${pid}/image-batches/${batchId}/cancel`, { method: "POST" }),
+  scoreImages: (pid: string, body: { scope?: "assets" | "shots" | "all"; kind?: string | null }) =>
+    req<
+      Bundle & {
+        ok?: boolean;
+        scored?: number;
+        errors?: string[];
+        asset_counts?: { good: number; ok: number; bad: number; none: number };
+        shot_counts?: { good: number; ok: number; bad: number; none: number };
+      }
+    >(`/api/projects/${pid}/score-images`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
   editAssetImage: (pid: string, aid: string, form: FormData) =>
     req<{ ok: boolean; job: ImageJob }>(`/api/projects/${pid}/assets/${aid}/edit-image`, { method: "POST", body: form }),
   listImageOutputFiles: (pid: string) =>

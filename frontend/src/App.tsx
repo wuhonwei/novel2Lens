@@ -25,6 +25,79 @@ import {
 const CAMERAS = ["固定", "缓慢推近", "缓慢拉远", "慢摇左", "慢摇右", "微仰", "微俯", "轻度跟随左一", "轻度跟随中", "轻度跟随右一"];
 const LLM_BUSY_TITLE = "参考图生成中";
 
+type ScoreEntry = { score?: number; comment?: string };
+type ScoreCounts = { good: number; ok: number; bad: number; none: number };
+
+function scoreBand(score: number | null | undefined): "good" | "ok" | "bad" | "none" {
+  if (score === null || score === undefined || Number.isNaN(score)) return "none";
+  if (score > 80) return "good";
+  if (score >= 60) return "ok";
+  return "bad";
+}
+
+function emptyScoreCounts(): ScoreCounts {
+  return { good: 0, ok: 0, bad: 0, none: 0 };
+}
+
+function countAssetScores(assets: Asset[], kind: string): ScoreCounts {
+  const fields =
+    kind === "character" ? (["full", "half"] as const) : kind === "scene" ? (["far", "near"] as const) : (["image"] as const);
+  const counts = emptyScoreCounts();
+  for (const a of assets) {
+    for (const field of fields) {
+      const path =
+        field === "full"
+          ? a.full_path
+          : field === "half"
+            ? a.half_path
+            : field === "far"
+              ? a.far_path
+              : field === "near"
+                ? a.near_path
+                : a.image_path;
+      if (!path) continue;
+      const entry = a.image_scores?.[field] as ScoreEntry | undefined;
+      const band = scoreBand(entry?.score);
+      counts[band] += 1;
+    }
+  }
+  return counts;
+}
+
+function countShotScores(shots: Shot[]): ScoreCounts {
+  const counts = emptyScoreCounts();
+  for (const s of shots) {
+    if (!s.first_frame_path) continue;
+    counts[scoreBand(s.first_frame_score)] += 1;
+  }
+  return counts;
+}
+
+function ScoreBadge({ score, comment }: { score?: number | null; comment?: string }) {
+  const band = scoreBand(score ?? null);
+  const label = band === "none" ? "未评估" : String(score);
+  const tip = band === "none" ? "尚未评估" : comment || `分数 ${score}`;
+  return (
+    <span className={`score-badge band-${band}`} title={tip} data-testid="score-badge">
+      {label}
+    </span>
+  );
+}
+
+function ScoreSummary({ counts }: { counts: ScoreCounts }) {
+  return (
+    <div className="score-summary" data-testid="score-summary">
+      <span className="score-chip band-good">较好：{counts.good}</span>
+      <span className="score-sep">；</span>
+      <span className="score-chip band-ok">一般：{counts.ok}</span>
+      <span className="score-sep">；</span>
+      <span className="score-chip band-bad">较差：{counts.bad}</span>
+      <span className="score-sep">；</span>
+      <span className="score-chip band-none">未评估：{counts.none}</span>
+    </div>
+  );
+}
+
 export default function App() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [bundle, setBundle] = useState<Bundle | null>(null);
@@ -621,20 +694,47 @@ export default function App() {
                     <p className="hint">先点「一键生成全书资产」，再点「生成本章分镜」。无需按章确认资产。</p>
                   </section>
                 ) : (
-                  chapterShots.map((shot) => (
-                    <ShotCard
-                      key={shot.id}
-                      shot={shot}
-                      assets={bundle.assets}
-                      onChange={async (next) => {
-                        const updated = await api.patchShot(p.id, shot.id, next);
-                        setBundle({
-                          ...bundle,
-                          shots: bundle.shots.map((s) => (s.id === shot.id ? updated : s)),
-                        });
-                      }}
-                    />
-                  ))
+                  <>
+                    <section className="panel score-panel-head-wrap">
+                      <div className="panel-head score-panel-head">
+                        <div>
+                          <h2>本章首帧评分</h2>
+                          <ScoreSummary counts={countShotScores(chapterShots)} />
+                        </div>
+                        <button
+                          type="button"
+                          className="primary"
+                          data-testid="btn-score-first-frames"
+                          disabled={!!busy || !chapterShots.some((s) => s.first_frame_path)}
+                          onClick={() =>
+                            run("评估首帧", async () => {
+                              const next = await api.scoreImages(p.id, { scope: "shots" });
+                              setBundle(next);
+                              if (next.errors?.length) {
+                                alert(`评估完成 ${next.scored ?? 0} 张；部分失败：\n${next.errors.slice(0, 5).join("\n")}`);
+                              }
+                            })
+                          }
+                        >
+                          评估图片
+                        </button>
+                      </div>
+                    </section>
+                    {chapterShots.map((shot) => (
+                      <ShotCard
+                        key={shot.id}
+                        shot={shot}
+                        assets={bundle.assets}
+                        onChange={async (next) => {
+                          const updated = await api.patchShot(p.id, shot.id, next);
+                          setBundle({
+                            ...bundle,
+                            shots: bundle.shots.map((s) => (s.id === shot.id ? updated : s)),
+                          });
+                        }}
+                      />
+                    ))}
+                  </>
                 )}
               </div>
             )}
@@ -668,6 +768,7 @@ function BookAssets({
   const [view, setView] = useState<"character" | "scene" | "prop">("character");
   const [outDir, setOutDir] = useState(bundle.project.image_output_dir || "");
   const [cancelBusy, setCancelBusy] = useState(false);
+  const [scoreBusy, setScoreBusy] = useState(false);
   useEffect(() => setOutDir(bundle.project.image_output_dir || ""), [bundle.project.image_output_dir]);
 
   const tabs = [
@@ -676,6 +777,7 @@ function BookAssets({
     { id: "prop" as const, label: "核心物品", count: props.length, empty: "还没有核心物品。", assets: props },
   ];
   const active = tabs.find((t) => t.id === view)!;
+  const scoreCounts = useMemo(() => countAssetScores(active.assets, view), [active.assets, view]);
   const imageBusy = imageJobs.length > 0;
   const batchId = imageBatch?.id || imageJobs.find((j) => j.batch_id)?.batch_id || "";
   const total = imageBatch?.total || imageJobs.length;
@@ -702,6 +804,21 @@ function BookAssets({
       alert(e instanceof Error ? e.message : String(e));
     } finally {
       setCancelBusy(false);
+    }
+  }
+
+  async function runScore() {
+    setScoreBusy(true);
+    try {
+      const next = await api.scoreImages(bundle.project.id, { scope: "assets", kind: view });
+      onChange(next);
+      if (next.errors?.length) {
+        alert(`评估完成 ${next.scored ?? 0} 张；部分失败：\n${next.errors.slice(0, 5).join("\n")}`);
+      }
+    } catch (e) {
+      alert(e instanceof Error ? e.message : String(e));
+    } finally {
+      setScoreBusy(false);
     }
   }
 
@@ -811,8 +928,20 @@ function BookAssets({
       </section>
 
       <section className="panel" data-testid={`section-${active.label}`}>
-        <div className="panel-head">
-          <h2>{active.label}</h2>
+        <div className="panel-head score-panel-head">
+          <div>
+            <h2>{active.label}</h2>
+            <ScoreSummary counts={scoreCounts} />
+          </div>
+          <button
+            type="button"
+            className="primary"
+            data-testid="btn-score-images"
+            disabled={busy || scoreBusy || active.assets.length === 0}
+            onClick={() => runScore()}
+          >
+            {scoreBusy ? "评估中…" : "评估图片"}
+          </button>
         </div>
         {active.assets.length === 0 ? (
           <p className="hint">{active.empty}</p>
@@ -1016,30 +1145,34 @@ function AssetCard({
     wide?: boolean;
   }) {
     const { field, label, path, wide } = opts;
+    const scored = asset.image_scores?.[field] as ScoreEntry | undefined;
     return (
       <div className={`thumb-slot ${wide ? "wide-slot" : ""}`} data-field={field}>
-        {path ? (
-          <button
-            type="button"
-            className="thumb-open"
-            title={`查看大图 · ${label}`}
-            onClick={() =>
-              setPreview({
-                src: mediaUrl(path, asset.media_version),
-                label: `${asset.name} · ${label}`,
-              })
-            }
-          >
-            <img
-              key={`${field}-${asset.media_version || 0}`}
-              className={wide ? "wide" : undefined}
-              src={mediaUrl(path, asset.media_version)}
-              alt={label}
-            />
-          </button>
-        ) : (
-          <div className={`ph ${wide ? "wide" : ""}`}>{label}</div>
-        )}
+        <div className="thumb-with-score">
+          {path ? (
+            <button
+              type="button"
+              className="thumb-open"
+              title={`查看大图 · ${label}`}
+              onClick={() =>
+                setPreview({
+                  src: mediaUrl(path, asset.media_version),
+                  label: `${asset.name} · ${label}`,
+                })
+              }
+            >
+              <img
+                key={`${field}-${asset.media_version || 0}`}
+                className={wide ? "wide" : undefined}
+                src={mediaUrl(path, asset.media_version)}
+                alt={label}
+              />
+            </button>
+          ) : (
+            <div className={`ph ${wide ? "wide" : ""}`}>{label}</div>
+          )}
+          {path ? <ScoreBadge score={scored?.score} comment={scored?.comment} /> : null}
+        </div>
         {slotBadge(field)}
         <div className="thumb-actions">
           <label className="file-btn compact">
@@ -1110,7 +1243,7 @@ function AssetCard({
       </div>
 
       <div className="asset-row-side">
-        <div className="thumbs">
+        <div className={`thumbs ${kind === "scene" ? "thumbs-stack" : ""}`}>
           {kind === "character" ? (
             <>
               {renderSlot({ field: "full", label: "全身 9:16", path: asset.full_path })}
@@ -1367,7 +1500,10 @@ function ShotCard({
 
       {shot.first_frame_path ? (
         <div className="shot-first-frame">
-          <img src={mediaUrl(shot.first_frame_path)} alt={`镜${shot.order_index}首帧`} />
+          <div className="thumb-with-score">
+            <img src={mediaUrl(shot.first_frame_path)} alt={`镜${shot.order_index}首帧`} />
+            <ScoreBadge score={shot.first_frame_score} comment={shot.first_frame_score_comment} />
+          </div>
         </div>
       ) : null}
 

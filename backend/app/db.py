@@ -81,6 +81,7 @@ class Asset(Base):
     near_path: Mapped[str] = mapped_column(String(400), default="")
     image_path: Mapped[str] = mapped_column(String(400), default="")
     voice_path: Mapped[str] = mapped_column(String(400), default="")
+    image_scores_json: Mapped[str] = mapped_column(Text, default="{}")
     created_chapter_id: Mapped[str] = mapped_column(String(36), default="")
 
     project: Mapped[Project] = relationship(back_populates="assets")
@@ -143,6 +144,8 @@ class Shot(Base):
     lines_json: Mapped[str] = mapped_column(Text, default="[]")
     half_lock: Mapped[bool] = mapped_column(Boolean, default=False)
     first_frame_path: Mapped[str] = mapped_column(String(400), default="")
+    first_frame_score: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)
+    first_frame_score_comment: Mapped[str] = mapped_column(Text, default="")
 
     project: Mapped[Project] = relationship(back_populates="shots")
 
@@ -182,6 +185,8 @@ def ensure_schema() -> None:
             conn.execute(text("ALTER TABLE assets ADD COLUMN far_path VARCHAR(400) DEFAULT ''"))
         if "near_path" not in asset_cols:
             conn.execute(text("ALTER TABLE assets ADD COLUMN near_path VARCHAR(400) DEFAULT ''"))
+        if "image_scores_json" not in asset_cols:
+            conn.execute(text("ALTER TABLE assets ADD COLUMN image_scores_json TEXT DEFAULT '{}'"))
         shot_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(shots)")).fetchall()}
         if "prop_asset_ids_json" not in shot_cols:
             conn.execute(text("ALTER TABLE shots ADD COLUMN prop_asset_ids_json TEXT DEFAULT '[]'"))
@@ -189,6 +194,10 @@ def ensure_schema() -> None:
             conn.execute(text("ALTER TABLE shots ADD COLUMN text_fallbacks_json TEXT DEFAULT '[]'"))
         if "first_frame_path" not in shot_cols:
             conn.execute(text("ALTER TABLE shots ADD COLUMN first_frame_path VARCHAR(400) DEFAULT ''"))
+        if "first_frame_score" not in shot_cols:
+            conn.execute(text("ALTER TABLE shots ADD COLUMN first_frame_score INTEGER"))
+        if "first_frame_score_comment" not in shot_cols:
+            conn.execute(text("ALTER TABLE shots ADD COLUMN first_frame_score_comment TEXT DEFAULT ''"))
         job_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(image_jobs)")).fetchall()}
         if "shot_id" not in job_cols:
             conn.execute(text("ALTER TABLE image_jobs ADD COLUMN shot_id VARCHAR(36) DEFAULT ''"))

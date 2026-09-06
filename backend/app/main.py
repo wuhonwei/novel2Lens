@@ -203,6 +203,11 @@ class TranslateIn(BaseModel):
     desc_zh: str
 
 
+class ScoreImagesIn(BaseModel):
+    scope: str = "assets"  # assets | shots | all
+    kind: str | None = None  # character | scene | prop
+
+
 def _bundle(db: Session, project: Project) -> dict:
     chapters = db.query(Chapter).filter(Chapter.project_id == project.id).order_by(Chapter.index).all()
     assets = db.query(Asset).filter(Asset.project_id == project.id).all()
@@ -651,6 +656,25 @@ def api_cancel_batch(project_id: str, batch_id: str):
         get_project(db, project_id)
         n = cancel_batch(db, batch_id)
         return {"ok": True, "cancelled": n}
+    finally:
+        db.close()
+
+
+@app.post("/api/projects/{project_id}/score-images")
+async def api_score_images(project_id: str, body: ScoreImagesIn = ScoreImagesIn()):
+    from app.image_scores import score_project_images
+
+    db = db_session()
+    try:
+        project = get_project(db, project_id)
+        scope = (body.scope or "assets").strip().lower()
+        if scope not in ("assets", "shots", "all"):
+            raise HTTPException(400, "scope 必须是 assets、shots 或 all")
+        kind = (body.kind or "").strip().lower() or None
+        if kind and kind not in ("character", "scene", "prop"):
+            raise HTTPException(400, "kind 必须是 character、scene 或 prop")
+        result = await score_project_images(db, project, scope=scope, kind=kind)
+        return {**result, **_bundle(db, project)}
     finally:
         db.close()
 
