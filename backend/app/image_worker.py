@@ -30,7 +30,11 @@ from app.config import settings
 from app.db import Asset, ImageJob, Project
 from app.image_gen import abs_media_path, write_asset_image
 from app.comfy_pipeline.persona import identity_lock_en, identity_negative
-from app.comfy_pipeline.character_prompt import enrich_character_prompt, enrich_character_negative
+from app.comfy_pipeline.character_prompt import (
+    enrich_character_negative,
+    enrich_character_prompt,
+    prompt_requests_black_outfit,
+)
 from app.image_jobs import has_active_jobs, next_queued_job
 from app.llm_supervisor import LlmSupervisor
 from app.services import refresh_shot_readiness
@@ -265,7 +269,8 @@ class ImageWorker:
             if en_lock:
                 t2i_prompt = f"{en_lock}. {t2i_prompt}"
             # Costume color hard-prefix — Guofeng otherwise defaults to white/gold armor beauty.
-            if "黑色" in prompt or "黑衣" in prompt:
+            # Match black *clothing* only (黑衣/黑袍/黑色长衫…); never hair like「黑色长发」.
+            if prompt_requests_black_outfit(prompt):
                 t2i_prompt = (
                     "all-black outfit only, solid black robes, black cloth, masked face, "
                     "no white clothes, no gold fantasy armor, no glamorous armor. "
@@ -352,8 +357,7 @@ class ImageWorker:
             if style_for_suffix in ("guofeng_cg", "guofeng"):
                 negative = f"{negative}, {GUOFENG_PERIOD_NEGATIVE}"
             # Hard clothing color locks for assassin / official looks that Guofeng loves to overwrite.
-            blob = f"{prompt} {t2i_prompt}".lower()
-            if any(x in prompt for x in ("黑色", "黑衣", "官服", "短打")):
+            if prompt_requests_black_outfit(prompt) or any(x in prompt for x in ("官服", "短打")):
                 negative = (
                     f"{negative}, white fantasy armor, gold filigree armor, "
                     "beautiful young woman, 1girl, exposed thighs, glamorous goddess armor"

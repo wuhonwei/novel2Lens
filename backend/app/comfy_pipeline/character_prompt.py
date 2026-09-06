@@ -22,6 +22,23 @@ _NO_BG_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Hair color must never count as "black outfit" (e.g. 苏晚卿「黑色长发」).
+_BLACK_HAIR_RE = re.compile(
+    r"黑(?:色)?(?:长发|短发|头发|秀发|卷发|直发|马尾|辫子|辫|发梢|发髻|发)"
+)
+_BLACK_OUTFIT_RE = re.compile(
+    r"黑衣|黑袍|黑衫|黑巾|一身黑|全黑|夜行衣|"
+    r"黑色(?:的)?(?:短打|长袍|长衫|劲装|衣裳|衣服|衣|袍|衫|服|装|斗篷|披风|布衣|劲衣)"
+)
+
+
+def prompt_requests_black_outfit(prompt: str) -> bool:
+    """True only for black *clothing*, not black hair/eyes/etc."""
+    text = prompt or ""
+    stripped = _BLACK_HAIR_RE.sub("", text)
+    return bool(_BLACK_OUTFIT_RE.search(stripped))
+
+
 NO_BG_EXTRAS = [
     "solid pure white background",
     "plain solid white studio backdrop",
