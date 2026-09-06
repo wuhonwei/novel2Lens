@@ -274,6 +274,10 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     }),
+  deleteAsset: (pid: string, aid: string) =>
+    req<Bundle & { ok?: boolean; deleted_id?: string }>(`/api/projects/${pid}/assets/${aid}`, {
+      method: "DELETE",
+    }),
   merge: (pid: string, keep_id: string, drop_id: string) =>
     req<Bundle>(`/api/projects/${pid}/assets/merge`, {
       method: "POST",

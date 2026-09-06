@@ -315,3 +315,90 @@ def clear_asset_image(db: Session, project: Project, asset: Asset, field: str) -
 
 def abs_media_path(stored: str) -> Path:
     return settings.data_dir / stored
+
+
+def _unlink_quiet(path: Path) -> bool:
+    try:
+        if path.is_file():
+            path.unlink()
+            return True
+        if path.is_dir():
+            import shutil
+
+            shutil.rmtree(path)
+            return True
+    except OSError:
+        pass
+    return False
+
+
+def delete_asset_files(project: Project, asset: Asset) -> list[str]:
+    """Delete media mirrors and image_output_dir copies for this asset."""
+    deleted: list[str] = []
+    for rel in (
+        asset.half_path,
+        asset.full_path,
+        getattr(asset, "far_path", "") or "",
+        getattr(asset, "near_path", "") or "",
+        asset.image_path,
+        asset.voice_path,
+    ):
+        stored = (rel or "").strip()
+        if not stored:
+            continue
+        path = abs_media_path(stored)
+        if _unlink_quiet(path):
+            deleted.append(str(path))
+    mirror = project_dir(project.id) / "assets" / asset.id
+    if _unlink_quiet(mirror):
+        deleted.append(str(mirror))
+    try:
+        out_root = resolve_image_output_dir(project)
+        folder = out_root / kind_folder_name(asset.kind)
+        base = safe_asset_filename(asset.name)
+        for field in ("half", "full", "far", "near", "image"):
+            candidate = folder / f"{base}_{field}.png"
+            if _unlink_quiet(candidate):
+                deleted.append(str(candidate))
+    except Exception:
+        pass
+    return deleted
+
+
+def detach_asset_from_shots(db: Session, project_id: str, asset_id: str) -> None:
+    """Clear one asset id from all shot scene/line/slot/prop refs."""
+    from app.db import Shot
+    from app.services import _dump, _load
+
+    for shot in db.query(Shot).filter(Shot.project_id == project_id):
+        if shot.scene_asset_id == asset_id:
+            shot.scene_asset_id = ""
+        slots = _load(shot.slots_json, [])
+        lines = _load(shot.lines_json, [])
+        props = _load(getattr(shot, "prop_asset_ids_json", None) or "[]", [])
+        for slot in slots:
+            if isinstance(slot, dict) and slot.get("asset_id") == asset_id:
+                slot["asset_id"] = ""
+        for line in lines:
+            if isinstance(line, dict) and line.get("asset_id") == asset_id:
+                line["asset_id"] = ""
+        shot.slots_json = _dump(slots)
+        shot.lines_json = _dump(lines)
+        shot.prop_asset_ids_json = _dump([p for p in props if p != asset_id])
+
+
+def delete_asset(db: Session, project: Project, asset: Asset) -> dict[str, Any]:
+    """Delete asset row, disk files, and dangling shot refs. Caller must own session."""
+    from app.db import ImageJob
+
+    deleted_files = delete_asset_files(project, asset)
+    detach_asset_from_shots(db, project.id, asset.id)
+    # Drop jobs tied to this asset so the worker does not revive work.
+    db.query(ImageJob).filter(ImageJob.project_id == project.id, ImageJob.asset_id == asset.id).delete(
+        synchronize_session=False
+    )
+    aid = asset.id
+    db.delete(asset)
+    refresh_shot_readiness(db, project, commit=False)
+    db.commit()
+    return {"ok": True, "deleted_id": aid, "deleted_files": deleted_files}

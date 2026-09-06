@@ -16,7 +16,7 @@ from app.config import settings
 from app.db import Asset, Chapter, Project, Proposal, Shot, init_db
 from app import db as database
 from app.domain.registry import sanitize_aliases, sanitize_character_fields
-from app.image_gen import clear_asset_image, list_image_output_files, resolve_image_output_dir
+from app.image_gen import clear_asset_image, delete_asset, list_image_output_files, resolve_image_output_dir
 from app.image_jobs import (
     cancel_batch,
     cancel_project_jobs,
@@ -518,6 +518,20 @@ def api_patch_asset(project_id: str, asset_id: str, body: AssetPatch):
             setattr(asset, key, value)
         db.commit()
         return serialize_asset(asset)
+    finally:
+        db.close()
+
+
+@app.delete("/api/projects/{project_id}/assets/{asset_id}")
+def api_delete_asset(project_id: str, asset_id: str):
+    db = db_session()
+    try:
+        project = get_project(db, project_id)
+        asset = db.get(Asset, asset_id)
+        if not asset or asset.project_id != project_id:
+            raise HTTPException(404, "资产不存在")
+        result = delete_asset(db, project, asset)
+        return {**result, **_bundle(db, project)}
     finally:
         db.close()
 

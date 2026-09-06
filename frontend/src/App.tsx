@@ -1065,6 +1065,10 @@ function BookAssets({
                 onUpdated={(next) => {
                   onChange({ ...bundle, assets: bundle.assets.map((a) => (a.id === next.id ? next : a)) });
                 }}
+                onDeleted={(next) => {
+                  onChange(next);
+                  onJobsSeen(imageJobs.filter((j) => j.asset_id !== asset.id));
+                }}
                 onJobsEnqueued={(jobs) => {
                   onJobsSeen([...imageJobs.filter((j) => j.asset_id !== asset.id), ...jobs]);
                   const bid = jobs[0]?.batch_id;
@@ -1171,12 +1175,14 @@ function AssetCard({
   projectId,
   jobs,
   onUpdated,
+  onDeleted,
   onJobsEnqueued,
 }: {
   asset: Asset;
   projectId: string;
   jobs: ImageJob[];
   onUpdated: (a: Asset) => void;
+  onDeleted: (bundle: Bundle) => void;
   onJobsEnqueued: (jobs: ImageJob[]) => void;
 }) {
   const [background, setBackground] = useState(asset.background_zh || "");
@@ -1229,6 +1235,25 @@ function AssetCard({
       onUpdated(await api.clearAssetImage(projectId, asset.id, field));
     } catch (e) {
       alert(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function deleteWholeAsset() {
+    if (
+      !confirm(
+        `确定删除资产「${asset.name}」？\n分镜中的引用会清空，相关图片文件也会删除。`,
+      )
+    ) {
+      return;
+    }
+    setImgBusy("删除资产");
+    try {
+      const next = await api.deleteAsset(projectId, asset.id);
+      onDeleted(next);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : String(e));
+    } finally {
+      setImgBusy("");
     }
   }
 
@@ -1367,6 +1392,15 @@ function AssetCard({
             }}
           >
             编辑生成
+          </button>
+          <button
+            type="button"
+            className="danger"
+            data-testid="btn-delete-asset"
+            disabled={slotBusy}
+            onClick={() => deleteWholeAsset()}
+          >
+            删除资产
           </button>
         </div>
       </div>
