@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import subprocess
 import time
 from collections.abc import Callable
@@ -97,6 +98,14 @@ class LlmSupervisor:
         self._image_busy = bool(busy)
         if self._image_busy:
             self.stop_llm()
+            # Flash-Next (:8080) alone is not enough — storyboard/score often use
+            # Ollama (:11434) which stays resident and OOMs when Comfy loads next.
+            try:
+                from app.ollama_vram import unload_all_ollama
+
+                unload_all_ollama()
+            except Exception:
+                logging.getLogger(__name__).exception("unload_all_ollama failed")
 
     def stop_llm(self) -> None:
         """Kill Flash-Next and wait until the port is down + a short RAM settle."""

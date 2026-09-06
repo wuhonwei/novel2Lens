@@ -1,6 +1,9 @@
-def test_set_image_busy_stops_llm():
+def test_set_image_busy_stops_llm(monkeypatch):
     stops = []
+    unloaded = []
     from app.llm_supervisor import LlmSupervisor
+
+    monkeypatch.setattr("app.ollama_vram.unload_all_ollama", lambda: unloaded.append("ollama") or [])
 
     s = LlmSupervisor(
         stop_cmd=lambda: stops.append("stop"),
@@ -11,11 +14,14 @@ def test_set_image_busy_stops_llm():
     s.set_image_busy(True)
     assert s.image_busy is True
     assert stops == ["stop"]
+    assert unloaded == ["ollama"]
 
 
-def test_set_image_busy_false_does_not_start_llm():
+def test_set_image_busy_false_does_not_start_llm(monkeypatch):
     starts = []
     from app.llm_supervisor import LlmSupervisor
+
+    monkeypatch.setattr("app.ollama_vram.unload_all_ollama", lambda: [])
 
     s = LlmSupervisor(
         stop_cmd=lambda: None,
@@ -191,9 +197,11 @@ def test_tick_idle_stops_when_configured():
     assert calls == ["free", "stop"]
 
 
-def test_ensure_llm_skips_when_image_busy():
+def test_ensure_llm_skips_when_image_busy(monkeypatch):
     starts = []
     from app.llm_supervisor import LlmSupervisor
+
+    monkeypatch.setattr("app.ollama_vram.unload_all_ollama", lambda: [])
 
     s = LlmSupervisor(
         stop_cmd=lambda: None,

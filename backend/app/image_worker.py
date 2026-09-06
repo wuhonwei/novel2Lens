@@ -159,6 +159,8 @@ class ImageWorker:
                 self.llm.wait_released()
             except TimeoutError as exc:
                 raise RuntimeError(f"cannot start Comfy while LLM still up: {exc}") from exc
+            # Extra beat after Ollama unload so CUDA pages can reclaim before Comfy.
+            time.sleep(min(5.0, max(0.0, float(getattr(self.llm, "settle_seconds", 5.0) or 0))))
             job.status = "running"
             job.error = ""
             job.phase = "ensuring_comfy"
