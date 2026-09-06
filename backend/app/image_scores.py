@@ -15,7 +15,7 @@ from app.config import settings
 from app.db import Asset, Project, Shot
 from app.domain.registry import normalize_kind
 from app.image_gen import abs_media_path, build_field_prompt
-from app.llm import LLMError, chat_completion, parse_json_value
+from app.llm import LLMError, OperationCancelled, chat_completion, ensure_not_cancelled, parse_json_value
 from app.services import _dump, _load
 
 SCORE_FIELDS_BY_KIND = {
@@ -142,9 +142,11 @@ async def score_image_file(
     base_url: str | None = None,
     model: str | None = None,
     chat: Callable[..., Awaitable[str]] | None = None,
+    is_cancelled=None,
 ) -> dict[str, Any]:
     if not image_path.is_file():
         raise FileNotFoundError(str(image_path))
+    await ensure_not_cancelled(is_cancelled)
     base = (base_url or settings.vision_llm_base_url).rstrip("/")
     model_name = model or settings.vision_llm_model
     data_url = _image_data_url(image_path)
@@ -166,7 +168,14 @@ async def score_image_file(
         },
     ]
     runner = chat or chat_completion
-    text = await runner(base_url=base, model=model_name, messages=messages, temperature=0.1, timeout=180.0)
+    text = await runner(
+        base_url=base,
+        model=model_name,
+        messages=messages,
+        temperature=0.1,
+        timeout=180.0,
+        is_cancelled=is_cancelled,
+    )
     data = parse_json_value(text)
     if not isinstance(data, dict):
         raise LLMError("视觉模型未返回对象 JSON")
@@ -183,11 +192,13 @@ async def score_project_images(
     scope: str = "assets",
     kind: str | None = None,
     chat: Callable[..., Awaitable[str]] | None = None,
+    is_cancelled=None,
 ) -> dict[str, Any]:
     assets = db.query(Asset).filter(Asset.project_id == project.id).all()
     shots = db.query(Shot).filter(Shot.project_id == project.id).order_by(Shot.order_index.asc()).all()
     scored = 0
     errors: list[str] = []
+    cancelled = False
 
     if scope in ("assets", "all"):
         for asset in assets:
@@ -195,6 +206,11 @@ async def score_project_images(
             if kind and k != kind:
                 continue
             for field in SCORE_FIELDS_BY_KIND.get(k, ()):
+                try:
+                    await ensure_not_cancelled(is_cancelled)
+                except OperationCancelled:
+                    cancelled = True
+                    break
                 stored = path_for_field(asset, field)
                 if not stored:
                     continue
@@ -204,15 +220,27 @@ async def score_project_images(
                     continue
                 brief = build_field_prompt(project, asset, field)
                 try:
-                    result = await score_image_file(image_path=abs_path, brief=brief, chat=chat)
+                    result = await score_image_file(
+                        image_path=abs_path, brief=brief, chat=chat, is_cancelled=is_cancelled
+                    )
                     set_field_score(asset, field, result["score"], result["comment"])
                     scored += 1
                     db.commit()
+                except OperationCancelled:
+                    cancelled = True
+                    break
                 except Exception as exc:  # noqa: BLE001
                     errors.append(f"{asset.name}/{field}: {exc}")
+            if cancelled:
+                break
 
-    if scope in ("shots", "all"):
+    if not cancelled and scope in ("shots", "all"):
         for shot in shots:
+            try:
+                await ensure_not_cancelled(is_cancelled)
+            except OperationCancelled:
+                cancelled = True
+                break
             stored = (getattr(shot, "first_frame_path", "") or "").strip()
             if not stored:
                 continue
@@ -222,12 +250,20 @@ async def score_project_images(
                 continue
             brief = (shot.prompt_zh or "").strip() or "分镜首帧"
             try:
-                result = await score_image_file(image_path=abs_path, brief=brief, chat=chat)
+                result = await score_image_file(
+                    image_path=abs_path, brief=brief, chat=chat, is_cancelled=is_cancelled
+                )
                 set_shot_first_frame_score(shot, result["score"], result["comment"])
                 scored += 1
                 db.commit()
+            except OperationCancelled:
+                cancelled = True
+                break
             except Exception as exc:  # noqa: BLE001
                 errors.append(f"镜{shot.order_index}: {exc}")
+
+    if cancelled:
+        raise OperationCancelled("cancelled_by_user")
 
     kind_counts = summarize_asset_scores(assets, kind=kind) if scope in ("assets", "all") else None
     shot_counts = summarize_shot_scores(shots) if scope in ("shots", "all") else None

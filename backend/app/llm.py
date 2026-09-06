@@ -14,6 +14,26 @@ class LLMError(RuntimeError):
     pass
 
 
+class OperationCancelled(RuntimeError):
+    """User aborted a long-running model operation."""
+
+    pass
+
+
+async def _cancelled(is_cancelled) -> bool:
+    if is_cancelled is None:
+        return False
+    flag = is_cancelled()
+    if hasattr(flag, "__await__"):
+        flag = await flag  # type: ignore[misc]
+    return bool(flag)
+
+
+async def ensure_not_cancelled(is_cancelled) -> None:
+    if await _cancelled(is_cancelled):
+        raise OperationCancelled("cancelled_by_user")
+
+
 def strip_thinking(text: str) -> str:
     return THINK_BLOCK.sub("", text or "").strip()
 
@@ -50,7 +70,10 @@ async def chat_completion(
     temperature: float = 0.2,
     timeout: float = 600.0,
     extra: dict | None = None,
+    is_cancelled=None,
 ) -> str:
+    import asyncio
+
     url = base_url.rstrip("/") + "/chat/completions"
     payload: dict[str, Any] = {
         "model": model,
@@ -63,10 +86,27 @@ async def chat_completion(
         payload.update(extra)
     timeout = httpx.Timeout(timeout, connect=5.0)
     async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
+        await ensure_not_cancelled(is_cancelled)
+        req_task = asyncio.create_task(client.post(url, json=payload))
         try:
-            resp = await client.post(url, json=payload)
-        except httpx.HTTPError as exc:
-            raise LLMError(f"无法连接模型 {base_url}: {type(exc).__name__}: {exc}") from exc
+            while True:
+                done, _ = await asyncio.wait({req_task}, timeout=0.4)
+                if req_task in done:
+                    break
+                if await _cancelled(is_cancelled):
+                    req_task.cancel()
+                    try:
+                        await req_task
+                    except (asyncio.CancelledError, Exception):
+                        pass
+                    raise OperationCancelled("cancelled_by_user")
+            try:
+                resp = req_task.result()
+            except httpx.HTTPError as exc:
+                raise LLMError(f"无法连接模型 {base_url}: {type(exc).__name__}: {exc}") from exc
+        except asyncio.CancelledError:
+            req_task.cancel()
+            raise
         if resp.status_code >= 400:
             raise LLMError(f"{base_url} {resp.status_code}: {resp.text[:400]}")
         data = resp.json()
@@ -85,6 +125,7 @@ async def chat_json(
     fallback_model: str,
     allow_fallback: bool,
     thinking: str = "medium",
+    is_cancelled=None,
 ) -> tuple[Any, bool]:
     extra = {"chat_template_kwargs": {"reasoning_effort": thinking}}
     try:
@@ -93,8 +134,11 @@ async def chat_json(
             model=primary_model,
             messages=messages,
             extra=extra,
+            is_cancelled=is_cancelled,
         )
         return parse_json_value(text), False
+    except OperationCancelled:
+        raise
     except LLMError:
         if not allow_fallback:
             raise
@@ -104,6 +148,7 @@ async def chat_json(
             messages=messages,
             timeout=600.0,
             extra={"options": {"num_ctx": 8192}},
+            is_cancelled=is_cancelled,
         )
         try:
             return parse_json_value(text), True
@@ -117,5 +162,6 @@ async def chat_json(
                     {"role": "user", "content": "上面不是合法 JSON。只输出修正后的 JSON 对象，不要解释。"},
                 ],
                 timeout=600.0,
+                is_cancelled=is_cancelled,
             )
             return parse_json_value(fix), True

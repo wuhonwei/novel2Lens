@@ -43,7 +43,7 @@ from app.extract_prompts import (
     SHOT_SYSTEM,
     SHOT_USER,
 )
-from app.llm import chat_json
+from app.llm import OperationCancelled, chat_json, ensure_not_cancelled
 
 APPEARANCE_KEYS = ("face", "hair", "eyes", "skin", "body", "posture", "marks", "clothing", "condition", "time")
 MAX_REGISTRY_AUDIT_PASSES = 5
@@ -469,7 +469,9 @@ def _audit_rows(data: Any) -> list[dict[str, Any]]:
     return rows
 
 
-async def full_registry_scan(db: Session, project: Project, *, replace: bool = False) -> dict[str, Any]:
+async def full_registry_scan(
+    db: Session, project: Project, *, replace: bool = False, is_cancelled=None
+) -> dict[str, Any]:
     """Two-phase book registry: discover, then audit/supplement until complete.
 
     Assets are book-scoped (TXT-level), auto-confirmed — no per-chapter confirm.
@@ -482,6 +484,7 @@ async def full_registry_scan(db: Session, project: Project, *, replace: bool = F
     passes: list[dict[str, Any]] = []
     used_fallback = False
 
+    await ensure_not_cancelled(is_cancelled)
     # Pass 1 — discover
     data, fallback = await _call_llm(
         project,
@@ -492,6 +495,7 @@ async def full_registry_scan(db: Session, project: Project, *, replace: bool = F
                 "content": PRESCAN_PASS1_USER.format(style=project.style or "", novel=novel),
             },
         ],
+        is_cancelled=is_cancelled,
     )
     used_fallback = used_fallback or fallback
     created, updated = _apply_registry_rows_to_db(db, project, "", _pass1_rows(data), assets)
@@ -508,6 +512,7 @@ async def full_registry_scan(db: Session, project: Project, *, replace: bool = F
 
     # Pass 2+ — audit / supplement loop
     for audit_i in range(1, MAX_REGISTRY_AUDIT_PASSES + 1):
+        await ensure_not_cancelled(is_cancelled)
         assets = db.query(Asset).filter(Asset.project_id == project.id).all()
         if is_registry_complete(_asset_dicts(assets)) and audit_i > 1:
             break
@@ -525,6 +530,7 @@ async def full_registry_scan(db: Session, project: Project, *, replace: bool = F
                     ),
                 },
             ],
+            is_cancelled=is_cancelled,
         )
         used_fallback = used_fallback or fallback
         rows = _audit_rows(data)
@@ -598,11 +604,15 @@ async def full_registry_scan(db: Session, project: Project, *, replace: bool = F
     }
 
 
-async def prescan_project(db: Session, project: Project, replace: bool = False) -> dict[str, Any]:
-    return await full_registry_scan(db, project, replace=replace)
+async def prescan_project(
+    db: Session, project: Project, replace: bool = False, is_cancelled=None
+) -> dict[str, Any]:
+    return await full_registry_scan(db, project, replace=replace, is_cancelled=is_cancelled)
 
 
-async def _call_llm(project: Project, messages: list[dict[str, str]]) -> tuple[Any, bool]:
+async def _call_llm(
+    project: Project, messages: list[dict[str, str]], *, is_cancelled=None
+) -> tuple[Any, bool]:
     return await chat_json(
         messages,
         primary_base=project.llm_base_url,
@@ -611,6 +621,7 @@ async def _call_llm(project: Project, messages: list[dict[str, str]]) -> tuple[A
         fallback_model=project.fallback_model,
         allow_fallback=project.allow_fallback,
         thinking=project.thinking,
+        is_cancelled=is_cancelled,
     )
 
 
@@ -1127,7 +1138,7 @@ def repair_shot_prompts_if_needed(db: Session, project: Project, assets: list[As
 
 
 async def generate_storyboard(
-    db: Session, project: Project, chapter: Chapter, overwrite: bool = False
+    db: Session, project: Project, chapter: Chapter, overwrite: bool = False, is_cancelled=None
 ) -> list[dict[str, Any]]:
     assets = db.query(Asset).filter(Asset.project_id == project.id).all()
     book_ready = any(a.confirmed and normalize_kind(a.kind) == "character" for a in assets)
@@ -1150,9 +1161,11 @@ async def generate_storyboard(
         title=chapter.title,
         chapter=chapter.text,
     )
+    await ensure_not_cancelled(is_cancelled)
     data, fallback = await _call_llm(
         project,
         [{"role": "system", "content": SHOT_SYSTEM}, {"role": "user", "content": user}],
+        is_cancelled=is_cancelled,
     )
     raw_shots = data.get("shots") or []
     saved = []

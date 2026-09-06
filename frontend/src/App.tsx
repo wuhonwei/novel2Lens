@@ -25,6 +25,12 @@ import {
 const CAMERAS = ["固定", "缓慢推近", "缓慢拉远", "慢摇左", "慢摇右", "微仰", "微俯", "轻度跟随左一", "轻度跟随中", "轻度跟随右一"];
 const LLM_BUSY_TITLE = "参考图生成中";
 
+function isAbortError(e: unknown): boolean {
+  if (!e || typeof e !== "object") return false;
+  const name = (e as { name?: string }).name;
+  return name === "AbortError";
+}
+
 type ScoreEntry = { score?: number; comment?: string };
 type ScoreCounts = { good: number; ok: number; bad: number; none: number };
 
@@ -105,6 +111,7 @@ export default function App() {
   const [chapterId, setChapterId] = useState("");
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [overwrite, setOverwrite] = useState(false);
   const [title, setTitle] = useState("");
   const [style, setStyle] = useState("半写实、东方江湖、电影布光、16:9");
@@ -118,6 +125,8 @@ export default function App() {
   const prevActiveCountRef = useRef(0);
   const imageBatchRef = useRef<{ id: string; total: number } | null>(null);
   const pollImageJobsRef = useRef<(() => void) | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+  const [aborting, setAborting] = useState(false);
 
   function noteImageBatch(batchId: string, total: number) {
     const next = { id: batchId, total: Math.max(total, 1) };
@@ -227,15 +236,46 @@ export default function App() {
     [bundle, chapter, chapterShots],
   );
 
-  async function run(label: string, job: () => Promise<void>) {
+  async function run(label: string, job: (signal: AbortSignal) => Promise<void>) {
+    const ac = new AbortController();
+    abortRef.current = ac;
     setBusy(label);
     setError("");
+    setNotice("");
     try {
-      await job();
+      await job(ac.signal);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      if (isAbortError(e)) {
+        setNotice("已终止");
+      } else {
+        setError(e instanceof Error ? e.message : String(e));
+      }
     } finally {
+      if (abortRef.current === ac) abortRef.current = null;
       setBusy("");
+    }
+  }
+
+  async function abortWork() {
+    setAborting(true);
+    setNotice("");
+    try {
+      abortRef.current?.abort();
+      if (bundle && (imageJobs.length > 0 || imageBatch)) {
+        const next = await api.cancelProjectImageJobs(bundle.project.id);
+        setImageJobs([]);
+        setImageBatch(null);
+        imageBatchRef.current = null;
+        imageJobsActiveRef.current = false;
+        prevActiveCountRef.current = 0;
+        setBundle(next);
+      }
+      setNotice("已终止");
+      setBusy("");
+    } catch (e) {
+      if (!isAbortError(e)) setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setAborting(false);
     }
   }
 
@@ -252,12 +292,12 @@ export default function App() {
     const p = bundle.project;
     if (g.step === "style") {
       setSettingsOpen(true);
-      await run("保存设置", async () => setBundle(await api.patch(p.id, bundle.project)));
+      await run("保存设置", async (signal) => setBundle(await api.patch(p.id, bundle.project, { signal })));
       return;
     }
     if (g.step === "generate_assets") {
-      await run("一键生成全书资产", async () => {
-        setBundle(await api.generateAssets(p.id, true));
+      await run("一键生成全书资产", async (signal) => {
+        setBundle(await api.generateAssets(p.id, true, { signal }));
         setTab("全书资产");
       });
       return;
@@ -275,8 +315,8 @@ export default function App() {
         setTab("全书资产");
         return;
       }
-      await run("生成分镜", async () => {
-        setBundle(await api.storyboard(p.id, chapter.id, overwrite));
+      await run("生成分镜", async (signal) => {
+        setBundle(await api.storyboard(p.id, chapter.id, overwrite, { signal }));
         setTab("分镜");
       });
       return;
@@ -322,7 +362,17 @@ export default function App() {
           </ol>
 
           {error && <p className="error banner-error">{error}</p>}
-          {busy && <p className="busy-line">{busy}…</p>}
+          {notice && <p className="hint banner-notice">{notice}</p>}
+          {(busy || aborting) && (
+            <p className="busy-line row">
+              <span>{busy ? `${busy}…` : "终止中…"}</span>
+              {busy ? (
+                <button type="button" className="ghost compact" data-testid="btn-abort" disabled={aborting} onClick={() => abortWork()}>
+                  {aborting ? "终止中…" : "终止"}
+                </button>
+              ) : null}
+            </p>
+          )}
 
           <section className="panel create-panel">
             <div className="panel-head">
@@ -332,18 +382,25 @@ export default function App() {
             <div className="stack">
               <label>书名</label>
               <input data-testid="new-title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="例如：青川渡" />
-              <label>项目画风</label>
-              <input data-testid="new-style" value={style} onChange={(e) => setStyle(e.target.value)} />
+              <label>项目画风（必填）</label>
+              <input
+                data-testid="new-style"
+                value={style}
+                onChange={(e) => setStyle(e.target.value)}
+                placeholder="例如：半写实、东方江湖、电影布光、16:9"
+                required
+              />
+              {!style.trim() ? <p className="hint warn-text">请填写项目画风后再创建。</p> : null}
               <label>粘贴正文</label>
               <textarea data-testid="new-text" value={text} onChange={(e) => setText(e.target.value)} placeholder="粘贴小说全文，或使用下方上传" />
               <div className="row actions">
                 <button
                   data-testid="btn-create"
                   className="primary"
-                  disabled={!!busy}
+                  disabled={!!busy || !style.trim()}
                   onClick={() =>
-                    run("创建", async () => {
-                      const data = await api.create({ title: title || "未命名小说", text, style });
+                    run("创建", async (signal) => {
+                      const data = await api.create({ title: title || "未命名小说", text, style: style.trim() }, { signal });
                       setBundle(data);
                       setChapterId(data.chapters[0]?.id || "");
                       setTab("全书资产");
@@ -353,17 +410,22 @@ export default function App() {
                 >
                   粘贴创建并进入
                 </button>
-                <label className="file-btn">
+                <label className={`file-btn ${!style.trim() || busy ? "disabled" : ""}`}>
                   上传 txt 进入
                   <input
                     data-testid="file-novel"
                     type="file"
                     accept=".txt,.md,.text"
+                    disabled={!!busy || !style.trim()}
                     onChange={(e) => {
                       const file = e.target.files?.[0];
                       if (!file) return;
-                      run("上传", async () => {
-                        const data = await api.upload(title || file.name.replace(/\.[^.]+$/, ""), style, file);
+                      if (!style.trim()) {
+                        setError("项目画风不能为空");
+                        return;
+                      }
+                      run("上传", async (signal) => {
+                        const data = await api.upload(title || file.name.replace(/\.[^.]+$/, ""), style.trim(), file, { signal });
                         setBundle(data);
                         setChapterId(data.chapters[0]?.id || "");
                         setTab("全书资产");
@@ -438,7 +500,20 @@ export default function App() {
             <div className="sub">{p.title}</div>
           </div>
           <div className="row">
-            {busy && <span className="busy-line">{busy}…</span>}
+            {(busy || imageBusy) && (
+              <>
+                {busy ? <span className="busy-line">{busy}…</span> : null}
+                <button
+                  type="button"
+                  className="ghost compact"
+                  data-testid="btn-abort"
+                  disabled={aborting}
+                  onClick={() => abortWork()}
+                >
+                  {aborting ? "终止中…" : "终止"}
+                </button>
+              </>
+            )}
             <button className="ghost" onClick={() => setSettingsOpen((v) => !v)}>
               {settingsOpen ? "收起设置" : "模型 / 画风"}
             </button>
@@ -449,6 +524,7 @@ export default function App() {
         </header>
 
         {error && <p className="error banner-error">{error}</p>}
+        {notice && <p className="hint banner-notice">{notice}</p>}
         {chapter?.last_error && <p className="error banner-error">本章错误：{chapter.last_error}</p>}
 
         <nav className="pipeline" aria-label="操作流程">
@@ -511,7 +587,7 @@ export default function App() {
                 <input type="checkbox" checked={p.allow_fallback} onChange={(e) => setBundle({ ...bundle, project: { ...p, allow_fallback: e.target.checked } })} />
                 允许降级
               </label>
-              <button data-testid="btn-save-settings" className="primary" onClick={() => run("保存设置", async () => setBundle(await api.patch(p.id, bundle.project)))}>
+              <button data-testid="btn-save-settings" className="primary" onClick={() => run("保存设置", async (signal) => setBundle(await api.patch(p.id, bundle.project, { signal })))}>
                 保存设置
               </button>
               <button
@@ -520,8 +596,8 @@ export default function App() {
                 disabled={!!busy || llmBlocked}
                 title={llmBlocked ? LLM_BUSY_TITLE : undefined}
                 onClick={() =>
-                  run("一键生成全书资产", async () => {
-                    setBundle(await api.generateAssets(p.id, true));
+                  run("一键生成全书资产", async (signal) => {
+                    setBundle(await api.generateAssets(p.id, true, { signal }));
                     setTab("全书资产");
                   })
                 }
@@ -579,8 +655,8 @@ export default function App() {
                   disabled={!!busy || llmBlocked}
                   title={llmBlocked ? LLM_BUSY_TITLE : undefined}
                   onClick={() =>
-                    run("一键生成全书资产", async () => {
-                      setBundle(await api.generateAssets(p.id, true));
+                    run("一键生成全书资产", async (signal) => {
+                      setBundle(await api.generateAssets(p.id, true, { signal }));
                       setTab("全书资产");
                     })
                   }
@@ -597,8 +673,8 @@ export default function App() {
                   disabled={!!busy || llmBlocked || !chapter || !bookAssetsReady(bundle)}
                   title={llmBlocked ? LLM_BUSY_TITLE : undefined}
                   onClick={() =>
-                    run("生成分镜", async () => {
-                      setBundle(await api.storyboard(p.id, chapter!.id, overwrite));
+                    run("生成分镜", async (signal) => {
+                      setBundle(await api.storyboard(p.id, chapter!.id, overwrite, { signal }));
                       setTab("分镜");
                     })
                   }
@@ -609,8 +685,8 @@ export default function App() {
                   data-testid="btn-chapter-first-frames"
                   disabled={!!busy || imageJobs.length > 0 || !chapter || chapterShots.length === 0}
                   onClick={() =>
-                    run("生成本章首帧", async () => {
-                      const next = await api.generateChapterFirstFrames(p.id, chapter!.id);
+                    run("生成本章首帧", async (signal) => {
+                      const next = await api.generateChapterFirstFrames(p.id, chapter!.id, { signal });
                       const jobs = next.jobs || [];
                       const bid = next.batch_id || jobs[0]?.batch_id || "";
                       if (bid) noteImageBatch(bid, jobs.length || next.queued || 1);
@@ -630,8 +706,8 @@ export default function App() {
                   data-testid="btn-project-first-frames"
                   disabled={!!busy || imageJobs.length > 0 || !(bundle.shots?.length)}
                   onClick={() =>
-                    run("生成全部首帧", async () => {
-                      const next = await api.generateProjectFirstFrames(p.id);
+                    run("生成全部首帧", async (signal) => {
+                      const next = await api.generateProjectFirstFrames(p.id, { signal });
                       const jobs = next.jobs || [];
                       const bid = next.batch_id || jobs[0]?.batch_id || "";
                       if (bid) noteImageBatch(bid, jobs.length || next.queued || 1);
@@ -707,9 +783,10 @@ export default function App() {
                           data-testid="btn-score-first-frames"
                           disabled={!!busy || !chapterShots.some((s) => s.first_frame_path)}
                           onClick={() =>
-                            run("评估首帧", async () => {
-                              const next = await api.scoreImages(p.id, { scope: "shots" });
+                            run("评估首帧", async (signal) => {
+                              const next = await api.scoreImages(p.id, { scope: "shots" }, { signal });
                               setBundle(next);
+                              if (next.cancelled) return;
                               if (next.errors?.length) {
                                 alert(`评估完成 ${next.scored ?? 0} 张；部分失败：\n${next.errors.slice(0, 5).join("\n")}`);
                               }
@@ -758,7 +835,7 @@ function BookAssets({
   setKeepId: (v: string) => void;
   setDropId: (v: string) => void;
   onChange: (b: Bundle) => void;
-  onRun: (label: string, job: () => Promise<void>) => void;
+  onRun: (label: string, job: (signal: AbortSignal) => Promise<void>) => void;
   onBatchQueued: (batchId: string, total: number) => void;
   onJobsSeen: (jobs: ImageJob[]) => void;
 }) {
@@ -768,7 +845,6 @@ function BookAssets({
   const [view, setView] = useState<"character" | "scene" | "prop">("character");
   const [outDir, setOutDir] = useState(bundle.project.image_output_dir || "");
   const [cancelBusy, setCancelBusy] = useState(false);
-  const [scoreBusy, setScoreBusy] = useState(false);
   useEffect(() => setOutDir(bundle.project.image_output_dir || ""), [bundle.project.image_output_dir]);
 
   const tabs = [
@@ -793,32 +869,15 @@ function BookAssets({
   }, [imageJobs]);
 
   async function cancelBatch() {
-    if (!batchId) return;
     setCancelBusy(true);
     try {
-      await api.cancelImageBatch(bundle.project.id, batchId);
-      const { jobs } = await api.listImageJobs(bundle.project.id, true);
-      onJobsSeen(jobs);
-      onChange(await api.get(bundle.project.id));
+      const next = await api.cancelProjectImageJobs(bundle.project.id);
+      onJobsSeen([]);
+      onChange(next);
     } catch (e) {
       alert(e instanceof Error ? e.message : String(e));
     } finally {
       setCancelBusy(false);
-    }
-  }
-
-  async function runScore() {
-    setScoreBusy(true);
-    try {
-      const next = await api.scoreImages(bundle.project.id, { scope: "assets", kind: view });
-      onChange(next);
-      if (next.errors?.length) {
-        alert(`评估完成 ${next.scored ?? 0} 张；部分失败：\n${next.errors.slice(0, 5).join("\n")}`);
-      }
-    } catch (e) {
-      alert(e instanceof Error ? e.message : String(e));
-    } finally {
-      setScoreBusy(false);
     }
   }
 
@@ -841,7 +900,9 @@ function BookAssets({
             disabled={busy || llmBlocked}
             title={llmBlocked ? LLM_BUSY_TITLE : undefined}
             onClick={() =>
-              onRun("一键生成全书资产", async () => onChange(await api.generateAssets(bundle.project.id, true)))
+              onRun("一键生成全书资产", async (signal) =>
+                onChange(await api.generateAssets(bundle.project.id, true, { signal })),
+              )
             }
           >
             {ready ? "重新一键生成全书资产" : "一键生成全书资产"}
@@ -859,8 +920,8 @@ function BookAssets({
             <button
               disabled={busy}
               onClick={() =>
-                onRun("保存图片目录", async () =>
-                  onChange(await api.patch(bundle.project.id, { image_output_dir: outDir.trim() }))
+                onRun("保存图片目录", async (signal) =>
+                  onChange(await api.patch(bundle.project.id, { image_output_dir: outDir.trim() }, { signal })),
                 )
               }
             >
@@ -871,8 +932,8 @@ function BookAssets({
               className="primary"
               disabled={busy || imageBusy || bundle.assets.length === 0}
               onClick={() =>
-                onRun("一键生成参考图", async () => {
-                  const next = await api.generateImages(bundle.project.id);
+                onRun("一键生成参考图", async (signal) => {
+                  const next = await api.generateImages(bundle.project.id, { signal });
                   const jobs = next.jobs || [];
                   const bid = next.batch_id || jobs[0]?.batch_id || "";
                   const queued =
@@ -896,10 +957,10 @@ function BookAssets({
                   type="button"
                   className="danger"
                   data-testid="btn-cancel-image-batch"
-                  disabled={!batchId || cancelBusy}
+                  disabled={cancelBusy}
                   onClick={() => cancelBatch()}
                 >
-                  {cancelBusy ? "取消中…" : "取消批次"}
+                  {cancelBusy ? "终止中…" : "终止"}
                 </button>
               </>
             ) : null}
@@ -937,10 +998,23 @@ function BookAssets({
             type="button"
             className="primary"
             data-testid="btn-score-images"
-            disabled={busy || scoreBusy || active.assets.length === 0}
-            onClick={() => runScore()}
+            disabled={busy || active.assets.length === 0}
+            onClick={() =>
+              onRun("评估图片", async (signal) => {
+                const next = await api.scoreImages(
+                  bundle.project.id,
+                  { scope: "assets", kind: view },
+                  { signal },
+                );
+                onChange(next);
+                if (next.cancelled) return;
+                if (next.errors?.length) {
+                  alert(`评估完成 ${next.scored ?? 0} 张；部分失败：\n${next.errors.slice(0, 5).join("\n")}`);
+                }
+              })
+            }
           >
-            {scoreBusy ? "评估中…" : "评估图片"}
+            {busy ? "评估中…" : "评估图片"}
           </button>
         </div>
         {active.assets.length === 0 ? (

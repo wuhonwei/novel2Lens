@@ -187,54 +187,68 @@ async function req<T>(url: string, init?: RequestInit): Promise<T> {
   return res.json();
 }
 
+export type ReqSignal = { signal?: AbortSignal };
+
 export const api = {
   list: () => req<Project[]>("/api/projects"),
-  create: (body: { title: string; text: string; style: string }) =>
+  create: (body: { title: string; text: string; style: string }, opts?: ReqSignal) =>
     req<Bundle>("/api/projects", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
+      signal: opts?.signal,
     }),
-  upload: async (title: string, style: string, file: File) => {
+  upload: async (title: string, style: string, file: File, opts?: ReqSignal) => {
     const data = new FormData();
     data.set("title", title);
     data.set("style", style);
     data.set("file", file);
-    return req<Bundle>("/api/projects/upload", { method: "POST", body: data });
+    return req<Bundle>("/api/projects/upload", { method: "POST", body: data, signal: opts?.signal });
   },
-  get: (id: string) => req<Bundle>(`/api/projects/${id}`),
-  patch: (id: string, body: Partial<Project> & { text?: string }) =>
+  get: (id: string, opts?: ReqSignal) => req<Bundle>(`/api/projects/${id}`, { signal: opts?.signal }),
+  patch: (id: string, body: Partial<Project> & { text?: string }, opts?: ReqSignal) =>
     req<Bundle>(`/api/projects/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
+      signal: opts?.signal,
     }),
   remove: (id: string) => req<{ ok: boolean }>(`/api/projects/${id}`, { method: "DELETE" }),
   /** One-click book registry. Prefer stable /prescan; also try /generate-assets. */
-  generateAssets: async (id: string, replace = true) => {
+  generateAssets: async (id: string, replace = true, opts?: ReqSignal) => {
     const qs = `replace=${replace}`;
     try {
-      return await req<Bundle>(`/api/projects/${id}/prescan?${qs}`, { method: "POST" });
+      return await req<Bundle>(`/api/projects/${id}/prescan?${qs}`, { method: "POST", signal: opts?.signal });
     } catch (err) {
+      if (opts?.signal?.aborted) throw err;
       const msg = err instanceof Error ? err.message : String(err);
       if (/not found/i.test(msg)) {
-        return req<Bundle>(`/api/projects/${id}/generate-assets?${qs}`, { method: "POST" });
+        return req<Bundle>(`/api/projects/${id}/generate-assets?${qs}`, {
+          method: "POST",
+          signal: opts?.signal,
+        });
       }
       throw err;
     }
   },
-  prescan: (id: string, replace = false) =>
-    req<Bundle>(`/api/projects/${id}/prescan?replace=${replace}`, { method: "POST" }),
-  extract: (pid: string, cid: string, overwrite = false) =>
-    req<Bundle>(`/api/projects/${pid}/chapters/${cid}/extract?overwrite=${overwrite}`, { method: "POST" }),
+  prescan: (id: string, replace = false, opts?: ReqSignal) =>
+    req<Bundle>(`/api/projects/${id}/prescan?replace=${replace}`, { method: "POST", signal: opts?.signal }),
+  extract: (pid: string, cid: string, overwrite = false, opts?: ReqSignal) =>
+    req<Bundle>(`/api/projects/${pid}/chapters/${cid}/extract?overwrite=${overwrite}`, {
+      method: "POST",
+      signal: opts?.signal,
+    }),
   confirm: (pid: string, cid: string, items: unknown[]) =>
     req<Bundle>(`/api/projects/${pid}/chapters/${cid}/confirm`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ items }),
     }),
-  storyboard: (pid: string, cid: string, overwrite = false) =>
-    req<Bundle>(`/api/projects/${pid}/chapters/${cid}/storyboard?overwrite=${overwrite}`, { method: "POST" }),
+  storyboard: (pid: string, cid: string, overwrite = false, opts?: ReqSignal) =>
+    req<Bundle>(`/api/projects/${pid}/chapters/${cid}/storyboard?overwrite=${overwrite}`, {
+      method: "POST",
+      signal: opts?.signal,
+    }),
   patchShot: (pid: string, sid: string, body: Partial<Shot> & { recompile?: boolean }) =>
     req<Shot>(`/api/projects/${pid}/shots/${sid}`, {
       method: "PATCH",
@@ -259,28 +273,31 @@ export const api = {
     data.set("file", file);
     return req<Asset>(`/api/projects/${pid}/assets/${aid}/upload`, { method: "POST", body: data });
   },
-  generateImages: (pid: string) =>
+  generateImages: (pid: string, opts?: ReqSignal) =>
     req<Bundle & { batch_id?: string; jobs?: ImageJob[]; image_gen?: Record<string, unknown> }>(
       `/api/projects/${pid}/generate-images`,
-      { method: "POST" },
+      { method: "POST", signal: opts?.signal },
     ),
-  generateChapterFirstFrames: (pid: string, cid: string) =>
+  generateChapterFirstFrames: (pid: string, cid: string, opts?: ReqSignal) =>
     req<Bundle & { batch_id?: string; queued?: number; jobs?: ImageJob[]; errors?: string[] }>(
       `/api/projects/${pid}/chapters/${cid}/generate-first-frames`,
-      { method: "POST" },
+      { method: "POST", signal: opts?.signal },
     ),
-  generateProjectFirstFrames: (pid: string) =>
+  generateProjectFirstFrames: (pid: string, opts?: ReqSignal) =>
     req<Bundle & { batch_id?: string; queued?: number; jobs?: ImageJob[]; errors?: string[] }>(
       `/api/projects/${pid}/generate-first-frames`,
-      { method: "POST" },
+      { method: "POST", signal: opts?.signal },
     ),
-  generateShotFirstFrame: (pid: string, sid: string) =>
-    req<Bundle & { job?: ImageJob }>(`/api/projects/${pid}/shots/${sid}/generate-first-frame`, { method: "POST" }),
-  generateAssetImage: (pid: string, aid: string, field?: string) => {
+  generateShotFirstFrame: (pid: string, sid: string, opts?: ReqSignal) =>
+    req<Bundle & { job?: ImageJob }>(`/api/projects/${pid}/shots/${sid}/generate-first-frame`, {
+      method: "POST",
+      signal: opts?.signal,
+    }),
+  generateAssetImage: (pid: string, aid: string, field?: string, opts?: ReqSignal) => {
     const qs = field ? `?field=${encodeURIComponent(field)}` : "";
     return req<{ ok: boolean; job: ImageJob; jobs: ImageJob[]; asset: Asset }>(
       `/api/projects/${pid}/assets/${aid}/generate-image${qs}`,
-      { method: "POST" },
+      { method: "POST", signal: opts?.signal },
     );
   },
   clearAssetImage: (pid: string, aid: string, field: string) =>
@@ -289,10 +306,17 @@ export const api = {
     req<{ jobs: ImageJob[] }>(`/api/projects/${pid}/image-jobs?active_only=${activeOnly}`),
   cancelImageBatch: (pid: string, batchId: string) =>
     req<{ ok: boolean; cancelled: number }>(`/api/projects/${pid}/image-batches/${batchId}/cancel`, { method: "POST" }),
-  scoreImages: (pid: string, body: { scope?: "assets" | "shots" | "all"; kind?: string | null }) =>
+  cancelProjectImageJobs: (pid: string) =>
+    req<Bundle & { ok: boolean; cancelled: number }>(`/api/projects/${pid}/image-jobs/cancel`, { method: "POST" }),
+  scoreImages: (
+    pid: string,
+    body: { scope?: "assets" | "shots" | "all"; kind?: string | null },
+    opts?: ReqSignal,
+  ) =>
     req<
       Bundle & {
         ok?: boolean;
+        cancelled?: boolean;
         scored?: number;
         errors?: string[];
         asset_counts?: { good: number; ok: number; bad: number; none: number };
@@ -302,9 +326,14 @@ export const api = {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
+      signal: opts?.signal,
     }),
-  editAssetImage: (pid: string, aid: string, form: FormData) =>
-    req<{ ok: boolean; job: ImageJob }>(`/api/projects/${pid}/assets/${aid}/edit-image`, { method: "POST", body: form }),
+  editAssetImage: (pid: string, aid: string, form: FormData, opts?: ReqSignal) =>
+    req<{ ok: boolean; job: ImageJob }>(`/api/projects/${pid}/assets/${aid}/edit-image`, {
+      method: "POST",
+      body: form,
+      signal: opts?.signal,
+    }),
   listImageOutputFiles: (pid: string) =>
     req<{ image_output_dir?: string; files: { name: string; path: string; rel?: string }[] }>(
       `/api/projects/${pid}/image-output-files`,

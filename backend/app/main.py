@@ -4,7 +4,7 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -19,6 +19,7 @@ from app.domain.registry import sanitize_aliases, sanitize_character_fields
 from app.image_gen import clear_asset_image, list_image_output_files, resolve_image_output_dir
 from app.image_jobs import (
     cancel_batch,
+    cancel_project_jobs,
     enqueue_asset_all_slots,
     enqueue_asset_field,
     enqueue_chapter_first_frames,
@@ -208,6 +209,17 @@ class ScoreImagesIn(BaseModel):
     kind: str | None = None  # character | scene | prop
 
 
+def _require_style(style: str | None) -> str:
+    s = (style or "").strip()
+    if not s:
+        raise HTTPException(400, "项目画风不能为空")
+    return s
+
+
+async def _request_cancelled(request: Request) -> bool:
+    return await request.is_disconnected()
+
+
 def _bundle(db: Session, project: Project) -> dict:
     chapters = db.query(Chapter).filter(Chapter.project_id == project.id).order_by(Chapter.index).all()
     assets = db.query(Asset).filter(Asset.project_id == project.id).all()
@@ -246,9 +258,15 @@ def list_projects():
 
 @app.post("/api/projects")
 async def create_project(body: ProjectIn):
+    style = _require_style(body.style)
     db = db_session()
     try:
-        project = Project(id=_uid(), title=body.title.strip() or "未命名小说", style=body.style, source_text=body.text)
+        project = Project(
+            id=_uid(),
+            title=body.title.strip() or "未命名小说",
+            style=style,
+            source_text=body.text,
+        )
         db.add(project)
         db.flush()
         rebuild_chapters(db, project)
@@ -261,11 +279,17 @@ async def create_project(body: ProjectIn):
 
 @app.post("/api/projects/upload")
 async def upload_project(title: str = Form("未命名小说"), style: str = Form(""), file: UploadFile = File(...)):
+    style = _require_style(style)
     raw = await file.read()
     text = raw.decode("utf-8-sig", errors="replace")
     db = db_session()
     try:
-        project = Project(id=_uid(), title=title.strip() or Path(file.filename or "novel").stem, style=style, source_text=text)
+        project = Project(
+            id=_uid(),
+            title=title.strip() or Path(file.filename or "novel").stem,
+            style=style,
+            source_text=text,
+        )
         db.add(project)
         db.flush()
         rebuild_chapters(db, project)
@@ -290,6 +314,8 @@ def patch_project(project_id: str, body: SettingsIn):
     try:
         project = get_project(db, project_id)
         data = body.model_dump(exclude_unset=True)
+        if "style" in data:
+            data["style"] = _require_style(data.get("style"))
         rebuild = False
         if "text" in data and data["text"] is not None:
             project.source_text = data.pop("text")
@@ -317,13 +343,19 @@ def delete_project(project_id: str):
 
 
 @app.post("/api/projects/{project_id}/prescan")
-async def api_prescan(project_id: str, replace: bool = False):
+async def api_prescan(project_id: str, request: Request, replace: bool = False):
+    from app.llm import OperationCancelled
+
     db = db_session()
     try:
         project = get_project(db, project_id)
         _prepare_llm(db)
         try:
-            result = await prescan_project(db, project, replace=replace)
+            result = await prescan_project(
+                db, project, replace=replace, is_cancelled=lambda: _request_cancelled(request)
+            )
+        except OperationCancelled:
+            return {"ok": False, "cancelled": True, **_bundle(db, project)}
         except Exception as exc:
             raise HTTPException(502, str(exc)) from exc
         return {**_bundle(db, project), "result": result}
@@ -332,8 +364,10 @@ async def api_prescan(project_id: str, replace: bool = False):
 
 
 @app.post("/api/projects/{project_id}/generate-assets")
-async def api_generate_assets(project_id: str, replace: bool = True):
+async def api_generate_assets(project_id: str, request: Request, replace: bool = True):
     """One-click book-level asset generation (characters / scenes / props)."""
+    from app.llm import OperationCancelled
+
     db = db_session()
     try:
         project = get_project(db, project_id)
@@ -341,7 +375,11 @@ async def api_generate_assets(project_id: str, replace: bool = True):
         if not (project.source_text or "").strip():
             raise HTTPException(400, "项目没有正文，请先上传或粘贴小说 TXT")
         try:
-            result = await full_registry_scan(db, project, replace=replace)
+            result = await full_registry_scan(
+                db, project, replace=replace, is_cancelled=lambda: _request_cancelled(request)
+            )
+        except OperationCancelled:
+            return {"ok": False, "cancelled": True, **_bundle(db, project)}
         except Exception as exc:
             raise HTTPException(502, str(exc)) from exc
         return {**_bundle(db, project), "result": result}
@@ -382,14 +420,24 @@ def api_confirm(project_id: str, chapter_id: str, body: ConfirmIn):
 
 
 @app.post("/api/projects/{project_id}/chapters/{chapter_id}/storyboard")
-async def api_storyboard(project_id: str, chapter_id: str, overwrite: bool = False):
+async def api_storyboard(project_id: str, chapter_id: str, request: Request, overwrite: bool = False):
+    from app.llm import OperationCancelled
+
     db = db_session()
     try:
         project = get_project(db, project_id)
         chapter = get_chapter(db, project_id, chapter_id)
         _prepare_llm(db)
         try:
-            result = await generate_storyboard(db, project, chapter, overwrite=overwrite)
+            result = await generate_storyboard(
+                db,
+                project,
+                chapter,
+                overwrite=overwrite,
+                is_cancelled=lambda: _request_cancelled(request),
+            )
+        except OperationCancelled:
+            return {"ok": False, "cancelled": True, **_bundle(db, project)}
         except ValueError as exc:
             raise HTTPException(409, str(exc)) from exc
         except Exception as exc:
@@ -660,9 +708,21 @@ def api_cancel_batch(project_id: str, batch_id: str):
         db.close()
 
 
+@app.post("/api/projects/{project_id}/image-jobs/cancel")
+def api_cancel_project_image_jobs(project_id: str):
+    db = db_session()
+    try:
+        get_project(db, project_id)
+        n = cancel_project_jobs(db, project_id)
+        return {"ok": True, "cancelled": n, **_bundle(db, get_project(db, project_id))}
+    finally:
+        db.close()
+
+
 @app.post("/api/projects/{project_id}/score-images")
-async def api_score_images(project_id: str, body: ScoreImagesIn = ScoreImagesIn()):
+async def api_score_images(project_id: str, request: Request, body: ScoreImagesIn = ScoreImagesIn()):
     from app.image_scores import score_project_images
+    from app.llm import OperationCancelled
 
     db = db_session()
     try:
@@ -673,7 +733,16 @@ async def api_score_images(project_id: str, body: ScoreImagesIn = ScoreImagesIn(
         kind = (body.kind or "").strip().lower() or None
         if kind and kind not in ("character", "scene", "prop"):
             raise HTTPException(400, "kind 必须是 character、scene 或 prop")
-        result = await score_project_images(db, project, scope=scope, kind=kind)
+        try:
+            result = await score_project_images(
+                db,
+                project,
+                scope=scope,
+                kind=kind,
+                is_cancelled=lambda: _request_cancelled(request),
+            )
+        except OperationCancelled:
+            return {"ok": False, "cancelled": True, **_bundle(db, project)}
         return {**result, **_bundle(db, project)}
     finally:
         db.close()

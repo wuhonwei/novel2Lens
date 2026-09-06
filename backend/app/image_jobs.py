@@ -54,12 +54,7 @@ def list_active_jobs(db: Session, project_id: str, *, active_only: bool = True) 
     return [serialize_job(j) for j in jobs]
 
 
-def cancel_batch(db: Session, batch_id: str) -> int:
-    jobs = (
-        db.query(ImageJob)
-        .filter(ImageJob.batch_id == batch_id, ImageJob.status.in_(ACTIVE_STATUSES))
-        .all()
-    )
+def _cancel_jobs(jobs: list[ImageJob]) -> int:
     n = 0
     for job in jobs:
         job.status = "cancelled"
@@ -67,6 +62,27 @@ def cancel_batch(db: Session, batch_id: str) -> int:
         job.error = "cancelled_by_user"
         job.updated_at = _utcnow()
         n += 1
+    return n
+
+
+def cancel_batch(db: Session, batch_id: str) -> int:
+    jobs = (
+        db.query(ImageJob)
+        .filter(ImageJob.batch_id == batch_id, ImageJob.status.in_(ACTIVE_STATUSES))
+        .all()
+    )
+    n = _cancel_jobs(jobs)
+    db.commit()
+    return n
+
+
+def cancel_project_jobs(db: Session, project_id: str) -> int:
+    jobs = (
+        db.query(ImageJob)
+        .filter(ImageJob.project_id == project_id, ImageJob.status.in_(ACTIVE_STATUSES))
+        .all()
+    )
+    n = _cancel_jobs(jobs)
     db.commit()
     return n
 
