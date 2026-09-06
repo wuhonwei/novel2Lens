@@ -84,13 +84,35 @@ def assess_fullbody_framing(img) -> str | None:
 
 def _skinish(r: int, g: int, b: int) -> bool:
     """Loose skin cue for stylized 3D / guoman (not photographic Fitzpatrick)."""
-    if r < 70 or g < 40 or b < 25:
+    if r < 80 or g < 50 or b < 40:
         return False
-    if r + 8 < g or r + 8 < b:
+    if r + 8 < g or r + 5 < b:
         return False
-    if max(r, g, b) - min(r, g, b) < 18:
+    # Exclude warm lantern / bread yellows (high R≈G, very low B).
+    if b < 100 and r > 160 and g > 130 and abs(r - g) < 45 and (r - b) > 70:
+        return False
+    if max(r, g, b) - min(r, g, b) < 22:
         return False  # near-gray mist / stone
     return True
+
+
+def assess_right_companion_added(before_png: bytes, after_png: bytes) -> str | None:
+    """Two-pass stage2: right half must change meaningfully vs stage1 (companion added)."""
+    import io
+    from PIL import Image, ImageChops
+
+    try:
+        before = Image.open(io.BytesIO(before_png)).convert("L").resize((168, 96))
+        after = Image.open(io.BytesIO(after_png)).convert("L").resize((168, 96))
+    except Exception:
+        return "unreadable_pair"
+    # Right third, upper-mid (where a second standing person usually appears)
+    box = (100, 8, 168, 72)
+    diff = ImageChops.difference(before.crop(box), after.crop(box))
+    score = sum(diff.getdata()) / max(1, diff.size[0] * diff.size[1])
+    if score < 10.0:
+        return "missing_second_character"
+    return None
 
 
 def assess_dual_character_presence(img) -> str | None:
@@ -99,7 +121,7 @@ def assess_dual_character_presence(img) -> str | None:
     small = img.resize((max(160, w // 8), max(90, h // 8)))
     sw, sh = small.size
     px = small.load()
-    y0, y1 = int(sh * 0.10), int(sh * 0.70)
+    y0, y1 = int(sh * 0.10), int(sh * 0.65)
     left_x1 = int(sw * 0.40)
     right_x0 = int(sw * 0.60)
     win = max(10, min(sw, sh) // 7)
@@ -126,10 +148,9 @@ def assess_dual_character_presence(img) -> str | None:
 
     left_peak, left_cx = peak(0, left_x1)
     right_peak, right_cx = peak(right_x0, sw)
-    need = max(40, (win * win) // 3)
+    need = max(18, (win * win) // 8)
     if left_peak < need or right_peak < need:
         return "missing_second_character"
-    # One wide centered person can spill into both thirds — require separated peaks.
     if (right_cx - left_cx) < sw * 0.28:
         return "missing_second_character"
     return None

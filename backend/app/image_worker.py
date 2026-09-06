@@ -455,6 +455,23 @@ class ImageWorker:
         if not ref_paths:
             raise RuntimeError("edit job has no reference images")
 
+        # Multi-character first frames: two-pass before uploading all refs together.
+        if (job.target_field or "") == "first_frame" and len(ref_paths) >= 2:
+            aspect = payload.get("aspect") or "3:4"
+            width, height = resolve_size(aspect, "sdxl")
+            edit_prompt = (job.prompt or "").strip()
+            return self._run_two_pass_first_frame(
+                client=client,
+                job=job,
+                payload=payload,
+                ref_paths=ref_paths,
+                ref_labels=ref_labels,
+                edit_prompt=edit_prompt,
+                aspect=aspect,
+                width=width,
+                height=height,
+            )
+
         names: list[str] = []
         for i, p in enumerate(ref_paths[:3]):
             path = Path(p)
@@ -479,6 +496,7 @@ class ImageWorker:
         for i in range(len(names)):
             label = (ref_labels[i] if i < len(ref_labels) else f"参考图{i + 1}").strip()
             labeled.append(f"image {i + 1} ({label})")
+
         if (job.target_field or "") == "half":
             wrapped = (
                 f"Using {labeled[0]}, create one new image that is ONLY a tighter bust-crop reframe "
@@ -486,21 +504,6 @@ class ImageWorker:
                 "Do not invent a new character; keep the exact face, hair, and outfit from the reference. "
                 f"Output image aspect ratio {aspect}, resolution {width}x{height}."
             )
-        elif (job.target_field or "") == "first_frame" and len(names) >= 2:
-            from app.domain.edit_identity import (
-                multi_char_first_frame_negative,
-                wrap_multi_char_first_frame,
-            )
-
-            wrapped = wrap_multi_char_first_frame(
-                labeled=labeled,
-                edit_prompt=edit_prompt,
-                aspect=aspect,
-                width=width,
-                height=height,
-            )
-            if not edit_negative:
-                edit_negative = multi_char_first_frame_negative()
         else:
             wrapped = (
                 f"Using {', '.join(labeled)}, create one new image: {edit_prompt}. "
@@ -510,13 +513,8 @@ class ImageWorker:
 
         last_err = ""
         last_png: bytes | None = None
-        # Multi-character first frames: skip Lightning — 4-step often collapses faces.
-        # More seeds: Qwen still flaky on keeping both identities.
         attempts = 2
         start_attempt = 0
-        if (job.target_field or "") == "first_frame" and len(names) >= 2:
-            start_attempt = 1
-            attempts = 4
         for attempt in range(start_attempt, start_attempt + attempts):
             use_lightning = attempt < 1
             steps = 4 if use_lightning else 28
@@ -542,10 +540,135 @@ class ImageWorker:
             qa = assess_image_bytes(
                 last_png,
                 require_fullbody=bool(payload.get("require_fullbody")),
-                min_character_sides=int(payload.get("min_character_sides") or 0)
-                or (2 if (job.target_field or "") == "first_frame" and len(names) >= 2 else 0),
+                min_character_sides=int(payload.get("min_character_sides") or 0),
             )
             if qa.get("ok") or qa.get("passed"):
                 return last_png
             last_err = f"qa_failed:{','.join(qa.get('reasons') or [])}"
         raise RuntimeError(last_err or "Comfy edit failed")
+
+    def _run_two_pass_first_frame(
+        self,
+        *,
+        client: Any,
+        job: ImageJob,
+        payload: dict[str, Any],
+        ref_paths: list[str],
+        ref_labels: list[str],
+        edit_prompt: str,
+        aspect: str,
+        width: int,
+        height: int,
+    ) -> bytes:
+        from app.comfy_pipeline.qa import assess_image_bytes
+        from app.domain.edit_identity import (
+            multi_char_first_frame_negative,
+            person_ref_indices,
+            two_pass_stage1_negative,
+            wrap_two_pass_stage1,
+            wrap_two_pass_stage2,
+        )
+
+        idxs = person_ref_indices(ref_labels)
+        if len(idxs) < 2:
+            idxs = list(range(min(2, len(ref_paths))))
+        i1, i2 = idxs[0], idxs[1]
+        lab1 = (ref_labels[i1] if i1 < len(ref_labels) else "person1").strip()
+        lab2 = (ref_labels[i2] if i2 < len(ref_labels) else "person2").strip()
+        path1 = Path(ref_paths[i1])
+        path2 = Path(ref_paths[i2])
+        bytes1 = path1.read_bytes()
+        bytes2 = path2.read_bytes()
+
+        last_err = ""
+        last_png: bytes | None = None
+        # Skip Lightning; several outer seeds for stage2 dual-person QA.
+        for attempt in range(1, 7):
+            # --- Stage 1: person1 only ---
+            name1 = client.upload_image(bytes1, path1.name or "person1.png")
+            wrap1 = wrap_two_pass_stage1(
+                label=lab1,
+                edit_prompt=edit_prompt,
+                aspect=aspect,
+                width=width,
+                height=height,
+            )
+            wf1 = compile_qwen_edit(
+                prompt=wrap1,
+                negative=two_pass_stage1_negative(),
+                ref_names=[name1],
+                seed=next_seed(None, attempt, True),
+                steps=28,
+                cfg=3.5,
+                use_lightning=False,
+                width=width,
+                height=height,
+            )
+            pid1 = client.queue_prompt(wf1)
+            hist1 = client.wait_history(pid1, timeout_seconds=self.job_timeout)
+            imgs1 = client.collect_images(hist1)
+            if not imgs1:
+                last_err = "two_pass_stage1: no images"
+                continue
+            stage1 = imgs1[0]
+            qa1 = assess_image_bytes(stage1, require_fullbody=bool(payload.get("require_fullbody")))
+            if not (qa1.get("ok") or qa1.get("passed")):
+                last_err = f"two_pass_stage1_qa:{','.join(qa1.get('reasons') or [])}"
+                continue
+
+            # --- Stage 2: base plate + person1 lock + person2 add ---
+            base_name = client.upload_image(stage1, f"pass1_{attempt}.png")
+            p1_lock = client.upload_image(bytes1, path1.name or "person1_lock.png")
+            p2_name = client.upload_image(bytes2, path2.name or "person2.png")
+            wrap2 = wrap_two_pass_stage2(
+                base_label="pass1 composition plate — keep left person and scene",
+                person2_label=lab2,
+                edit_prompt=edit_prompt,
+                aspect=aspect,
+                width=width,
+                height=height,
+                person1_lock_label=lab1,
+            )
+            wf2 = compile_qwen_edit(
+                prompt=wrap2,
+                negative=multi_char_first_frame_negative(),
+                ref_names=[base_name, p1_lock, p2_name],
+                seed=next_seed(None, attempt + 10, True),
+                steps=28,
+                cfg=3.5,
+                use_lightning=False,
+                width=width,
+                height=height,
+            )
+            pid2 = client.queue_prompt(wf2)
+            hist2 = client.wait_history(pid2, timeout_seconds=self.job_timeout)
+            imgs2 = client.collect_images(hist2)
+            if not imgs2:
+                last_err = "two_pass_stage2: no images"
+                continue
+            last_png = imgs2[0]
+            from app.comfy_pipeline.qa import assess_right_companion_added
+
+            qa_basic = assess_image_bytes(
+                last_png,
+                require_fullbody=bool(payload.get("require_fullbody")),
+            )
+            if not (qa_basic.get("ok") or qa_basic.get("passed")):
+                last_err = f"two_pass_stage2_qa:{','.join(qa_basic.get('reasons') or [])}"
+            else:
+                delta = assess_right_companion_added(stage1, last_png)
+                if delta is None:
+                    return last_png
+                last_err = f"two_pass_stage2_qa:{delta}"
+            # Persist last failed candidate for debugging (does not accept as success).
+            try:
+                from app.config import settings as _settings
+
+                dbg = _settings.data_dir / "debug" / f"two_pass_{job.id}_a{attempt}.png"
+                dbg.parent.mkdir(parents=True, exist_ok=True)
+                dbg.write_bytes(last_png)
+                dbg1 = _settings.data_dir / "debug" / f"two_pass_{job.id}_s1_a{attempt}.png"
+                dbg1.write_bytes(stage1)
+            except Exception:
+                pass
+        raise RuntimeError(last_err or "two-pass first_frame edit failed")

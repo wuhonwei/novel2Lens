@@ -102,3 +102,48 @@ def test_multi_char_negative_blocks_face_clone():
     assert "identical" in low or "clone" in low or "same face" in low
     assert "beard" in low or "白须" in neg
     assert "solo" in low or "single person" in low or "只剩一个人" in neg
+
+
+def test_two_pass_stage_wraps():
+    from app.domain.edit_identity import (
+        wrap_two_pass_stage1,
+        wrap_two_pass_stage2,
+        two_pass_stage1_negative,
+        person_ref_indices,
+    )
+
+    s1 = wrap_two_pass_stage1(
+        label="林砚之·少年·无胡须·DARK garments as in ref·full-body",
+        edit_prompt="图一低头。图二站着不动。",
+        aspect="16:9",
+        width=1344,
+        height=768,
+    )
+    assert "image 1 (林砚之" in s1
+    assert "ONLY one identifiable person" in s1 or "exactly 1" in s1.lower()
+    assert "left" in s1.lower()
+    assert "empty space" in s1.lower() or "room on the right" in s1.lower()
+    assert "1344x768" in s1
+
+    s2 = wrap_two_pass_stage2(
+        base_label="pass1 composition plate",
+        person2_label="陈守义·老人·白须·mid-tone garments as in ref·full-body",
+        edit_prompt="图一低头。图二站着不动。",
+        aspect="16:9",
+        width=1344,
+        height=768,
+        person1_lock_label="林砚之·少年·无胡须·DARK garments as in ref·full-body",
+    )
+    assert "image 1 (pass1" in s2
+    assert "image 2 (林砚之" in s2
+    assert "image 3 (陈守义" in s2
+    assert "COMPOSITE ADD" in s2 or "ADD" in s2
+    assert "right" in s2.lower()
+    assert "exactly 2" in s2.lower() or "ALL 2" in s2 or "both people" in s2.lower()
+    assert "do not change" in s2.lower() or "KEEP" in s2 or "keep" in s2.lower()
+
+    neg = two_pass_stage1_negative()
+    assert "second person" in neg.lower() or "two people" in neg.lower() or "双人" in neg
+    assert person_ref_indices(
+        ["林砚之·少年", "陈守义·老人", "玉佩·核心物品参考图"]
+    ) == [0, 1]

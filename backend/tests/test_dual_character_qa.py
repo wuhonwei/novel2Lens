@@ -30,9 +30,9 @@ def test_dual_presence_passes_with_left_and_right_skin():
         px = img.load()
         w, h = img.size
         for y in range(h // 5, 3 * h // 4):
-            for x in range(30, 90):
+            for x in range(40, 120):
                 px[x, y] = (205, 155, 125)
-            for x in range(w - 90, w - 30):
+            for x in range(w - 120, w - 40):
                 px[x, y] = (200, 150, 120)
 
     data = _png(640, 360, paint)
@@ -42,15 +42,32 @@ def test_dual_presence_passes_with_left_and_right_skin():
     assert out["ok"] is True
 
 
-def test_assess_image_bytes_flags_solo_when_min_sides_2():
-    def paint(img):
+def test_right_companion_delta_detects_added_person():
+    from app.comfy_pipeline.qa import assess_right_companion_added
+
+    def _png(w, h, paint):
+        img = Image.new("RGB", (w, h), (40, 80, 100))
+        paint(img)
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        return buf.getvalue()
+
+    def solo(img):
         px = img.load()
         w, h = img.size
-        for y in range(h // 4, 3 * h // 4):
-            for x in range(w // 2 - 50, w // 2 + 50):
-                px[x, y] = (210, 160, 130)
+        for y in range(h // 5, 3 * h // 4):
+            for x in range(40, 100):
+                px[x, y] = (205, 155, 125)
 
-    data = _png(640, 360, paint)
-    out = assess_image_bytes(data, min_character_sides=2)
-    assert out["ok"] is False
-    assert "missing_second_character" in out["reasons"]
+    def duo(img):
+        solo(img)
+        px = img.load()
+        w, h = img.size
+        for y in range(h // 5, 3 * h // 4):
+            for x in range(w - 120, w - 40):
+                px[x, y] = (200, 150, 120)
+
+    before = _png(640, 360, solo)
+    after = _png(640, 360, duo)
+    assert assess_right_companion_added(before, after) is None
+    assert assess_right_companion_added(before, before) == "missing_second_character"
