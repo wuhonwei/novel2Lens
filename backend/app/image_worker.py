@@ -455,12 +455,17 @@ class ImageWorker:
         if not ref_paths:
             raise RuntimeError("edit job has no reference images")
 
-        # Multi-character first frames: two-pass before uploading all refs together.
-        if (job.target_field or "") == "first_frame" and len(ref_paths) >= 2:
+        # Multi-character first frames: place people one-by-one (sequential edit).
+        from app.domain.edit_identity import person_ref_indices
+
+        person_n = len(person_ref_indices(ref_labels)) if ref_labels else 0
+        if person_n < 2:
+            person_n = len(ref_paths)
+        if (job.target_field or "") == "first_frame" and person_n >= 2:
             aspect = payload.get("aspect") or "3:4"
             width, height = resolve_size(aspect, "sdxl")
             edit_prompt = (job.prompt or "").strip()
-            return self._run_two_pass_first_frame(
+            return self._run_sequential_multi_char_first_frame(
                 client=client,
                 job=job,
                 payload=payload,
@@ -547,7 +552,7 @@ class ImageWorker:
             last_err = f"qa_failed:{','.join(qa.get('reasons') or [])}"
         raise RuntimeError(last_err or "Comfy edit failed")
 
-    def _run_two_pass_first_frame(
+    def _run_sequential_multi_char_first_frame(
         self,
         *,
         client: Any,
@@ -560,115 +565,150 @@ class ImageWorker:
         width: int,
         height: int,
     ) -> bytes:
-        from app.comfy_pipeline.qa import assess_image_bytes
+        """Place each named person into the first frame one at a time."""
+        from app.comfy_pipeline.qa import assess_companion_added, assess_image_bytes
         from app.domain.edit_identity import (
             multi_char_first_frame_negative,
             person_ref_indices,
+            standing_slot,
             two_pass_stage1_negative,
-            wrap_two_pass_stage1,
-            wrap_two_pass_stage2,
+            wrap_sequential_add_person,
+            wrap_sequential_place_first,
         )
 
         idxs = person_ref_indices(ref_labels)
         if len(idxs) < 2:
-            idxs = list(range(min(2, len(ref_paths))))
-        i1, i2 = idxs[0], idxs[1]
-        lab1 = (ref_labels[i1] if i1 < len(ref_labels) else "person1").strip()
-        lab2 = (ref_labels[i2] if i2 < len(ref_labels) else "person2").strip()
-        path1 = Path(ref_paths[i1])
-        path2 = Path(ref_paths[i2])
-        bytes1 = path1.read_bytes()
-        bytes2 = path2.read_bytes()
+            idxs = list(range(min(3, len(ref_paths))))
+        people: list[tuple[str, bytes, str]] = []
+        for i in idxs:
+            lab = (ref_labels[i] if i < len(ref_labels) else f"person{i + 1}").strip()
+            path = Path(ref_paths[i])
+            people.append((lab, path.read_bytes(), path.name or f"person{i + 1}.png"))
+        total = len(people)
+        if total < 2:
+            raise RuntimeError("sequential first_frame needs >=2 person refs")
 
         last_err = ""
-        last_png: bytes | None = None
-        # Skip Lightning; several outer seeds for stage2 dual-person QA.
-        for attempt in range(1, 7):
-            # --- Stage 1: person1 only ---
-            name1 = client.upload_image(bytes1, path1.name or "person1.png")
-            wrap1 = wrap_two_pass_stage1(
-                label=lab1,
-                edit_prompt=edit_prompt,
-                aspect=aspect,
-                width=width,
-                height=height,
-            )
-            wf1 = compile_qwen_edit(
-                prompt=wrap1,
-                negative=two_pass_stage1_negative(),
-                ref_names=[name1],
-                seed=next_seed(None, attempt, True),
-                steps=28,
-                cfg=3.5,
-                use_lightning=False,
-                width=width,
-                height=height,
-            )
-            pid1 = client.queue_prompt(wf1)
-            hist1 = client.wait_history(pid1, timeout_seconds=self.job_timeout)
-            imgs1 = client.collect_images(hist1)
-            if not imgs1:
-                last_err = "two_pass_stage1: no images"
-                continue
-            stage1 = imgs1[0]
-            qa1 = assess_image_bytes(stage1, require_fullbody=bool(payload.get("require_fullbody")))
-            if not (qa1.get("ok") or qa1.get("passed")):
-                last_err = f"two_pass_stage1_qa:{','.join(qa1.get('reasons') or [])}"
-                continue
+        # Outer seeds: restart from person1 if a later add fails QA.
+        for attempt in range(1, 5):
+            plate: bytes | None = None
+            for pi, (lab, raw, fname) in enumerate(people):
+                if pi == 0:
+                    name0 = client.upload_image(raw, fname)
+                    wrap = wrap_sequential_place_first(
+                        label=lab,
+                        edit_prompt=edit_prompt,
+                        total_people=total,
+                        aspect=aspect,
+                        width=width,
+                        height=height,
+                    )
+                    wf = compile_qwen_edit(
+                        prompt=wrap,
+                        negative=two_pass_stage1_negative(),
+                        ref_names=[name0],
+                        seed=next_seed(None, attempt, True),
+                        steps=28,
+                        cfg=3.5,
+                        use_lightning=False,
+                        width=width,
+                        height=height,
+                    )
+                    pid = client.queue_prompt(wf)
+                    hist = client.wait_history(pid, timeout_seconds=self.job_timeout)
+                    imgs = client.collect_images(hist)
+                    if not imgs:
+                        last_err = "sequential_stage1: no images"
+                        plate = None
+                        break
+                    plate = imgs[0]
+                    qa = assess_image_bytes(
+                        plate, require_fullbody=bool(payload.get("require_fullbody"))
+                    )
+                    if not (qa.get("ok") or qa.get("passed")):
+                        last_err = f"sequential_stage1_qa:{','.join(qa.get('reasons') or [])}"
+                        plate = None
+                        break
+                    continue
 
-            # --- Stage 2: base plate + person1 lock + person2 add ---
-            base_name = client.upload_image(stage1, f"pass1_{attempt}.png")
-            p1_lock = client.upload_image(bytes1, path1.name or "person1_lock.png")
-            p2_name = client.upload_image(bytes2, path2.name or "person2.png")
-            wrap2 = wrap_two_pass_stage2(
-                base_label="pass1 composition plate — keep left person and scene",
-                person2_label=lab2,
-                edit_prompt=edit_prompt,
-                aspect=aspect,
-                width=width,
-                height=height,
-                person1_lock_label=lab1,
-            )
-            wf2 = compile_qwen_edit(
-                prompt=wrap2,
-                negative=multi_char_first_frame_negative(),
-                ref_names=[base_name, p1_lock, p2_name],
-                seed=next_seed(None, attempt + 10, True),
-                steps=28,
-                cfg=3.5,
-                use_lightning=False,
-                width=width,
-                height=height,
-            )
-            pid2 = client.queue_prompt(wf2)
-            hist2 = client.wait_history(pid2, timeout_seconds=self.job_timeout)
-            imgs2 = client.collect_images(hist2)
-            if not imgs2:
-                last_err = "two_pass_stage2: no images"
-                continue
-            last_png = imgs2[0]
-            from app.comfy_pipeline.qa import assess_right_companion_added
+                assert plate is not None
+                prev = plate
+                lock_labels = [people[j][0] for j in range(pi)]
+                # Qwen edit supports ≤3 refs: plate + up to 1 lock + new person when 3 people.
+                # Prefer: plate, last-placed lock (or first), new person. Also upload first lock if room.
+                ref_names: list[str] = [
+                    client.upload_image(prev, f"plate_{attempt}_p{pi}.png"),
+                ]
+                wrap_locks = lock_labels
+                if len(lock_labels) + 2 <= 3:
+                    # plate + all locks + new fits
+                    for j in range(pi):
+                        ref_names.append(
+                            client.upload_image(people[j][1], people[j][2] or f"lock{j}.png")
+                        )
+                else:
+                    # Cap at 3 images: plate + first lock + new (drop middle locks from upload,
+                    # still mention them in prompt via wrap_locks truncated to what we upload).
+                    wrap_locks = [lock_labels[0]]
+                    ref_names.append(
+                        client.upload_image(people[0][1], people[0][2] or "lock0.png")
+                    )
+                ref_names.append(client.upload_image(raw, fname))
 
-            qa_basic = assess_image_bytes(
-                last_png,
-                require_fullbody=bool(payload.get("require_fullbody")),
-            )
-            if not (qa_basic.get("ok") or qa_basic.get("passed")):
-                last_err = f"two_pass_stage2_qa:{','.join(qa_basic.get('reasons') or [])}"
-            else:
-                delta = assess_right_companion_added(stage1, last_png)
-                if delta is None:
-                    return last_png
-                last_err = f"two_pass_stage2_qa:{delta}"
-            # Persist last failed candidate for debugging (does not accept as success).
-            try:
-                from app.config import settings as _settings
+                wrap = wrap_sequential_add_person(
+                    base_label=f"composition plate with {pi} person(s) — keep them",
+                    new_label=lab,
+                    lock_labels=wrap_locks,
+                    person_index=pi,
+                    total_people=total,
+                    edit_prompt=edit_prompt,
+                    aspect=aspect,
+                    width=width,
+                    height=height,
+                )
+                wf = compile_qwen_edit(
+                    prompt=wrap,
+                    negative=multi_char_first_frame_negative(),
+                    ref_names=ref_names,
+                    seed=next_seed(None, attempt + pi * 10, True),
+                    steps=28,
+                    cfg=3.5,
+                    use_lightning=False,
+                    width=width,
+                    height=height,
+                )
+                pid = client.queue_prompt(wf)
+                hist = client.wait_history(pid, timeout_seconds=self.job_timeout)
+                imgs = client.collect_images(hist)
+                if not imgs:
+                    last_err = f"sequential_stage{pi + 1}: no images"
+                    plate = None
+                    break
+                plate = imgs[0]
+                qa = assess_image_bytes(
+                    plate, require_fullbody=bool(payload.get("require_fullbody"))
+                )
+                if not (qa.get("ok") or qa.get("passed")):
+                    last_err = (
+                        f"sequential_stage{pi + 1}_qa:{','.join(qa.get('reasons') or [])}"
+                    )
+                    plate = None
+                    break
+                slot = standing_slot(pi, total)
+                delta = assess_companion_added(prev, plate, slot=slot)
+                if delta is not None:
+                    last_err = f"sequential_stage{pi + 1}_qa:{delta}"
+                    try:
+                        from app.config import settings as _settings
 
-                dbg = _settings.data_dir / "debug" / f"two_pass_{job.id}_a{attempt}.png"
-                dbg.parent.mkdir(parents=True, exist_ok=True)
-                dbg.write_bytes(last_png)
-                dbg1 = _settings.data_dir / "debug" / f"two_pass_{job.id}_s1_a{attempt}.png"
-                dbg1.write_bytes(stage1)
-            except Exception:
-                pass
-        raise RuntimeError(last_err or "two-pass first_frame edit failed")
+                        dbg = _settings.data_dir / "debug" / f"seq_{job.id}_a{attempt}_p{pi}.png"
+                        dbg.parent.mkdir(parents=True, exist_ok=True)
+                        dbg.write_bytes(plate)
+                    except Exception:
+                        pass
+                    plate = None
+                    break
+
+            if plate is not None:
+                return plate
+        raise RuntimeError(last_err or "sequential multi-char first_frame edit failed")

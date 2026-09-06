@@ -182,6 +182,93 @@ def multi_char_first_frame_negative() -> str:
     )
 
 
+def standing_slot(person_index: int, total_people: int) -> str:
+    """Map person order to left/center/right standing slot."""
+    n = max(1, int(total_people))
+    i = max(0, min(int(person_index), n - 1))
+    if n == 1:
+        return "center"
+    if n == 2:
+        return "left" if i == 0 else "right"
+    # 3+
+    if i == 0:
+        return "left"
+    if i >= n - 1:
+        return "right"
+    return "center"
+
+
+def wrap_sequential_place_first(
+    *,
+    label: str,
+    edit_prompt: str,
+    total_people: int,
+    aspect: str,
+    width: int,
+    height: int,
+) -> str:
+    """Stage 1: place ONLY the first person; leave room for the rest."""
+    slot = standing_slot(0, total_people)
+    remain = max(0, int(total_people) - 1)
+    room = (
+        f"Leave clear empty space for {remain} more named person(s) to be added later "
+        f"(keep room toward the center/right). "
+        if remain
+        else ""
+    )
+    return (
+        f"Using image 1 ({label}), create one new image: {edit_prompt}. "
+        "CRITICAL: show ONLY one identifiable person — the person from image 1 "
+        f"({label}) standing on the {slot.upper()} side of the frame, facing as instructed. "
+        "Match that reference's face, age, hair, beard/no-beard, outfit color and silhouette exactly. "
+        f"{room}"
+        "Do not invent additional named characters; distant unrecognizable silhouettes only. "
+        f"Output image aspect ratio {aspect}, resolution {width}x{height}."
+    )
+
+
+def wrap_sequential_add_person(
+    *,
+    base_label: str,
+    new_label: str,
+    lock_labels: list[str],
+    person_index: int,
+    total_people: int,
+    edit_prompt: str,
+    aspect: str,
+    width: int,
+    height: int,
+) -> str:
+    """Later stage: keep prior plate + lock prior people; add the next person."""
+    slot = standing_slot(person_index, total_people)
+    count_now = person_index + 1  # after this add
+    # image1 = plate, image2.. = locks, last = new person
+    parts = [f"image 1 ({base_label})"]
+    for i, lab in enumerate(lock_labels):
+        parts.append(f"image {i + 2} ({lab})")
+    new_img_i = len(lock_labels) + 2
+    parts.append(f"image {new_img_i} ({new_label})")
+    lock_bits = []
+    for i, lab in enumerate(lock_labels):
+        lock_bits.append(
+            f"image {i + 2} ({lab}) locks an already-placed person — keep that face/outfit unchanged; "
+        )
+    return (
+        f"Using {', '.join(parts)}, create one new image: {edit_prompt}. "
+        "CRITICAL: image 1 is the composition plate — KEEP everyone already in image 1, "
+        "the scene, lighting, and camera framing unchanged. "
+        f"{''.join(lock_bits)}"
+        f"COMPOSITE ADD: place a NEW full-body person from image {new_img_i} ({new_label}) "
+        f"clearly on the {slot.upper()} of the frame, physically separated from other faces "
+        "(do not overlap faces). "
+        f"The new person must match ONLY image {new_img_i} for face, age, hair, beard/no-beard, and outfit. "
+        "Do not clone any existing face onto the new person. "
+        f"MANDATORY: exactly {count_now} identifiable people after this edit. "
+        "Copy garment COLOR and silhouette from each person's own reference. "
+        f"Output image aspect ratio {aspect}, resolution {width}x{height}."
+    )
+
+
 def wrap_two_pass_stage1(
     *,
     label: str,
@@ -190,15 +277,14 @@ def wrap_two_pass_stage1(
     width: int,
     height: int,
 ) -> str:
-    """Pass 1: place ONLY person from image 1 on the left; leave room on the right."""
-    return (
-        f"Using image 1 ({label}), create one new image: {edit_prompt}. "
-        "CRITICAL: show ONLY one identifiable person — the person from image 1 "
-        f"({label}) standing on the LEFT side of the frame, facing as instructed. "
-        "Match that reference's face, age, hair, beard/no-beard, outfit color and silhouette exactly. "
-        "Leave clear empty space / room on the right for a second person to be added later. "
-        "Do not invent a second named character; distant unrecognizable silhouettes only. "
-        f"Output image aspect ratio {aspect}, resolution {width}x{height}."
+    """Backward-compatible alias for 2-person stage 1."""
+    return wrap_sequential_place_first(
+        label=label,
+        edit_prompt=edit_prompt,
+        total_people=2,
+        aspect=aspect,
+        width=width,
+        height=height,
     )
 
 
@@ -212,44 +298,25 @@ def wrap_two_pass_stage2(
     height: int,
     person1_lock_label: str = "",
 ) -> str:
-    """Pass 2: keep pass1 plate; add person 2 on the right from their reference."""
-    lock = ""
-    if person1_lock_label:
-        lock = (
-            f" image 2 ({person1_lock_label}) is the LEFT person's identity lock — "
-            "the left figure must keep matching image 2's face/outfit; "
-        )
-        refs = (
-            f"Using image 1 ({base_label}), image 2 ({person1_lock_label}), "
-            f"image 3 ({person2_label}), create one new image: {edit_prompt}. "
-        )
-        add_idx = "image 3"
-    else:
-        refs = (
-            f"Using image 1 ({base_label}), image 2 ({person2_label}), "
-            f"create one new image: {edit_prompt}. "
-        )
-        add_idx = "image 2"
-    return (
-        f"{refs}"
-        "CRITICAL: image 1 is the composition plate — KEEP the left person, scene, lighting, "
-        "and camera framing from image 1 unchanged (same face, hair, outfit)."
-        f"{lock}"
-        f" COMPOSITE ADD: place a NEW full-body person from {add_idx} ({person2_label}) "
-        "clearly on the RIGHT half of the frame, physically separated from the left person "
-        "(do not overlap faces). "
-        f"The right person must match ONLY {add_idx} for face, age, hair, beard/no-beard, and outfit. "
-        "Do not clone the left person's face onto the right. "
-        "MANDATORY: exactly 2 identifiable people (both people visible). "
-        "Copy garment COLOR and silhouette from each person's own reference. "
-        f"Output image aspect ratio {aspect}, resolution {width}x{height}."
+    """Backward-compatible alias for 2-person stage 2."""
+    locks = [person1_lock_label] if person1_lock_label else []
+    return wrap_sequential_add_person(
+        base_label=base_label,
+        new_label=person2_label,
+        lock_labels=locks,
+        person_index=1,
+        total_people=2,
+        edit_prompt=edit_prompt,
+        aspect=aspect,
+        width=width,
+        height=height,
     )
 
 
 def two_pass_stage1_negative() -> str:
     return (
         "two people, second person, pair of characters, dual portrait, couple standing, "
-        "extra face, another man beside, 双人, 第二个人, 两人同框, "
+        "extra face, another man beside, three people, 双人, 第二个人, 两人同框, 三人, "
         "identical twin, white beard on youth, elderly clone"
     )
 

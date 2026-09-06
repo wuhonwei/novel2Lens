@@ -97,7 +97,17 @@ def _skinish(r: int, g: int, b: int) -> bool:
 
 
 def assess_right_companion_added(before_png: bytes, after_png: bytes) -> str | None:
-    """Two-pass stage2: right half must change meaningfully vs stage1 (companion added)."""
+    """Backward-compatible alias: right-slot companion delta."""
+    return assess_companion_added(before_png, after_png, slot="right")
+
+
+def assess_companion_added(
+    before_png: bytes,
+    after_png: bytes,
+    *,
+    slot: str = "right",
+) -> str | None:
+    """Sequential multi-char stage: target standing slot must change vs previous plate."""
     import io
     from PIL import Image, ImageChops
 
@@ -106,8 +116,12 @@ def assess_right_companion_added(before_png: bytes, after_png: bytes) -> str | N
         after = Image.open(io.BytesIO(after_png)).convert("L").resize((168, 96))
     except Exception:
         return "unreadable_pair"
-    # Right third, upper-mid (where a second standing person usually appears)
-    box = (100, 8, 168, 72)
+    boxes = {
+        "left": (0, 8, 70, 72),
+        "center": (49, 8, 119, 72),
+        "right": (100, 8, 168, 72),
+    }
+    box = boxes.get((slot or "right").lower(), boxes["right"])
     diff = ImageChops.difference(before.crop(box), after.crop(box))
     score = sum(diff.getdata()) / max(1, diff.size[0] * diff.size[1])
     if score < 10.0:

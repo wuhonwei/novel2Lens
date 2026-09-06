@@ -437,9 +437,16 @@ def _shot_ref_paths(project: Project, shot, assets: list[Asset]) -> tuple[list[s
     )
     paths: list[str] = []
     labels: list[str] = []
+    multi_char = int(getattr(shot, "character_count", 0) or 0) >= 2
     for ref in refs:
         if ref.get("mode") == "text":
             continue
+        # Multi-person first frames: only feed character plates into sequential edit.
+        # Props/scenes stay as text in prompt_zh (same rule as slot packing).
+        if multi_char and str(ref.get("kind") or "") not in ("character",):
+            image_key = str(ref.get("image_key") or "")
+            if image_key not in ("half", "full"):
+                continue
         stored = (ref.get("path") or "").strip()
         role = str(ref.get("image_role") or ref.get("asset_name") or "reference")
         # Prefer half only for single-character shots. Multi-char Qwen edits often clone

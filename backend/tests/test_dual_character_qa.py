@@ -43,7 +43,7 @@ def test_dual_presence_passes_with_left_and_right_skin():
 
 
 def test_right_companion_delta_detects_added_person():
-    from app.comfy_pipeline.qa import assess_right_companion_added
+    from app.comfy_pipeline.qa import assess_companion_added
 
     def _png(w, h, paint):
         img = Image.new("RGB", (w, h), (40, 80, 100))
@@ -69,5 +69,5 @@ def test_right_companion_delta_detects_added_person():
 
     before = _png(640, 360, solo)
     after = _png(640, 360, duo)
-    assert assess_right_companion_added(before, after) is None
-    assert assess_right_companion_added(before, before) == "missing_second_character"
+    assert assess_companion_added(before, after, slot="right") is None
+    assert assess_companion_added(before, before, slot="right") == "missing_second_character"
