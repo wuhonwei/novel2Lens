@@ -39,7 +39,11 @@ def _slot_zh(slot: PackedSlot, actions: dict[str, str] | None = None) -> str:
     facing = slot.facing or "面向镜头"
     act = (actions or {}).get(pos, "")
     extra = f"，{act}" if act else ""
-    who = f"「{slot.name}」" if (slot.name or "").strip() else ""
+    who = ""
+    if (slot.name or "").strip():
+        who = f"「{slot.name}」"
+        if (slot.refer_as or "").strip() and slot.refer_as.strip() not in ("人", "人物"):
+            who += f"（{slot.refer_as.strip()}）"
     if slot.image_key == "half":
         return f"图{n}是{pos}，{facing}，半身即图{n}人物{who}{extra}。"
     return f"图{n}是{pos}，{facing}，全身即图{n}人物{who}{extra}。"
@@ -136,9 +140,11 @@ def compile_first_frame(
     if character_count >= 2:
         parts_zh.append(
             "每位具名人物必须互不相同，禁止复制同一张脸或同一套服饰到多人。"
+            "图一与图二人脸年龄发型必须分别严格跟随各自参考图，禁止把其中一人的脸贴到另一人身上。"
         )
         parts_en.append(
-            "Each named person must look distinct; do not clone the same face or outfit onto multiple people."
+            "Each named person must look distinct; do not clone the same face or outfit onto multiple people. "
+            "Follow each reference image for that person's face and age; never paste one face onto the other."
         )
     parts_en.append(
         f"Exactly {character_count} identifiable people. No extra faces. No text, no watermark."
