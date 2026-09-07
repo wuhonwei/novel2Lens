@@ -55,6 +55,11 @@ def test_completeness_requires_description_for_each_kind():
     assert report["complete"] is False
     assert any(i["name"] == "林砚之" for i in report["incomplete"])
     assets[0]["desc_zh"] = "苍白少年，发白长衫"
+    # Still incomplete until 性别/年龄段/身材 are present
+    assert is_registry_complete(assets) is False
+    assets[0]["desc_zh"] = "性别：男，年龄段：少年，身材：清瘦，苍白少年，发白长衫"
+    assets[0]["appearance"] = {"gender": "男", "body": "清瘦"}
+    assets[0]["age_band"] = "少年"
     assert is_registry_complete(assets)
 
 

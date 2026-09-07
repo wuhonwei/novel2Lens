@@ -14,7 +14,8 @@ ASSET_SYSTEM = """你是小说影视化资产导演。只输出一个 JSON 对�
 - 外貌分项尽量从文本抽取，没有的字段留空字符串，不要编造现代服装。
 - 人物必须拆成两个互不混写的字段：
   - background_zh：仅背景/身份/出身/职业/与剧情关系（给人看）。职业如「老船工」只能写这里。
-  - look_zh（或 desc_zh）：只写镜头里看得见的静态外表——年龄体感、身材体态、脸型五官、肤色、发型发色、眼睛外形与瞳色、佩戴饰品、衣服款式颜色质地、鞋履等。严禁神情/情绪/性格/动作/职业：如「皮笑肉不笑」「眉眼温柔」「神情严肃」「眼神坚定」「动作沉稳」「老船工」。
+  - look_zh（或 desc_zh）：只写镜头里看得见的静态外表。开头必须依次写清三项必带：性别（男/女）、年龄段、身材；然后接五官、肤色、发型发色、眼睛外形与瞳色、佩戴饰品、衣服款式颜色质地、鞋履等。严禁神情/情绪/性格/动作/职业：如「皮笑肉不笑」「眉眼温柔」「神情严肃」「眼神坚定」「动作沉稳」「老船工」。
+- appearance 人物必须含：gender（男|女）、body（身材体态）；age_band 必填（如青年/中年/六十岁左右）。
 - 场景/物品仍用 desc_zh 给人去画图；desc_en 同步英文。
 - kind 只能是 character | scene | prop（英文）。人物才有半身/全身图；场景和物品只有一张参考图。
 - refer_as 用 少年/老者/女子/男子 等，供「左一的{refer_as}」，不要用人名。
@@ -79,16 +80,18 @@ PRESCAN_PASS1_SYSTEM = """你是长篇小说的影视资产登记员。这是第
 - refer_as 单独字段写 少年/老者/女子/男子…，供「左一的{refer_as}」，不要放进 aliases，不要用人名。
 - 每个 character 必须拆成两段、互不混写：
   - background：背景/身份/出身/职业/与他人关系（仅供查阅）。「老船工」「遗孤」等写这里。
-  - look_zh + appearance：只写看得见的静态外表，供生图。必须是外形名词性描述：年龄外貌感、身高体态胖瘦、脸型、眉形、鼻唇、肤色、发型发色长短、眼睛外形与瞳色（不要写「温柔/严肃」）、疤痕胎记、佩戴饰品、衣服款式颜色质地、鞋履。
+  - look_zh + appearance：只写看得见的静态外表，供生图。look_zh 开头必须依次写：性别（男/女）、年龄段、身材；再写脸型、眉形、鼻唇、肤色、发型发色长短、眼睛外形与瞳色（不要写「温柔/严肃」）、疤痕胎记、佩戴饰品、衣服款式颜色质地、鞋履。
+  - appearance 必填 gender（男|女）与 body（身材）；age_band 必填。
   - look_zh / appearance 严禁任何神情、情绪、性格、动作、职业：如皮笑肉不笑、眉眼温柔、神情严肃、眼神坚定、笑靥如花、动作沉稳、老船工。这些要么删掉，要么写进 background。
   - eyes 示例正确：「狭长杏眼，深褐瞳」；错误：「眼神温柔」「目光坚定」。
   - face 示例正确：「鹅蛋脸，眉骨分明，薄唇」；错误：「神情严肃」「面带微笑」。
+  - look_zh 示例正确：「性别：男，年龄段：青年，身材：清瘦修长，鹅蛋脸……」；错误：缺少性别/年龄段/身材任一项。
 - scenes：只列反复出现或主场地点（渡口、茅草屋、主街），过场一句带过的路边不要。
 - props：只列影响认图的核心信物/武器/特殊载具；桌椅杯碟不要；不要把人物放进 props。
 - 不要编造原文没有的现代服装。
 
 格式：
-{"characters":[{"name","aliases":[],"refer_as","age_band","background","look_zh","appearance":{"face","hair","eyes","skin","body","clothing","marks","accessories"}}],"scenes":[{"name","notes"}],"props":[{"name","notes"}]}
+{"characters":[{"name","aliases":[],"refer_as","age_band","background","look_zh","appearance":{"gender","face","hair","eyes","skin","body","clothing","marks","accessories"}}],"scenes":[{"name","notes"}],"props":[{"name","notes"}]}
 """
 
 PRESCAN_AUDIT_SYSTEM = """你是影视资产完整性审计员。这是查漏补缺扫描。只输出 JSON，不要 markdown。
@@ -100,8 +103,8 @@ PRESCAN_AUDIT_SYSTEM = """你是影视资产完整性审计员。这是查漏补
 硬规则：
 - kind 只能用 character | scene | prop（不要用人名当 kind，不要写半身/全身）。
 - aliases 只补专名异称；不要把少年/母亲等通称写进 aliases（通称放 refer_as 或不写）。
-- 人物必须有可画的纯外表描述（look_zh 或 appearance）才算齐全；background 可选但不计入生图。
-- 补 look 时只写年龄/身材/五官/发型/眼睛外形/饰品/衣服等可视项；不要补情绪动作或职业通称。
+- 人物必须有可画的纯外表描述（look_zh 或 appearance）才算齐全；且必须含性别、年龄段、身材三项；background 可选但不计入生图。
+- 补 look 时 look_zh 开头写「性别：…，年龄段：…，身材：…」，再补五官/发型/眼睛外形/饰品/衣服等可视项；appearance 补 gender 与 body；不要补情绪动作或职业通称。
 - 场景/物品必须有可视化 notes/desc_zh。
 - 不要重复已完整的条目。
 

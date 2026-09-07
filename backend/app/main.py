@@ -234,8 +234,29 @@ async def _request_cancelled(request: Request) -> bool:
 
 
 def _bundle(db: Session, project: Project) -> dict:
+    from app.domain.registry import ensure_character_look_trinity, normalize_kind
+
     chapters = db.query(Chapter).filter(Chapter.project_id == project.id).order_by(Chapter.index).all()
     assets = db.query(Asset).filter(Asset.project_id == project.id).all()
+    repaired = False
+    for a in assets:
+        if normalize_kind(a.kind) != "character":
+            continue
+        desc, app, age = ensure_character_look_trinity(
+            name=a.name or "",
+            refer_as=a.refer_as or "",
+            age_band=a.age_band or "",
+            desc_zh=a.desc_zh or "",
+            appearance=_load(a.appearance_json, {}),
+        )
+        app_json = json_dumps(app)
+        if desc != (a.desc_zh or "") or age != (a.age_band or "") or app_json != (a.appearance_json or "{}"):
+            a.desc_zh = desc
+            a.age_band = age
+            a.appearance_json = app_json
+            repaired = True
+    if repaired:
+        db.commit()
     repair_shot_prompts_if_needed(db, project, assets)
     shots = db.query(Shot).filter(Shot.project_id == project.id).order_by(Shot.order_index).all()
     proposals = (
@@ -520,6 +541,19 @@ def api_patch_asset(project_id: str, asset_id: str, body: AssetPatch):
             asset.appearance_json = json_dumps(data.pop("appearance"))
         for key, value in data.items():
             setattr(asset, key, value)
+        if normalize_kind(asset.kind) == "character":
+            from app.domain.registry import ensure_character_look_trinity
+
+            desc, app, age = ensure_character_look_trinity(
+                name=asset.name or "",
+                refer_as=asset.refer_as or "",
+                age_band=asset.age_band or "",
+                desc_zh=asset.desc_zh or "",
+                appearance=_load(asset.appearance_json, {}),
+            )
+            asset.desc_zh = desc
+            asset.age_band = age
+            asset.appearance_json = json_dumps(app)
         db.commit()
         return serialize_asset(asset)
     finally:

@@ -1382,11 +1382,11 @@ function AssetCard({
               />
             </div>
             <div className="desc-block look-gen">
-              <label>② 样貌身材服饰<span className="muted"> · 生图关键</span></label>
+              <label>② 样貌身材服饰<span className="muted"> · 生图关键 · 必带性别/年龄段/身材</span></label>
               <AutoTextarea
                 value={desc}
                 onChange={setDesc}
-                placeholder="只写看得见的外表：年龄感、身材、五官、发型、眼睛外形、饰品、衣服样式颜色……不要写情绪/动作/职业"
+                placeholder="必带：性别：男/女，年龄段：…，身材：…；再写五官、发型、眼睛外形、饰品、衣服样式颜色……不要写情绪/动作/职业"
               />
             </div>
           </div>

@@ -435,10 +435,153 @@ def sanitize_appearance(appearance: dict[str, Any] | None) -> dict[str, Any]:
     for key, value in (appearance or {}).items():
         if value in (None, ""):
             continue
+        # Gender is a short controlled label — don't run full look scrubbers on it.
+        if key == "gender":
+            g = str(value).strip()
+            if g in {"男", "女", "不明", "male", "female", "unknown"}:
+                out["gender"] = {"male": "男", "female": "女", "unknown": "不明"}.get(g, g)
+            continue
         cleaned = sanitize_look_text(str(value))
         if cleaned and cleaned not in {"无", "没有", "暂无"}:
             out[key] = cleaned
     return out
+
+
+_GENDER_ZH = {"male": "男", "female": "女", "unknown": "不明"}
+_AGE_TIER_ZH = {
+    "child": "儿童",
+    "youth": "青年",
+    "adult": "中年",
+    "elder": "老年",
+    "unknown": "成年",
+}
+_TRINITY_GENDER_RE = re.compile(r"性别\s*[：:]\s*([男女不明]+)")
+_TRINITY_AGE_RE = re.compile(r"年龄段\s*[：:]\s*([^，,；;。]+)")
+_TRINITY_BODY_RE = re.compile(r"身材\s*[：:]\s*([^，,；;。]+)")
+
+
+def _gender_zh_from_fields(
+    *,
+    name: str = "",
+    refer_as: str = "",
+    age_band: str = "",
+    look: str = "",
+    appearance: dict[str, Any] | None = None,
+) -> str:
+    app = appearance or {}
+    raw = str(app.get("gender") or "").strip()
+    if raw in {"男", "女", "不明"}:
+        return raw
+    if raw in {"male", "female", "unknown"}:
+        return _GENDER_ZH[raw]
+    m = _TRINITY_GENDER_RE.search(look or "")
+    if m and m.group(1) in {"男", "女", "不明"}:
+        return m.group(1)
+    # Late import avoids circular dependency with persona helpers.
+    from app.comfy_pipeline.persona import infer_gender
+
+    g = infer_gender(name=name, refer_as=refer_as, age_band=age_band, look=look)
+    return _GENDER_ZH.get(g, "不明")
+
+
+def _age_band_zh_from_fields(
+    *,
+    name: str = "",
+    refer_as: str = "",
+    age_band: str = "",
+    look: str = "",
+) -> str:
+    band = (age_band or "").strip()
+    if band:
+        return band
+    m = _TRINITY_AGE_RE.search(look or "")
+    if m:
+        return m.group(1).strip()
+    from app.comfy_pipeline.persona import infer_age_tier
+
+    tier = infer_age_tier(name=name, refer_as=refer_as, age_band=age_band, look=look)
+    return _AGE_TIER_ZH.get(tier, "成年")
+
+
+def _body_zh_from_fields(
+    *,
+    look: str = "",
+    appearance: dict[str, Any] | None = None,
+    gender_zh: str = "不明",
+    age_zh: str = "成年",
+) -> str:
+    app = appearance or {}
+    body = sanitize_look_text(str(app.get("body") or "").strip())
+    if body:
+        return body
+    m = _TRINITY_BODY_RE.search(look or "")
+    if m:
+        cand = sanitize_look_text(m.group(1).strip())
+        if cand:
+            return cand
+    # Soft default so trinity is never empty; LLM/UI should replace with concrete build.
+    if gender_zh == "女":
+        return f"{age_zh}女性匀称身材"
+    if gender_zh == "男":
+        return f"{age_zh}男性匀称身材"
+    return f"{age_zh}匀称身材"
+
+
+def ensure_character_look_trinity(
+    *,
+    name: str = "",
+    refer_as: str = "",
+    age_band: str = "",
+    desc_zh: str = "",
+    appearance: dict[str, Any] | None = None,
+) -> tuple[str, dict[str, Any], str]:
+    """Guarantee 性别 / 年龄段 / 身材 in character look text and appearance.
+
+    Returns (desc_zh, appearance, age_band).
+    """
+    app = sanitize_appearance(dict(appearance or {}))
+    look = sanitize_look_text(desc_zh or "")
+    gender_zh = _gender_zh_from_fields(
+        name=name, refer_as=refer_as, age_band=age_band, look=look, appearance=app
+    )
+    age_zh = _age_band_zh_from_fields(
+        name=name, refer_as=refer_as, age_band=age_band, look=look
+    )
+    body_zh = _body_zh_from_fields(
+        look=look, appearance=app, gender_zh=gender_zh, age_zh=age_zh
+    )
+    app["gender"] = gender_zh
+    app["body"] = body_zh
+
+    # Strip old trinity clauses then re-prefix so order is stable.
+    stripped = look
+    stripped = _TRINITY_GENDER_RE.sub("", stripped)
+    stripped = _TRINITY_AGE_RE.sub("", stripped)
+    stripped = _TRINITY_BODY_RE.sub("", stripped)
+    stripped = re.sub(r"[，,]{2,}", "，", stripped).strip("，,；; ")
+    # Drop duplicate bare body clause if identical to body_zh
+    parts = [p for p in re.split(r"[，,]", stripped) if p.strip() and p.strip() != body_zh]
+    rest = "，".join(parts)
+    prefix = f"性别：{gender_zh}，年龄段：{age_zh}，身材：{body_zh}"
+    new_desc = prefix if not rest else f"{prefix}，{rest}"
+    return new_desc, app, age_zh
+
+
+def character_look_trinity_missing(asset: dict[str, Any]) -> list[str]:
+    """Return missing required look fields among 性别/年龄段/身材."""
+    miss: list[str] = []
+    app = asset.get("appearance") or {}
+    look = (asset.get("desc_zh") or asset.get("look_zh") or "").strip()
+    gender = str(app.get("gender") or "").strip()
+    if gender not in {"男", "女", "不明"} and not _TRINITY_GENDER_RE.search(look):
+        miss.append("性别")
+    age = (asset.get("age_band") or "").strip()
+    if not age and not _TRINITY_AGE_RE.search(look):
+        miss.append("年龄段")
+    body = str(app.get("body") or "").strip()
+    if not body and not _TRINITY_BODY_RE.search(look):
+        miss.append("身材")
+    return miss
 
 
 def sanitize_aliases(
@@ -482,22 +625,33 @@ def sanitize_character_fields(row: dict[str, Any]) -> dict[str, Any]:
     out["refer_as"] = refer_as or (out.get("refer_as") or "")
     out["aliases"] = sanitize_aliases(aliases_in, name=name, refer_as=out["refer_as"])
     if "look_zh" in out or "desc_zh" in out or "notes" in out:
-        look = out.get("look_zh") or out.get("desc_zh") or ""
-        # notes may be mixed; only sanitize explicit look fields here
         if out.get("look_zh"):
             out["look_zh"] = sanitize_look_text(out.get("look_zh"))
         if out.get("desc_zh"):
             out["desc_zh"] = sanitize_look_text(out.get("desc_zh"))
     if out.get("appearance") is not None:
         out["appearance"] = sanitize_appearance(out.get("appearance"))
+    # Mandatory trinity: 性别 / 年龄段 / 身材
+    desc_src = out.get("look_zh") or out.get("desc_zh") or ""
+    new_desc, new_app, new_age = ensure_character_look_trinity(
+        name=out.get("name") or "",
+        refer_as=out.get("refer_as") or "",
+        age_band=out.get("age_band") or "",
+        desc_zh=desc_src,
+        appearance=out.get("appearance") or {},
+    )
+    out["age_band"] = new_age
+    out["appearance"] = new_app
+    if "look_zh" in out:
+        out["look_zh"] = new_desc
+    if "desc_zh" in out or "look_zh" not in out:
+        out["desc_zh"] = new_desc
     return out
 
 
 def merge_registry_entry(existing: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]:
     merged = dict(existing)
     kind = normalize_kind(incoming.get("kind") or existing.get("kind"))
-    if kind == "character":
-        incoming = sanitize_character_fields(incoming)
     merged["kind"] = kind
     if incoming.get("name"):
         merged["name"] = str(incoming["name"]).strip()
@@ -569,6 +723,11 @@ def merge_registry_entry(existing: dict[str, Any], incoming: dict[str, Any]) -> 
         cleaned = sanitize_character_fields({**merged, "aliases": aliases})
         merged["aliases"] = cleaned["aliases"]
         merged["refer_as"] = cleaned["refer_as"] or merged.get("refer_as") or "人"
+        merged["age_band"] = cleaned.get("age_band") or merged.get("age_band") or ""
+        merged["appearance"] = cleaned.get("appearance") or merged.get("appearance") or {}
+        merged["desc_zh"] = cleaned.get("desc_zh") or merged.get("desc_zh") or ""
+        if cleaned.get("look_zh"):
+            merged["look_zh"] = cleaned["look_zh"]
     else:
         merged["aliases"] = sanitize_aliases(aliases, name=merged.get("name") or "")
     return merged
@@ -576,13 +735,16 @@ def merge_registry_entry(existing: dict[str, Any], incoming: dict[str, Any]) -> 
 
 def look_text(asset: dict[str, Any]) -> str:
     """Visual look string used for portrait generation (never includes background)."""
-    parts: list[str] = []
-    desc = sanitize_look_text(asset.get("desc_zh") or asset.get("look_zh") or "")
-    if desc:
-        parts.append(desc)
-    appearance = sanitize_appearance(asset.get("appearance") or {})
+    desc, app, _age = ensure_character_look_trinity(
+        name=str(asset.get("name") or ""),
+        refer_as=str(asset.get("refer_as") or ""),
+        age_band=str(asset.get("age_band") or ""),
+        desc_zh=str(asset.get("desc_zh") or asset.get("look_zh") or ""),
+        appearance=asset.get("appearance") or {},
+    )
+    parts: list[str] = [desc] if desc else []
     for key in ("face", "hair", "eyes", "skin", "body", "posture", "marks", "clothing", "accessories", "condition"):
-        val = (appearance.get(key) or "").strip()
+        val = (app.get(key) or "").strip()
         if val and val not in desc:
             parts.append(val)
     return "，".join(parts)
@@ -594,6 +756,9 @@ def _entry_incomplete(asset: dict[str, Any]) -> dict[str, Any] | None:
     if not name:
         return {"name": name or "?", "kind": kind, "reason": "缺少名称"}
     if kind == "character":
+        miss = character_look_trinity_missing(asset)
+        if miss:
+            return {"name": name, "kind": kind, "reason": "缺少必带项：" + "、".join(miss)}
         if not look_text(asset):
             return {"name": name, "kind": kind, "reason": "缺少样貌/身材/服饰描述"}
         return None

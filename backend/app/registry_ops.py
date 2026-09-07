@@ -9,6 +9,7 @@ from app.db import Asset, Chapter, Project, Proposal, Shot
 from app.domain.chapters import split_chapters
 from app.domain.registry import (
     apply_registry_delta,
+    ensure_character_look_trinity,
     is_registry_complete,
     normalize_kind,
     registry_completeness,
@@ -28,7 +29,19 @@ from app.extract_prompts import (
 from app.llm import ensure_not_cancelled
 from app.serialize import _dump, _load, _uid, serialize_asset
 
-APPEARANCE_KEYS = ("face", "hair", "eyes", "skin", "body", "posture", "marks", "clothing", "condition", "time")
+APPEARANCE_KEYS = (
+    "gender",
+    "face",
+    "hair",
+    "eyes",
+    "skin",
+    "body",
+    "posture",
+    "marks",
+    "clothing",
+    "condition",
+    "time",
+)
 MAX_REGISTRY_AUDIT_PASSES = 5
 NOVEL_SCAN_CHARS = 80000
 
@@ -137,8 +150,27 @@ def _apply_registry_rows_to_db(
             # Prefer explicit look; if notes equals background, drop from look
             if look_zh and background_zh and look_zh == background_zh:
                 look_zh = ""
-            look_zh = sanitize_look_text(look_zh)
+            # sanitize_character_fields already applied trinity; keep appearance as-is
             appearance = sanitize_appearance(row.get("appearance") or {})
+            if look_zh:
+                look_zh, appearance, ensured_age = ensure_character_look_trinity(
+                    name=name,
+                    refer_as=str(row.get("refer_as") or ""),
+                    age_band=str(row.get("age_band") or ""),
+                    desc_zh=look_zh,
+                    appearance=appearance,
+                )
+                row["age_band"] = ensured_age
+            else:
+                # Still stamp trinity onto empty look from name/refer_as/age
+                look_zh, appearance, ensured_age = ensure_character_look_trinity(
+                    name=name,
+                    refer_as=str(row.get("refer_as") or ""),
+                    age_band=str(row.get("age_band") or ""),
+                    desc_zh="",
+                    appearance=appearance,
+                )
+                row["age_band"] = ensured_age
         else:
             look_zh = look_zh or (row.get("notes") or "").strip()
             appearance = row.get("appearance") or {}
@@ -165,7 +197,9 @@ def _apply_registry_rows_to_db(
             asset.aliases_json = _dump(aliases)
             if row.get("refer_as"):
                 asset.refer_as = row["refer_as"]
-            if row.get("age_band"):
+            if kind == "character":
+                asset.age_band = row.get("age_band") or asset.age_band or ""
+            elif row.get("age_band"):
                 asset.age_band = row["age_band"]
             asset.appearance_json = _dump(appearance if kind == "character" else (row.get("appearance") or {}))
             if kind == "character" and background_zh:
@@ -174,15 +208,27 @@ def _apply_registry_rows_to_db(
                 elif background_zh not in asset.background_zh:
                     asset.background_zh = f"{asset.background_zh}；{background_zh}"
             if look_zh:
-                prev = sanitize_look_text(asset.desc_zh) if kind == "character" else asset.desc_zh
-                if not prev:
+                if kind == "character":
                     asset.desc_zh = look_zh
-                elif look_zh not in prev:
-                    asset.desc_zh = sanitize_look_text(f"{prev}；{look_zh}") if kind == "character" else f"{prev}；{look_zh}"
                 else:
-                    asset.desc_zh = prev
+                    prev = asset.desc_zh
+                    if not prev:
+                        asset.desc_zh = look_zh
+                    elif look_zh not in prev:
+                        asset.desc_zh = f"{prev}；{look_zh}"
+                    else:
+                        asset.desc_zh = prev
             elif kind == "character" and asset.desc_zh:
-                asset.desc_zh = sanitize_look_text(asset.desc_zh)
+                look_zh, appearance, ensured_age = ensure_character_look_trinity(
+                    name=asset.name or name,
+                    refer_as=asset.refer_as or "",
+                    age_band=asset.age_band or "",
+                    desc_zh=asset.desc_zh,
+                    appearance=_load(asset.appearance_json, {}),
+                )
+                asset.desc_zh = look_zh
+                asset.appearance_json = _dump(appearance)
+                asset.age_band = ensured_age
             if row.get("desc_en") or row.get("look_en"):
                 asset.desc_en = row.get("desc_en") or row.get("look_en") or asset.desc_en
             asset.confirmed = True
