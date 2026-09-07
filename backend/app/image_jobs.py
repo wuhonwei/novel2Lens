@@ -470,7 +470,11 @@ def _shot_ref_paths(project: Project, shot, assets: list[Asset]) -> tuple[list[s
 
         paths.append(str(abs_path))
         labels.append(edit_ref_label(asset, role, image_path=abs_path))
-        if len(paths) >= 3:
+        # Single-char / mixed refs: Qwen Edit hard-caps at 3 images per call.
+        # Multi-char sequential places people one-by-one — pack all character plates.
+        if not multi_char and len(paths) >= 3:
+            break
+        if multi_char and len(paths) >= 8:
             break
     if not paths:
         return [], [], "本镜没有可用参考图"
@@ -478,6 +482,19 @@ def _shot_ref_paths(project: Project, shot, assets: list[Asset]) -> tuple[list[s
     if not prompt:
         return [], [], "本镜缺少首帧提示词"
     return paths, labels, ""
+
+
+def _active_first_frame_job(db: Session, shot_id: str) -> ImageJob | None:
+    return (
+        db.query(ImageJob)
+        .filter(
+            ImageJob.shot_id == shot_id,
+            ImageJob.target_field == "first_frame",
+            ImageJob.status.in_(ACTIVE_STATUSES),
+        )
+        .order_by(ImageJob.created_at.desc())
+        .first()
+    )
 
 
 def enqueue_shot_first_frame(
@@ -489,6 +506,13 @@ def enqueue_shot_first_frame(
     paths, labels, err = _shot_ref_paths(project, shot, assets)
     if err:
         raise ValueError(err)
+    # Single-shot regen: cancel any prior active job for this shot, then enqueue fresh.
+    prior = _active_first_frame_job(db, shot.id)
+    if prior is not None:
+        prior.status = "cancelled"
+        prior.phase = ""
+        prior.error = "superseded by re-enqueue"
+        db.add(prior)
     clear_shot_first_frame_score(shot)
     payload = {
         "aspect": "16:9",
@@ -530,8 +554,12 @@ def enqueue_chapter_first_frames(db: Session, project: Project, chapter_id: str)
     jobs: list[ImageJob] = []
     errors: list[str] = []
     base_ts = _utcnow()
+    skipped_active = 0
     for i, shot in enumerate(shots):
         try:
+            if _active_first_frame_job(db, shot.id) is not None:
+                skipped_active += 1
+                continue
             paths, labels, err = _shot_ref_paths(project, shot, assets)
             if err:
                 errors.append(f"镜{shot.order_index}: {err}")
@@ -559,13 +587,14 @@ def enqueue_chapter_first_frames(db: Session, project: Project, chapter_id: str)
             db.add(job)
         except Exception as exc:  # noqa: BLE001
             errors.append(f"镜{shot.order_index}: {exc}")
-    if not jobs:
+    if not jobs and skipped_active == 0:
         raise ValueError("没有可入队的首帧任务：" + "；".join(errors[:6]))
-    db.commit()
+    if jobs:
+        db.commit()
     return {
         "batch_id": batch_id,
         "queued": len(jobs),
-        "skipped": len(errors),
+        "skipped": len(errors) + skipped_active,
         "errors": errors,
         "jobs": [serialize_job(j) for j in jobs],
     }
@@ -590,7 +619,11 @@ def enqueue_project_first_frames(db: Session, project: Project) -> dict[str, Any
     errors: list[str] = []
     base_ts = _utcnow()
     title_by = {c.id: c.title for c in chapters}
+    skipped_active = 0
     for i, shot in enumerate(shots):
+        if _active_first_frame_job(db, shot.id) is not None:
+            skipped_active += 1
+            continue
         paths, labels, err = _shot_ref_paths(project, shot, assets)
         if err:
             errors.append(f"{title_by.get(shot.chapter_id, '')}镜{shot.order_index}: {err}")
@@ -616,13 +649,14 @@ def enqueue_project_first_frames(db: Session, project: Project) -> dict[str, Any
         job.updated_at = job.created_at
         jobs.append(job)
         db.add(job)
-    if not jobs:
+    if not jobs and skipped_active == 0:
         raise ValueError("没有可入队的首帧任务：" + "；".join(errors[:8]))
-    db.commit()
+    if jobs:
+        db.commit()
     return {
         "batch_id": batch_id,
         "queued": len(jobs),
-        "skipped": len(errors),
+        "skipped": len(errors) + skipped_active,
         "errors": errors,
         "jobs": [serialize_job(j) for j in jobs],
     }

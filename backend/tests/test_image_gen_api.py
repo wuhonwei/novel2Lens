@@ -15,6 +15,10 @@ def test_generate_one_asset_character_enqueues_and_worker_writes(tmp_path, monke
     reset_engine(f"sqlite:///{tmp_path / 't.sqlite'}")
     monkeypatch.setattr("app.main._start_image_worker", lambda: None)
     monkeypatch.setattr("app.main._stop_image_worker", lambda: None)
+    monkeypatch.setattr(
+        "app.comfy_pipeline.qa.assess_image_bytes",
+        lambda *a, **k: {"ok": True, "passed": True, "reasons": []},
+    )
 
     fake = FakeComfy()
     llm = LlmSupervisor(stop_cmd=lambda: None, start_cmd=lambda: None, is_up=lambda: False, settle_seconds=0)

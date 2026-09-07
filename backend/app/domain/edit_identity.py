@@ -120,7 +120,12 @@ def wrap_multi_char_first_frame(
     width: int,
     height: int,
 ) -> str:
-    """English wrapper that binds each person slot to its own reference label."""
+    """Legacy one-shot multi-char wrap (unused by ImageWorker).
+
+    Production first frames with ≥2 people use sequential placement
+    (`wrap_sequential_place_first` / `wrap_sequential_add_person` / `wrap_rebind_identity`).
+    Kept for unit tests and any external callers.
+    """
     person_bits: list[str] = []
     for i, lab in enumerate(labeled):
         # labeled entries look like "image 1 (…)"
@@ -238,6 +243,7 @@ def wrap_sequential_add_person(
     aspect: str,
     width: int,
     height: int,
+    plate_keep_note: str = "",
 ) -> str:
     """Later stage: keep prior plate + lock prior people; add the next person."""
     slot = standing_slot(person_index, total_people)
@@ -253,10 +259,14 @@ def wrap_sequential_add_person(
         lock_bits.append(
             f"image {i + 2} ({lab}) locks an already-placed person — keep that face/outfit unchanged; "
         )
+    keep = plate_keep_note or (
+        "KEEP every identifiable person already visible on image 1 with distinct faces "
+        "(do not merge or clone them)."
+    )
     return (
         f"Using {', '.join(parts)}, create one new image: {edit_prompt}. "
-        "CRITICAL: image 1 is the composition plate — KEEP everyone already in image 1, "
-        "the scene, lighting, and camera framing unchanged. "
+        f"CRITICAL: image 1 is the composition plate — {keep} "
+        "Keep the scene, lighting, and camera framing from image 1. "
         f"{''.join(lock_bits)}"
         f"COMPOSITE ADD: place a NEW full-body person from image {new_img_i} ({new_label}) "
         f"clearly on the {slot.upper()} of the frame, physically separated from other faces "
@@ -265,6 +275,30 @@ def wrap_sequential_add_person(
         "Do not clone any existing face onto the new person. "
         f"MANDATORY: exactly {count_now} identifiable people after this edit. "
         "Copy garment COLOR and silhouette from each person's own reference. "
+        f"Output image aspect ratio {aspect}, resolution {width}x{height}."
+    )
+
+
+def wrap_rebind_identity(
+    *,
+    base_label: str,
+    lock_label: str,
+    slot: str,
+    count_people: int,
+    edit_prompt: str,
+    aspect: str,
+    width: int,
+    height: int,
+) -> str:
+    """Repair pass: re-bind a dropped lock onto the person already in that standing slot."""
+    return (
+        f"Using image 1 ({base_label}), image 2 ({lock_label}), create one new image: {edit_prompt}. "
+        "CRITICAL: image 1 is the composition plate — KEEP the same number of people, "
+        "same standing order, scene, and camera. "
+        f"REBIND only: the person standing on the {slot.upper()} must match image 2 ({lock_label}) "
+        "for face, age, hair, beard/no-beard, and outfit. "
+        "Do not add a new person; do not remove anyone; do not swap other people's faces. "
+        f"MANDATORY: exactly {count_people} identifiable people. "
         f"Output image aspect ratio {aspect}, resolution {width}x{height}."
     )
 

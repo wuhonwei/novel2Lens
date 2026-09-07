@@ -29,11 +29,13 @@ VARIANT_REASONS = ("outfit", "age", "injury", "season", "other")
 H3_ENCODER = "qwen3vl_32b_heretic_minimax_h3_nvfp4.safetensors"
 
 MAX_REF_IMAGES = 3
-MAX_NAMED_CHARACTERS = 3
+# Sequential first frames place people one-by-one; allow more named faces than one Qwen call.
+MAX_NAMED_CHARACTERS = 8
+MAX_MULTI_CHAR_REF_IMAGES = 8
 
 
 def max_named_characters(has_scene: bool = False) -> int:
-    """Hard cap: at most 3 named people per shot (scene no longer shrinks this)."""
+    """Soft UI/storyboard cap for named people (sequential edit supports up to this)."""
     del has_scene
     return MAX_NAMED_CHARACTERS
 
@@ -99,10 +101,12 @@ def pack_qwen_slots(
     props: list[SlotSubject] | None = None,
     scene: SlotSubject | None = None,
 ) -> PackResult:
-    """Pack ≤3 reference images.
+    """Pack reference image slots for a shot.
 
-    Priority: character portraits → core scene → core props.
-    Overflow assets become text_fallbacks (use look/desc prompts instead of images).
+    Single-character / mixed shots: ≤3 images (Qwen Edit hard cap per call).
+    Multi-character (≥2): all character portraits as image slots (≤8); scene/props
+    stay text — ImageWorker places people sequentially.
+    Overflow beyond the slot budget becomes text_fallbacks.
     """
     del half_lock
     del has_scene  # scene no longer changes character cap or forced first slot
@@ -165,6 +169,7 @@ def pack_qwen_slots(
         else:
             candidates.append((2, p))
 
+    max_slots = MAX_MULTI_CHAR_REF_IMAGES if len(characters) >= 2 else MAX_REF_IMAGES
     slots: list[PackedSlot] = []
     text_fallbacks: list[TextFallback] = list(early_text_fallbacks)
     n = 1
@@ -178,7 +183,7 @@ def pack_qwen_slots(
             image_key = subject.image_key or "prop"
             kind = "prop"
 
-        if n <= MAX_REF_IMAGES:
+        if n <= max_slots:
             slots.append(
                 PackedSlot(
                     index=n,

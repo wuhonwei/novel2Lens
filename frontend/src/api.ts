@@ -28,6 +28,7 @@ export type ImageJob = {
   id: string;
   project_id: string;
   asset_id: string;
+  shot_id?: string;
   kind: string;
   target_field: string;
   status: string;
@@ -44,6 +45,17 @@ export type ImageJob = {
 export function jobPhaseLabel(j: ImageJob): string {
   if (j.phase === "loading_t2i" || j.phase === "ensuring_comfy") return "文生图模型加载中";
   if (j.phase === "loading_edit") return "图片编辑模型加载中";
+  if (j.phase?.startsWith("seq_rebind_")) {
+    const m = j.phase.match(/^seq_rebind_p(\d+)_a(\d+)$/);
+    if (m) return `逐人叠加·回绑人物${m[1]}·第${m[2]}轮`;
+    return "逐人叠加·回绑身份";
+  }
+  if (j.phase?.startsWith("seq_p")) {
+    const m = j.phase.match(/^seq_p(\d+)\/(\d+)_a(\d+)$/);
+    if (m) return `逐人叠加·人物${m[1]}/${m[2]}·第${m[3]}轮`;
+    return "逐人叠加中";
+  }
+  if (j.phase === "generating") return "生成中";
   if (j.status === "queued") return "排队中";
   if (j.status === "running") return "生成中";
   if (j.status === "failed") return "失败";

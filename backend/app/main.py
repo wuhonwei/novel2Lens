@@ -56,13 +56,15 @@ from app.services import (
     _uid,
 )
 
-llm_supervisor = LlmSupervisor()
+llm_supervisor = LlmSupervisor(settle_seconds=settings.llm_settle_seconds)
 comfy_supervisor = ComfySupervisor(
     base_url=settings.comfy_base_url,
     root=settings.comfy_root,
     python=settings.comfy_python,
     idle_seconds=settings.image_idle_unload_seconds,
     stop_when_idle=settings.stop_comfy_when_idle,
+    prefer_unload_over_restart=settings.comfy_prefer_unload_over_restart
+    and not settings.llm_requires_comfy_stop,
 )
 image_worker: ImageWorker | None = None
 
@@ -74,6 +76,8 @@ def _start_image_worker() -> None:
             session_factory=database.SessionLocal,
             comfy=comfy_supervisor,
             llm=llm_supervisor,
+            poll_interval=settings.worker_poll_interval,
+            idle_poll_interval=settings.worker_idle_poll_interval,
         )
     image_worker.start()
 

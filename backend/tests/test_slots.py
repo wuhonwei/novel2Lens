@@ -7,10 +7,10 @@ from app.domain.slots import (
 )
 
 
-def test_named_cap_is_three_with_or_without_scene():
-    assert max_named_characters(has_scene=True) == 3
-    assert max_named_characters(has_scene=False) == 3
-    assert MAX_NAMED_CHARACTERS == 3
+def test_named_cap_allows_eight_for_sequential():
+    assert max_named_characters(has_scene=True) == 8
+    assert max_named_characters(has_scene=False) == 8
+    assert MAX_NAMED_CHARACTERS == 8
 
 
 def test_priority_characters_then_scene_then_prop():
@@ -46,6 +46,19 @@ def test_three_characters_push_scene_to_text():
     assert kinds == ["scene", "prop"]
 
 
+def test_four_characters_all_get_image_slots():
+    result = pack_qwen_slots(
+        characters=[
+            SlotSubject(asset_id=f"c{i}", kind="character", position="中", image_key="full")
+            for i in range(1, 5)
+        ],
+        scene=SlotSubject(asset_id="s1", kind="scene", name="渡口", desc_zh="雾渡"),
+    )
+    assert len(result.slots) == 4
+    assert all(s.kind == "character" for s in result.slots)
+    assert any(f.kind == "scene" for f in result.text_fallbacks)
+
+
 def test_single_person_uses_only_one_portrait_never_both():
     result = pack_qwen_slots(
         characters=[SlotSubject(asset_id="c1", kind="character", position="中", image_key="half")],
@@ -68,14 +81,14 @@ def test_duplicate_character_subjects_collapse_to_one_slot():
     assert result.slots[0].image_key == "full"
 
 
-def test_rejects_four_named_people():
+def test_rejects_nine_named_people():
     chars = [
         SlotSubject(asset_id=f"c{i}", kind="character", position="中", image_key="full")
-        for i in range(1, 5)
+        for i in range(1, 10)
     ]
     try:
         pack_qwen_slots(characters=chars)
     except ValueError as exc:
-        assert "3" in str(exc)
+        assert "8" in str(exc)
         return
     raise AssertionError("expected ValueError")

@@ -64,6 +64,7 @@ class ComfySupervisor:
         python: str,
         idle_seconds: int = 180,
         stop_when_idle: bool = True,
+        prefer_unload_over_restart: bool = True,
         client_factory: Callable[[str], Any] | None = None,
         start_process: Callable[[], None] | None = None,
         stop_process: Callable[[], None] | None = None,
@@ -76,6 +77,7 @@ class ComfySupervisor:
         self.python = python
         self.idle_seconds = idle_seconds
         self.stop_when_idle = stop_when_idle
+        self.prefer_unload_over_restart = prefer_unload_over_restart
         self.ready_timeout_seconds = ready_timeout_seconds
         self.poll_interval_seconds = poll_interval_seconds
         self._port = _port_from_url(self.base_url)
@@ -118,19 +120,40 @@ class ComfySupervisor:
             pass
 
     def release_for_llm(self) -> None:
-        """Immediately free Comfy VRAM (and stop process) so local LLMs can load."""
+        """Free Comfy VRAM so local LLMs can load.
+
+        By default prefers /free unload without killing the process (faster flip).
+        Full process stop still happens on idle timeout when stop_when_idle is True,
+        or when prefer_unload_over_restart is False.
+        """
+        self.free_models()
+        should_stop = self.stop_when_idle and not self.prefer_unload_over_restart
+        if should_stop:
+            try:
+                self._stop_process()
+            except Exception:
+                pass
+            deadline = time.monotonic() + 60.0
+            while time.monotonic() < deadline:
+                if not self._is_up():
+                    break
+                time.sleep(0.5)
+        self._idle_handled = True
+        self._last_activity_at = None
+
+    def release_for_idle(self) -> None:
+        """Idle path: unload and optionally stop the Comfy process."""
         self.free_models()
         if self.stop_when_idle:
             try:
                 self._stop_process()
             except Exception:
                 pass
-        # Wait until the port is down so CUDA can reclaim memory.
-        deadline = time.monotonic() + 60.0
-        while time.monotonic() < deadline:
-            if not self._is_up():
-                break
-            time.sleep(0.5)
+            deadline = time.monotonic() + 60.0
+            while time.monotonic() < deadline:
+                if not self._is_up():
+                    break
+                time.sleep(0.5)
         self._idle_handled = True
         self._last_activity_at = None
 
@@ -148,4 +171,4 @@ class ComfySupervisor:
         elapsed = time.monotonic() - self._last_activity_at
         if elapsed < self.idle_seconds:
             return
-        self.release_for_llm()
+        self.release_for_idle()

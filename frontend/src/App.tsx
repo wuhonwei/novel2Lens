@@ -834,6 +834,9 @@ export default function App() {
                         key={shot.id}
                         shot={shot}
                         assets={bundle.assets}
+                        firstFrameJob={imageJobs.find(
+                          (j) => j.shot_id === shot.id && j.target_field === "first_frame",
+                        )}
                         regenDisabled={!!busy || imageJobs.length > 0 || shot.first_frame_unready}
                         onRegen={() =>
                           run(`重跑镜${shot.order_index}首帧`, async (signal) => {
@@ -1668,12 +1671,14 @@ function EditImageModal({
 function ShotCard({
   shot,
   assets,
+  firstFrameJob,
   regenDisabled,
   onRegen,
   onChange,
 }: {
   shot: Shot;
   assets: Asset[];
+  firstFrameJob?: ImageJob | null;
   regenDisabled?: boolean;
   onRegen?: () => void;
   onChange: (patch: Partial<Shot> & { recompile?: boolean }) => Promise<void>;
@@ -1684,6 +1689,7 @@ function ShotCard({
     ? shot.references
     : fallbackShotRefs(shot, assets);
   const missing = refs.filter((r) => r.mode !== "text" && !r.uploaded).length;
+  const framePhase = firstFrameJob ? jobPhaseLabel(firstFrameJob) : "";
 
   return (
     <article className="shot-card">
@@ -1694,6 +1700,7 @@ function ShotCard({
           {shot.first_frame_unready ? "首帧未就绪" : "首帧就绪"}
         </span>
         {shot.first_frame_path ? <span className="pill ok">已出图</span> : null}
+        {framePhase ? <span className="pill warn">{framePhase}</span> : null}
         {onRegen ? (
           <button
             type="button"

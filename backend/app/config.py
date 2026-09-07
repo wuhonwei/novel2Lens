@@ -19,10 +19,19 @@ class Settings(BaseSettings):
     vision_llm_model: str = "qwen2.5vl:7b"
     zaoxiang_base_url: str = "http://127.0.0.1:8000"
     comfy_base_url: str = "http://127.0.0.1:8189"
+    # Override via N2L_COMFY_ROOT / N2L_COMFY_PYTHON when the install is elsewhere.
     comfy_root: str = r"D:\Develop\ComfyUI"
     comfy_python: str = r"D:\Develop\ComfyUI\venv\Scripts\python.exe"
     image_idle_unload_seconds: int = 180
     stop_comfy_when_idle: bool = True
+    # Prefer unload (/free) over full Comfy process restart when flipping LLM↔image.
+    # Full stop still happens after idle_seconds if stop_comfy_when_idle is True.
+    comfy_prefer_unload_over_restart: bool = True
+    worker_poll_interval: float = 0.4
+    worker_idle_poll_interval: float = 2.0
+    llm_settle_seconds: float = 8.0
+    # When True, release_for_llm stops the Comfy process; when False, only /free.
+    llm_requires_comfy_stop: bool = False
 
 
 settings = Settings()

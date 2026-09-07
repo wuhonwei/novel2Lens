@@ -52,6 +52,7 @@ class ImageWorker:
         comfy: ComfySupervisor,
         llm: LlmSupervisor,
         poll_interval: float = 0.4,
+        idle_poll_interval: float = 2.0,
         job_timeout: float = 600.0,
         models_dir: Path | None = None,
     ) -> None:
@@ -59,12 +60,14 @@ class ImageWorker:
         self.comfy = comfy
         self.llm = llm
         self.poll_interval = poll_interval
+        self.idle_poll_interval = idle_poll_interval
         self.job_timeout = job_timeout
         self.models_dir = models_dir or (Path(settings.comfy_root) / "models")
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._last_kind: str | None = None
         self._running = False
+        self._idle_streak = 0
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
@@ -106,8 +109,17 @@ class ImageWorker:
                         pass
                     if not active:
                         self.llm.set_image_busy(False)
-                    time.sleep(self.poll_interval)
+                    self._idle_streak += 1
+                    # Back off when idle so we don't spin the DB/CPU at 0.4s forever.
+                    sleep_s = self.poll_interval
+                    if self._idle_streak > 3:
+                        sleep_s = min(
+                            self.idle_poll_interval,
+                            self.poll_interval * (1.0 + 0.5 * (self._idle_streak - 3)),
+                        )
+                    time.sleep(sleep_s)
                     continue
+                self._idle_streak = 0
                 job_id = job.id
             finally:
                 db.close()
@@ -566,149 +578,37 @@ class ImageWorker:
         height: int,
     ) -> bytes:
         """Place each named person into the first frame one at a time."""
-        from app.comfy_pipeline.qa import assess_companion_added, assess_image_bytes
-        from app.domain.edit_identity import (
-            multi_char_first_frame_negative,
-            person_ref_indices,
-            standing_slot,
-            two_pass_stage1_negative,
-            wrap_sequential_add_person,
-            wrap_sequential_place_first,
+        from app.sequential_first_frame import run_sequential_multi_char_first_frame
+
+        return run_sequential_multi_char_first_frame(
+            client=client,
+            job=job,
+            payload=payload,
+            ref_paths=ref_paths,
+            ref_labels=ref_labels,
+            edit_prompt=edit_prompt,
+            aspect=aspect,
+            width=width,
+            height=height,
+            job_timeout=self.job_timeout,
+            set_phase=self._bind_seq_phase(job),
+            session_factory=self.session_factory,
         )
 
-        idxs = person_ref_indices(ref_labels)
-        if len(idxs) < 2:
-            idxs = list(range(min(3, len(ref_paths))))
-        people: list[tuple[str, bytes, str]] = []
-        for i in idxs:
-            lab = (ref_labels[i] if i < len(ref_labels) else f"person{i + 1}").strip()
-            path = Path(ref_paths[i])
-            people.append((lab, path.read_bytes(), path.name or f"person{i + 1}.png"))
-        total = len(people)
-        if total < 2:
-            raise RuntimeError("sequential first_frame needs >=2 person refs")
+    def _bind_seq_phase(self, job: ImageJob) -> Callable[[str], None]:
+        def set_phase(phase: str) -> None:
+            db = self.session_factory()
+            try:
+                fresh = db.get(ImageJob, job.id)
+                if fresh is None or fresh.status == "cancelled":
+                    return
+                from datetime import datetime, timezone
 
-        last_err = ""
-        # Outer seeds: restart from person1 if a later add fails QA.
-        for attempt in range(1, 5):
-            plate: bytes | None = None
-            for pi, (lab, raw, fname) in enumerate(people):
-                if pi == 0:
-                    name0 = client.upload_image(raw, fname)
-                    wrap = wrap_sequential_place_first(
-                        label=lab,
-                        edit_prompt=edit_prompt,
-                        total_people=total,
-                        aspect=aspect,
-                        width=width,
-                        height=height,
-                    )
-                    wf = compile_qwen_edit(
-                        prompt=wrap,
-                        negative=two_pass_stage1_negative(),
-                        ref_names=[name0],
-                        seed=next_seed(None, attempt, True),
-                        steps=28,
-                        cfg=3.5,
-                        use_lightning=False,
-                        width=width,
-                        height=height,
-                    )
-                    pid = client.queue_prompt(wf)
-                    hist = client.wait_history(pid, timeout_seconds=self.job_timeout)
-                    imgs = client.collect_images(hist)
-                    if not imgs:
-                        last_err = "sequential_stage1: no images"
-                        plate = None
-                        break
-                    plate = imgs[0]
-                    qa = assess_image_bytes(
-                        plate, require_fullbody=bool(payload.get("require_fullbody"))
-                    )
-                    if not (qa.get("ok") or qa.get("passed")):
-                        last_err = f"sequential_stage1_qa:{','.join(qa.get('reasons') or [])}"
-                        plate = None
-                        break
-                    continue
+                fresh.phase = phase
+                fresh.updated_at = datetime.now(timezone.utc)
+                db.commit()
+                job.phase = phase
+            finally:
+                db.close()
 
-                assert plate is not None
-                prev = plate
-                lock_labels = [people[j][0] for j in range(pi)]
-                # Qwen edit supports ≤3 refs: plate + up to 1 lock + new person when 3 people.
-                # Prefer: plate, last-placed lock (or first), new person. Also upload first lock if room.
-                ref_names: list[str] = [
-                    client.upload_image(prev, f"plate_{attempt}_p{pi}.png"),
-                ]
-                wrap_locks = lock_labels
-                if len(lock_labels) + 2 <= 3:
-                    # plate + all locks + new fits
-                    for j in range(pi):
-                        ref_names.append(
-                            client.upload_image(people[j][1], people[j][2] or f"lock{j}.png")
-                        )
-                else:
-                    # Cap at 3 images: plate + first lock + new (drop middle locks from upload,
-                    # still mention them in prompt via wrap_locks truncated to what we upload).
-                    wrap_locks = [lock_labels[0]]
-                    ref_names.append(
-                        client.upload_image(people[0][1], people[0][2] or "lock0.png")
-                    )
-                ref_names.append(client.upload_image(raw, fname))
-
-                wrap = wrap_sequential_add_person(
-                    base_label=f"composition plate with {pi} person(s) — keep them",
-                    new_label=lab,
-                    lock_labels=wrap_locks,
-                    person_index=pi,
-                    total_people=total,
-                    edit_prompt=edit_prompt,
-                    aspect=aspect,
-                    width=width,
-                    height=height,
-                )
-                wf = compile_qwen_edit(
-                    prompt=wrap,
-                    negative=multi_char_first_frame_negative(),
-                    ref_names=ref_names,
-                    seed=next_seed(None, attempt + pi * 10, True),
-                    steps=28,
-                    cfg=3.5,
-                    use_lightning=False,
-                    width=width,
-                    height=height,
-                )
-                pid = client.queue_prompt(wf)
-                hist = client.wait_history(pid, timeout_seconds=self.job_timeout)
-                imgs = client.collect_images(hist)
-                if not imgs:
-                    last_err = f"sequential_stage{pi + 1}: no images"
-                    plate = None
-                    break
-                plate = imgs[0]
-                qa = assess_image_bytes(
-                    plate, require_fullbody=bool(payload.get("require_fullbody"))
-                )
-                if not (qa.get("ok") or qa.get("passed")):
-                    last_err = (
-                        f"sequential_stage{pi + 1}_qa:{','.join(qa.get('reasons') or [])}"
-                    )
-                    plate = None
-                    break
-                slot = standing_slot(pi, total)
-                delta = assess_companion_added(prev, plate, slot=slot)
-                if delta is not None:
-                    last_err = f"sequential_stage{pi + 1}_qa:{delta}"
-                    try:
-                        from app.config import settings as _settings
-
-                        dbg = _settings.data_dir / "debug" / f"seq_{job.id}_a{attempt}_p{pi}.png"
-                        dbg.parent.mkdir(parents=True, exist_ok=True)
-                        dbg.write_bytes(plate)
-                    except Exception:
-                        pass
-                    plate = None
-                    break
-
-            if plate is not None:
-                return plate
-        raise RuntimeError(last_err or "sequential multi-char first_frame edit failed")
+        return set_phase
