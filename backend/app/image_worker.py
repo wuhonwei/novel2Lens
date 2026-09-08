@@ -511,15 +511,15 @@ class ImageWorker:
 
         # Layered first frames: scene → people → props (sequential edit).
         from app.domain.edit_identity import is_prop_ref_label, is_scene_ref_label, person_ref_indices
+        from app.sequential_first_frame import should_run_sequential_first_frame
 
         person_n = len(person_ref_indices(ref_labels)) if ref_labels else 0
         scene_n = sum(1 for lab in ref_labels if is_scene_ref_label(lab)) if ref_labels else 0
         prop_n = sum(1 for lab in ref_labels if is_prop_ref_label(lab)) if ref_labels else 0
         if person_n < 1 and not scene_n and not prop_n:
             person_n = len(ref_paths)
-        layer_n = scene_n + person_n + prop_n
-        use_sequential = (job.target_field or "") == "first_frame" and (
-            person_n >= 2 or layer_n >= 2
+        use_sequential = (job.target_field or "") == "first_frame" and should_run_sequential_first_frame(
+            person_n=person_n, scene_n=scene_n, prop_n=prop_n
         )
         if use_sequential:
             aspect = payload.get("aspect") or "3:4"

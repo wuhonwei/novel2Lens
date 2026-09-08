@@ -26,6 +26,23 @@ from app.domain.seq_locks import dropped_lock_indices, visual_lock_indices
 SetPhase = Callable[[str], None]
 
 
+def should_run_sequential_first_frame(
+    *,
+    person_n: int,
+    scene_n: int = 0,
+    prop_n: int = 0,
+) -> bool:
+    """Use sequential stacking only when one Qwen call cannot hold the refs.
+
+    Qwen Edit hard-caps at 3 images per call. One person + scene + one prop
+    fits that budget (fast one-shot). Two+ named people, or more than 3
+    layers, must be stacked.
+    """
+    if int(person_n) >= 2:
+        return True
+    return int(scene_n) + int(person_n) + int(prop_n) > 3
+
+
 def run_sequential_multi_char_first_frame(
     *,
     client: Any,
@@ -116,10 +133,11 @@ def run_sequential_layered_first_frame(
             set_phase(msg)
 
     last_err = ""
-    max_attempts = 6
+    max_attempts = 3
     for attempt in range(1, max_attempts + 1):
-        steps = 28 + (attempt - 1) * 4
-        cfg = min(6.0, 3.5 + (attempt - 1) * 0.4)
+        use_lightning = attempt == 1
+        steps = 4 if use_lightning else 28 + (attempt - 2) * 4
+        cfg = 1.0 if use_lightning else min(6.0, 3.5 + (attempt - 2) * 0.4)
         plate: bytes | None = None
         last_person_lock: tuple[str, bytes, str] | None = None
 
@@ -155,7 +173,7 @@ def run_sequential_layered_first_frame(
                     seed=next_seed(None, attempt, True),
                     steps=steps,
                     cfg=cfg,
-                    use_lightning=False,
+                    use_lightning=use_lightning,
                     width=width,
                     height=height,
                 )
@@ -194,7 +212,7 @@ def run_sequential_layered_first_frame(
                     seed=next_seed(None, attempt, True),
                     steps=steps,
                     cfg=cfg,
-                    use_lightning=False,
+                    use_lightning=use_lightning,
                     width=width,
                     height=height,
                 )
@@ -258,7 +276,7 @@ def run_sequential_layered_first_frame(
                 seed=next_seed(None, attempt + pi * 10, True),
                 steps=steps,
                 cfg=cfg,
-                use_lightning=False,
+                use_lightning=use_lightning,
                 width=width,
                 height=height,
             )
@@ -317,7 +335,7 @@ def run_sequential_layered_first_frame(
                     seed=next_seed(None, attempt + 40 + dj, True),
                     steps=steps,
                     cfg=cfg,
-                    use_lightning=False,
+                    use_lightning=use_lightning,
                     width=width,
                     height=height,
                 )
@@ -380,7 +398,7 @@ def run_sequential_layered_first_frame(
                 seed=next_seed(None, attempt + 80 + pj, True),
                 steps=steps,
                 cfg=cfg,
-                use_lightning=False,
+                use_lightning=use_lightning,
                 width=width,
                 height=height,
             )

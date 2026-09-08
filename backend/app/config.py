@@ -22,8 +22,8 @@ class Settings(BaseSettings):
     # Override via N2L_COMFY_ROOT / N2L_COMFY_PYTHON when the install is elsewhere.
     comfy_root: str = r"D:\Develop\ComfyUI"
     comfy_python: str = r"D:\Develop\ComfyUI\venv\Scripts\python.exe"
-    image_idle_unload_seconds: int = 180
-    stop_comfy_when_idle: bool = True
+    image_idle_unload_seconds: int = 1800
+    stop_comfy_when_idle: bool = False
     # Prefer unload (/free) over full Comfy process restart when flipping LLM↔image.
     # Full stop still happens after idle_seconds if stop_comfy_when_idle is True.
     comfy_prefer_unload_over_restart: bool = True

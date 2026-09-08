@@ -4,7 +4,10 @@ from __future__ import annotations
 from pathlib import Path
 
 from app.db import ImageJob
-from app.sequential_first_frame import run_sequential_multi_char_first_frame
+from app.sequential_first_frame import (
+    run_sequential_multi_char_first_frame,
+    should_run_sequential_first_frame,
+)
 
 
 TINY_PNG = (
@@ -162,3 +165,15 @@ def test_three_person_keeps_newest_lock_then_rebinds_dropped(tmp_path, monkeypat
     assert "person2.png" in last_add  # new person
     assert "person0.png" not in last_add  # dropped from visual lock; rebound later
     assert any("rebind" in u for u in client.uploads)
+
+
+def test_should_run_sequential_skips_one_person_plus_scene():
+    assert should_run_sequential_first_frame(person_n=1, scene_n=1, prop_n=0) is False
+    assert should_run_sequential_first_frame(person_n=1, scene_n=1, prop_n=1) is False
+    assert should_run_sequential_first_frame(person_n=1, scene_n=0, prop_n=0) is False
+
+
+def test_should_run_sequential_for_two_people_or_overflow():
+    assert should_run_sequential_first_frame(person_n=2, scene_n=1, prop_n=0) is True
+    assert should_run_sequential_first_frame(person_n=1, scene_n=1, prop_n=2) is True
+    assert should_run_sequential_first_frame(person_n=5, scene_n=1, prop_n=2) is True
