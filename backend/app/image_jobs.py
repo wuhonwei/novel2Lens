@@ -446,25 +446,21 @@ def _shot_ref_paths(project: Project, shot, assets: list[Asset]) -> tuple[list[s
     )
     paths: list[str] = []
     labels: list[str] = []
-    multi_char = int(getattr(shot, "character_count", 0) or 0) >= 2
     for ref in refs:
         if ref.get("mode") == "text":
             continue
-        # Multi-person first frames: only feed character plates into sequential edit.
-        # Props/scenes stay as text in prompt_zh (same rule as slot packing).
-        if multi_char and str(ref.get("kind") or "") not in ("character",):
-            image_key = str(ref.get("image_key") or "")
-            if image_key not in ("half", "full"):
-                continue
         stored = (ref.get("path") or "").strip()
         role = str(ref.get("image_role") or ref.get("asset_name") or "reference")
-        # Prefer half only for single-character shots. Multi-char Qwen edits often clone
-        # the strongest face when both refs are tight busts; full-body keeps silhouette cues.
+        # Prefer half only for single-character shots without scene/prop stacking.
         asset = by_id.get(str(ref.get("asset_id") or ""))
+        char_n = int(getattr(shot, "character_count", 0) or 0)
+        slot_kinds = {str(s.get("kind") or "") for s in _load(shot.slots_json, [])}
+        layered = char_n >= 2 or "scene" in slot_kinds or "prop" in slot_kinds
         if (
             asset
             and normalize_kind(getattr(asset, "kind", "") or "") == "character"
-            and int(getattr(shot, "character_count", 0) or 0) <= 1
+            and char_n <= 1
+            and not layered
         ):
             half = (getattr(asset, "half_path", None) or "").strip()
             if half:
@@ -479,12 +475,6 @@ def _shot_ref_paths(project: Project, shot, assets: list[Asset]) -> tuple[list[s
 
         paths.append(str(abs_path))
         labels.append(edit_ref_label(asset, role, image_path=abs_path))
-        # Single-char / mixed refs: Qwen Edit hard-caps at 3 images per call.
-        # Multi-char sequential places people one-by-one — pack all character plates.
-        if not multi_char and len(paths) >= 3:
-            break
-        if multi_char and len(paths) >= 8:
-            break
     if not paths:
         return [], [], "本镜没有可用参考图"
     prompt = (shot.prompt_zh or "").strip()

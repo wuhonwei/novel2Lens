@@ -1,9 +1,8 @@
 from app.domain.prompts import compile_first_frame, compile_h3
-from app.domain.slots import SlotSubject, pack_qwen_slots
+from app.domain.slots import SlotSubject, TextFallback, pack_qwen_slots
 
 
 def test_first_frame_with_scene_uses_image_one_as_plate():
-    # With 2 people, scene is text-fallback so both faces keep image slots.
     result = pack_qwen_slots(
         characters=[
             SlotSubject(asset_id="c1", kind="character", position="左一", facing="朝右", image_key="full", refer_as="少年"),
@@ -18,9 +17,9 @@ def test_first_frame_with_scene_uses_image_one_as_plate():
         actions={"左一": "神色苍白，双手递出玉佩", "右一": "接过玉佩，指尖颤抖"},
         text_fallbacks=result.text_fallbacks,
     )
-    assert "场景「青川渡口」无参考图槽" in out.zh or "雾渡" in out.zh
-    assert "图一是左一" in out.zh
-    assert "图二是右一" in out.zh
+    assert "以图一为场景底板" in out.zh
+    assert "图二是左一" in out.zh
+    assert "图三是右一" in out.zh
     assert "恰好2人" in out.zh
     assert "互不相同" in out.zh or "不同面孔" in out.zh or "禁止复制同一张脸" in out.zh
     assert "半身或全身二选一" not in out.zh
@@ -58,7 +57,7 @@ def test_first_frame_slot_includes_character_name_when_present():
     assert "林砚之" in out.zh
     assert "陈守义" in out.zh
     assert "禁止复制同一张脸" in out.zh or "互不相同" in out.zh
-    assert [s.kind for s in result.slots] == ["character", "character"]
+    assert [s.kind for s in result.slots] == ["scene", "character", "character"]
 
 
 def test_first_frame_half_only_does_not_mention_full_companion():
@@ -73,33 +72,86 @@ def test_first_frame_half_only_does_not_mention_full_companion():
         actions={"中": "站立"},
         text_fallbacks=result.text_fallbacks,
     )
-    assert "图一是中" in out.zh
-    assert "半身即图一人物" in out.zh
-    assert "图二为场景底板" in out.zh
+    assert "以图一为场景底板" in out.zh
+    assert "图二是中" in out.zh
+    assert "半身即图二人物" in out.zh
     assert "仅用于锁定面部" not in out.zh
     assert "全身图为准" not in out.zh
 
 
-def test_overflow_scene_and_prop_use_text_descriptions():
-    result = pack_qwen_slots(
-        characters=[
-            SlotSubject(asset_id=f"c{i}", kind="character", position=p, image_key="full", name=f"人{i}")
-            for i, p in enumerate(["左一", "中", "右一"], start=1)
-        ],
-        scene=SlotSubject(asset_id="s1", kind="scene", name="青川渡口", desc_zh="湿冷白雾中的青石渡口"),
-        props=[SlotSubject(asset_id="p1", kind="prop", name="苏字玉佩", desc_zh="刻着苏字的半块玉佩")],
-    )
+def test_scene_and_prop_without_image_use_text_descriptions():
     out = compile_first_frame(
         style="半写实",
-        slots=result.slots,
+        slots=[
+            # only characters have image slots
+            __import__("app.domain.slots", fromlist=["PackedSlot"]).PackedSlot(
+                index=1, kind="character", asset_id="c1", position="左一", facing="面向镜头", image_key="full", name="人1"
+            ),
+            __import__("app.domain.slots", fromlist=["PackedSlot"]).PackedSlot(
+                index=2, kind="character", asset_id="c2", position="中", facing="面向镜头", image_key="full", name="人2"
+            ),
+            __import__("app.domain.slots", fromlist=["PackedSlot"]).PackedSlot(
+                index=3, kind="character", asset_id="c3", position="右一", facing="面向镜头", image_key="full", name="人3"
+            ),
+        ],
         character_count=3,
-        text_fallbacks=result.text_fallbacks,
+        text_fallbacks=[
+            TextFallback(
+                kind="scene",
+                asset_id="s1",
+                image_key="scene",
+                name="青川渡口",
+                text="湿冷白雾中的青石渡口",
+            ),
+            TextFallback(
+                kind="prop",
+                asset_id="p1",
+                image_key="prop",
+                name="苏字玉佩",
+                text="刻着苏字的半块玉佩",
+            ),
+        ],
     )
-    assert "图四" not in out.zh
     assert "场景「青川渡口」无参考图槽" in out.zh
     assert "湿冷白雾中的青石渡口" in out.zh
     assert "核心物品「苏字玉佩」无参考图槽" in out.zh
     assert "刻着苏字的半块玉佩" in out.zh
+
+
+def test_empty_text_fallback_omitted():
+    from app.domain.slots import PackedSlot
+
+    out = compile_first_frame(
+        style="半写实",
+        slots=[PackedSlot(index=1, kind="character", asset_id="c1", position="中", image_key="full")],
+        character_count=1,
+        background="晨雾渡口",
+        text_fallbacks=[
+            TextFallback(kind="scene", asset_id="s1", image_key="scene", name="已删场景", text=""),
+            TextFallback(kind="prop", asset_id="p1", image_key="prop", name="已删道具", text=""),
+        ],
+    )
+    assert "已删场景" not in out.zh
+    assert "已删道具" not in out.zh
+    assert "按文字绘制" not in out.zh
+    assert "晨雾渡口" in out.zh
+
+
+def test_natural_standing_for_fourth_person():
+    from app.domain.slots import PackedSlot
+
+    out = compile_first_frame(
+        style="半写实",
+        slots=[
+            PackedSlot(index=1, kind="character", asset_id="c1", position="左一", image_key="full", name="甲"),
+            PackedSlot(index=2, kind="character", asset_id="c2", position="中", image_key="full", name="乙"),
+            PackedSlot(index=3, kind="character", asset_id="c3", position="右一", image_key="full", name="丙"),
+            PackedSlot(index=4, kind="character", asset_id="c4", position="自然站位", image_key="full", name="丁"),
+        ],
+        character_count=4,
+    )
+    assert "图四" in out.zh or "图四是人物4" in out.zh or "自然站位" in out.zh
+    assert "恰好4人" in out.zh
 
 
 def test_first_frame_without_scene_draws_background_from_text():

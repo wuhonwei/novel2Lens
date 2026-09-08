@@ -45,15 +45,25 @@ export type ImageJob = {
 export function jobPhaseLabel(j: ImageJob): string {
   if (j.phase === "loading_t2i" || j.phase === "ensuring_comfy") return "文生图模型加载中";
   if (j.phase === "loading_edit") return "图片编辑模型加载中";
+  if (j.phase?.startsWith("seq_scene")) {
+    const m = j.phase.match(/^seq_scene_a(\d+)$/);
+    if (m) return `逐层叠加·场景·第${m[1]}轮`;
+    return "逐层叠加·场景";
+  }
+  if (j.phase?.startsWith("seq_prop")) {
+    const m = j.phase.match(/^seq_prop(\d+)\/(\d+)_a(\d+)$/);
+    if (m) return `逐层叠加·道具${m[1]}/${m[2]}·第${m[3]}轮`;
+    return "逐层叠加·道具";
+  }
   if (j.phase?.startsWith("seq_rebind_")) {
     const m = j.phase.match(/^seq_rebind_p(\d+)_a(\d+)$/);
-    if (m) return `逐人叠加·回绑人物${m[1]}·第${m[2]}轮`;
-    return "逐人叠加·回绑身份";
+    if (m) return `逐层叠加·回绑人物${m[1]}·第${m[2]}轮`;
+    return "逐层叠加·回绑身份";
   }
   if (j.phase?.startsWith("seq_p")) {
     const m = j.phase.match(/^seq_p(\d+)\/(\d+)_a(\d+)$/);
-    if (m) return `逐人叠加·人物${m[1]}/${m[2]}·第${m[3]}轮`;
-    return "逐人叠加中";
+    if (m) return `逐层叠加·人物${m[1]}/${m[2]}·第${m[3]}轮`;
+    return "逐层叠加·人物";
   }
   if (j.phase === "generating") return "生成中";
   if (j.status === "queued") return "排队中";
@@ -287,6 +297,15 @@ export const api = {
   patchAsset: (pid: string, aid: string, body: Partial<Asset>) =>
     req<Asset>(`/api/projects/${pid}/assets/${aid}`, {
       method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  createAsset: (
+    pid: string,
+    body: { kind: string; name: string; desc_zh: string; appearance?: Record<string, unknown> },
+  ) =>
+    req<Asset>(`/api/projects/${pid}/assets`, {
+      method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     }),

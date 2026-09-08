@@ -819,6 +819,9 @@ function BookAssets({
   const [view, setView] = useState<"character" | "scene" | "prop">("character");
   const [outDir, setOutDir] = useState(bundle.project.image_output_dir || "");
   const [cancelBusy, setCancelBusy] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newDesc, setNewDesc] = useState("");
+  const [creating, setCreating] = useState(false);
   useEffect(() => setOutDir(bundle.project.image_output_dir || ""), [bundle.project.image_output_dir]);
 
   const tabs = [
@@ -1019,6 +1022,51 @@ function BookAssets({
             ))}
           </div>
         )}
+        <div className="panel" style={{ marginTop: "0.75rem" }} data-testid="manual-asset-create">
+          <div className="panel-head">
+            <h3>新增{active.label}</h3>
+            <p className="hint">手动登记名称与描述；保存后可再生成或上传参考图，供分镜首帧按名匹配。</p>
+          </div>
+          <div className="stack">
+            <input
+              data-testid="manual-asset-name"
+              placeholder="名称"
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+            />
+            <textarea
+              data-testid="manual-asset-desc"
+              placeholder={view === "character" ? "样貌描述（含性别、年龄段、身材）" : "视觉描述"}
+              value={newDesc}
+              rows={3}
+              onChange={(e) => setNewDesc(e.target.value)}
+            />
+            <button
+              data-testid="btn-create-asset"
+              className="primary"
+              disabled={creating || busy || !newName.trim() || !newDesc.trim()}
+              onClick={async () => {
+                setCreating(true);
+                try {
+                  const created = await api.createAsset(bundle.project.id, {
+                    kind: view,
+                    name: newName.trim(),
+                    desc_zh: newDesc.trim(),
+                  });
+                  onChange({ ...bundle, assets: [...bundle.assets, created] });
+                  setNewName("");
+                  setNewDesc("");
+                } catch (e) {
+                  alert(e instanceof Error ? e.message : String(e));
+                } finally {
+                  setCreating(false);
+                }
+              }}
+            >
+              {creating ? "创建中…" : "新增资产"}
+            </button>
+          </div>
+        </div>
       </section>
 
       {view === "character" && (

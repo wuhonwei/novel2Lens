@@ -7,13 +7,12 @@ from app.domain.slots import (
 )
 
 
-def test_named_cap_allows_eight_for_sequential():
-    assert max_named_characters(has_scene=True) == 8
-    assert max_named_characters(has_scene=False) == 8
-    assert MAX_NAMED_CHARACTERS == 8
+def test_named_cap_is_soft_unlimited():
+    assert max_named_characters() >= 99
+    assert MAX_NAMED_CHARACTERS >= 99
 
 
-def test_priority_characters_then_scene_then_prop():
+def test_priority_scene_then_characters_then_prop():
     result = pack_qwen_slots(
         characters=[
             SlotSubject(asset_id="c1", kind="character", position="左一", image_key="full", name="林砚之"),
@@ -23,16 +22,11 @@ def test_priority_characters_then_scene_then_prop():
         props=[SlotSubject(asset_id="p1", kind="prop", name="玉佩", desc_zh="半块玉佩")],
     )
     assert isinstance(result, PackResult)
-    # Dual-character shots reserve image slots for faces; scene+prop become text.
-    assert [s.kind for s in result.slots] == ["character", "character"]
-    assert len(result.slots) == 2
-    fb_kinds = [f.kind for f in result.text_fallbacks]
-    assert "scene" in fb_kinds and "prop" in fb_kinds
-    assert "青川渡口" in next(f.name for f in result.text_fallbacks if f.kind == "scene")
-    assert "玉佩" in next(f.name for f in result.text_fallbacks if f.kind == "prop")
+    assert [s.kind for s in result.slots] == ["scene", "character", "character", "prop"]
+    assert result.text_fallbacks == []
 
 
-def test_three_characters_push_scene_to_text():
+def test_three_characters_keep_scene_and_prop_as_slots():
     result = pack_qwen_slots(
         characters=[
             SlotSubject(asset_id=f"c{i}", kind="character", position=p, image_key="full")
@@ -41,12 +35,17 @@ def test_three_characters_push_scene_to_text():
         scene=SlotSubject(asset_id="s1", kind="scene", name="渡口", desc_zh="雾渡"),
         props=[SlotSubject(asset_id="p1", kind="prop", name="玉佩", desc_zh="半块玉佩")],
     )
-    assert [s.kind for s in result.slots] == ["character", "character", "character"]
-    kinds = [f.kind for f in result.text_fallbacks]
-    assert kinds == ["scene", "prop"]
+    assert [s.kind for s in result.slots] == [
+        "scene",
+        "character",
+        "character",
+        "character",
+        "prop",
+    ]
+    assert result.text_fallbacks == []
 
 
-def test_four_characters_all_get_image_slots():
+def test_four_characters_all_get_image_slots_with_scene():
     result = pack_qwen_slots(
         characters=[
             SlotSubject(asset_id=f"c{i}", kind="character", position="中", image_key="full")
@@ -54,9 +53,9 @@ def test_four_characters_all_get_image_slots():
         ],
         scene=SlotSubject(asset_id="s1", kind="scene", name="渡口", desc_zh="雾渡"),
     )
-    assert len(result.slots) == 4
-    assert all(s.kind == "character" for s in result.slots)
-    assert any(f.kind == "scene" for f in result.text_fallbacks)
+    assert len(result.slots) == 5
+    assert result.slots[0].kind == "scene"
+    assert all(s.kind == "character" for s in result.slots[1:])
 
 
 def test_single_person_uses_only_one_portrait_never_both():
@@ -65,8 +64,8 @@ def test_single_person_uses_only_one_portrait_never_both():
         scene=SlotSubject(asset_id="s1", kind="scene", name="渡口"),
         half_lock=True,
     )
-    assert [s.kind for s in result.slots] == ["character", "scene"]
-    assert result.slots[0].image_key == "half"
+    assert [s.kind for s in result.slots] == ["scene", "character"]
+    assert result.slots[1].image_key == "half"
 
 
 def test_duplicate_character_subjects_collapse_to_one_slot():
@@ -77,18 +76,15 @@ def test_duplicate_character_subjects_collapse_to_one_slot():
         ],
         scene=SlotSubject(asset_id="s1", kind="scene", name="渡口"),
     )
-    assert [s.kind for s in result.slots] == ["character", "scene"]
-    assert result.slots[0].image_key == "full"
+    assert [s.kind for s in result.slots] == ["scene", "character"]
+    assert result.slots[1].image_key == "full"
 
 
-def test_rejects_nine_named_people():
+def test_allows_nine_named_people():
     chars = [
         SlotSubject(asset_id=f"c{i}", kind="character", position="中", image_key="full")
         for i in range(1, 10)
     ]
-    try:
-        pack_qwen_slots(characters=chars)
-    except ValueError as exc:
-        assert "8" in str(exc)
-        return
-    raise AssertionError("expected ValueError")
+    result = pack_qwen_slots(characters=chars)
+    assert len(result.slots) == 9
+    assert all(s.kind == "character" for s in result.slots)

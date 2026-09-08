@@ -509,13 +509,19 @@ class ImageWorker:
         if not ref_paths:
             raise RuntimeError("edit job has no reference images")
 
-        # Multi-character first frames: place people one-by-one (sequential edit).
-        from app.domain.edit_identity import person_ref_indices
+        # Layered first frames: scene → people → props (sequential edit).
+        from app.domain.edit_identity import is_prop_ref_label, is_scene_ref_label, person_ref_indices
 
         person_n = len(person_ref_indices(ref_labels)) if ref_labels else 0
-        if person_n < 2:
+        scene_n = sum(1 for lab in ref_labels if is_scene_ref_label(lab)) if ref_labels else 0
+        prop_n = sum(1 for lab in ref_labels if is_prop_ref_label(lab)) if ref_labels else 0
+        if person_n < 1 and not scene_n and not prop_n:
             person_n = len(ref_paths)
-        if (job.target_field or "") == "first_frame" and person_n >= 2:
+        layer_n = scene_n + person_n + prop_n
+        use_sequential = (job.target_field or "") == "first_frame" and (
+            person_n >= 2 or layer_n >= 2
+        )
+        if use_sequential:
             aspect = payload.get("aspect") or "3:4"
             width, height = resolve_size(aspect, "sdxl")
             edit_prompt = (job.prompt or "").strip()

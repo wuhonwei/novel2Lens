@@ -171,15 +171,18 @@ def test_full_planner_pipeline(tmp_path, monkeypatch):
         board = client.post(f"/api/projects/{pid}/chapters/{cid}/storyboard").json()
         assert board["shots"]
         shot = board["shots"][0]
-        # Dual-character: faces fill image slots; scene is text (no 图三场景底板).
-        assert "青川渡口" in shot["prompt_zh"]
+        # Layered packing: scene plate then characters (and props when present).
+        assert "青川渡口" in shot["prompt_zh"] or "以图一为场景底板" in shot["prompt_zh"]
         assert "图一" in shot["prompt_zh"] and "图二" in shot["prompt_zh"]
-        assert "图三为场景底板" not in shot["prompt_zh"]
+        assert "以图一为场景底板" in shot["prompt_zh"] or any(
+            s.get("kind") == "scene" for s in shot.get("slots") or []
+        )
         assert "<Image 1>" in shot["h3_prompt"]
         assert "左一的少年" in shot["h3_prompt"]
         assert shot["character_count"] == 2
-        assert len(shot["slots"]) <= 3
-        assert all(s.get("kind") == "character" for s in shot["slots"])
+        kinds = [s.get("kind") for s in shot["slots"]]
+        assert "character" in kinds
+        assert "scene" in kinds or "以图一为场景底板" in shot["prompt_zh"]
         assert "林砚之" not in shot["h3_prompt"].replace("我母亲叫苏晚卿", "")
 
         exported = client.post(f"/api/projects/{pid}/export").json()

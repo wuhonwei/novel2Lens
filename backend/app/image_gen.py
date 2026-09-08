@@ -419,3 +419,62 @@ def delete_asset(db: Session, project: Project, asset: Asset) -> dict[str, Any]:
     refresh_shot_readiness(db, project, commit=False)
     db.commit()
     return {"ok": True, "deleted_id": aid, "deleted_files": deleted_files}
+
+
+def create_manual_asset(
+    db: Session,
+    project: Project,
+    *,
+    kind: str,
+    name: str,
+    desc_zh: str,
+    appearance: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Insert a user-created asset row (no auto image generation)."""
+    from app.domain.registry import ensure_character_look_trinity
+    from app.serialize import _dump, _uid
+
+    nk = normalize_kind(kind)
+    if nk not in ("character", "scene", "prop"):
+        raise ValueError("kind 必须是 character、scene 或 prop")
+    name = (name or "").strip()
+    desc_zh = (desc_zh or "").strip()
+    if not name:
+        raise ValueError("名称不能为空")
+    if not desc_zh:
+        raise ValueError("描述不能为空")
+    for a in db.query(Asset).filter(Asset.project_id == project.id).all():
+        if normalize_kind(a.kind) == nk and (a.name or "").strip() == name:
+            raise ValueError(f"已存在同名资产：{name}")
+
+    appearance_map = dict(appearance or {})
+    age_band = ""
+    refer_as = "人" if nk == "character" else ""
+    if nk == "character":
+        desc_zh, appearance_map, age_band = ensure_character_look_trinity(
+            name=name,
+            refer_as=refer_as,
+            age_band=age_band,
+            desc_zh=desc_zh,
+            appearance=appearance_map,
+        )
+
+    asset = Asset(
+        id=_uid(),
+        project_id=project.id,
+        kind=nk,
+        name=name,
+        aliases_json="[]",
+        refer_as=refer_as,
+        age_band=age_band,
+        appearance_json=_dump(appearance_map),
+        background_zh="",
+        desc_zh=desc_zh,
+        desc_en="",
+        confirmed=True,
+        created_chapter_id="",
+    )
+    db.add(asset)
+    db.commit()
+    db.refresh(asset)
+    return serialize_asset(asset)

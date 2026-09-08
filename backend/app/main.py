@@ -16,7 +16,13 @@ from app.config import settings
 from app.db import Asset, Chapter, Project, Proposal, Shot, init_db
 from app import db as database
 from app.domain.registry import sanitize_aliases, sanitize_character_fields
-from app.image_gen import clear_asset_image, delete_asset, list_image_output_files, resolve_image_output_dir
+from app.image_gen import (
+    clear_asset_image,
+    create_manual_asset,
+    delete_asset,
+    list_image_output_files,
+    resolve_image_output_dir,
+)
 from app.image_jobs import (
     cancel_batch,
     cancel_project_jobs,
@@ -198,6 +204,13 @@ class ShotPatch(BaseModel):
     scene_asset_id: str | None = None
     prop_asset_ids: list[str] | None = None
     recompile: bool = True
+
+
+class AssetCreate(BaseModel):
+    kind: str
+    name: str
+    desc_zh: str
+    appearance: dict | None = None
 
 
 class AssetPatch(BaseModel):
@@ -500,6 +513,29 @@ def api_patch_shot(project_id: str, shot_id: str, body: ShotPatch):
         if not shot or shot.project_id != project_id:
             raise HTTPException(404, "分镜不存在")
         return update_shot(db, project, shot, body.model_dump(exclude_unset=True))
+    finally:
+        db.close()
+
+
+@app.post("/api/projects/{project_id}/assets")
+def api_create_asset(project_id: str, body: AssetCreate):
+    db = db_session()
+    try:
+        project = get_project(db, project_id)
+        try:
+            asset = create_manual_asset(
+                db,
+                project,
+                kind=body.kind,
+                name=body.name,
+                desc_zh=body.desc_zh,
+                appearance=body.appearance,
+            )
+        except ValueError as exc:
+            msg = str(exc)
+            code = 409 if "已存在" in msg else 400
+            raise HTTPException(code, msg) from exc
+        return asset
     finally:
         db.close()
 

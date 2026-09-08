@@ -1,7 +1,7 @@
 # Sequential unlimited first frames + manual assets
 
 Date: 2026-09-09  
-Status: draft (awaiting user review)
+Status: approved (user); implementing
 
 ## Goal
 

@@ -14,8 +14,9 @@ from app.domain.shot_refs import scene_image_path
 from app.domain.slots import (
     CAMERAS,
     FACINGS,
+    PackedSlot,
     SlotSubject,
-    max_named_characters,
+    TextFallback,
     normalize_portrait_key,
     pack_qwen_slots,
 )
@@ -130,11 +131,7 @@ def shot_needs_portrait_repair(shot: Shot) -> bool:
     if any(m in prompt for m in LEGACY_DUAL_PORTRAIT_MARKERS):
         return True
     slots = _load(shot.slots_json, [])
-    if len(slots) > 3:
-        return True
-    # Old packing put scene first; new priority puts characters first.
-    if slots and slots[0].get("kind") == "scene" and any(s.get("kind") == "character" for s in slots):
-        return True
+    # Legacy dual half+full for the same character in one shot.
     seen: set[str] = set()
     for slot in slots:
         if slot.get("image_key") not in ("half", "full"):
@@ -146,6 +143,25 @@ def shot_needs_portrait_repair(shot: Shot) -> bool:
             return True
         seen.add(aid)
     return False
+
+
+def _asset_has_slot_image(asset: Asset, image_key: str) -> bool:
+    key = image_key if image_key in ("scene", "prop") else normalize_portrait_key(image_key)
+    if key == "half":
+        return bool((asset.half_path or "").strip())
+    if key == "full":
+        return bool((asset.full_path or "").strip())
+    if key == "scene":
+        return bool(scene_image_path(asset))
+    return bool((asset.image_path or "").strip())
+
+
+def _scrub_deleted_names(text: str, deleted_names: list[str]) -> str:
+    """Remove exact deleted asset names from background/action prose."""
+    out = text or ""
+    for name in sorted({n.strip() for n in deleted_names if (n or "").strip()}, key=len, reverse=True):
+        out = out.replace(name, "")
+    return " ".join(out.split())
 
 
 def compile_shot_prompts(project: Project, shot: Shot, assets: list[Asset]) -> None:
@@ -204,14 +220,72 @@ def compile_shot_prompts(project: Project, shot: Shot, assets: list[Asset]) -> N
         scene=scene_subject,
         props=prop_subjects,
     )
+    # Image-aware split: existing asset without file → text fallback; missing asset → omit.
+    text_fbs: list[TextFallback] = list(packed.text_fallbacks)
+    image_slots: list[PackedSlot] = []
+    for p in packed.slots:
+        asset = by_id.get(p.asset_id or "") if p.asset_id else None
+        if not asset:
+            continue
+        if _asset_has_slot_image(asset, p.image_key):
+            image_slots.append(p)
+        else:
+            text_fbs.append(
+                TextFallback(
+                    kind=p.kind,
+                    asset_id=asset.id,
+                    image_key=p.image_key,
+                    name=asset.name or p.name,
+                    position=p.position or "",
+                    text=(_asset_desc(asset) or "").strip(),
+                    note="文字描述补足",
+                )
+            )
+    reindexed: list[PackedSlot] = []
+    for i, p in enumerate(image_slots, start=1):
+        reindexed.append(
+            PackedSlot(
+                index=i,
+                kind=p.kind,
+                asset_id=p.asset_id,
+                position=p.position,
+                facing=p.facing,
+                image_key=p.image_key,
+                refer_as=p.refer_as,
+                name=p.name,
+            )
+        )
+    text_fbs = [fb for fb in text_fbs if (fb.text or "").strip()]
+
+    if shot.scene_asset_id and shot.scene_asset_id not in by_id:
+        shot.scene_asset_id = ""
+    prop_ids_live = [pid for pid in prop_ids if pid in by_id]
+    shot.prop_asset_ids_json = _dump(prop_ids_live)
+
+    living_names = {(a.name or "").strip() for a in assets if (a.name or "").strip()}
+    prev_names: list[str] = []
+    for slot in _load(shot.slots_json, []):
+        n = str(slot.get("asset_name") or slot.get("name") or "").strip()
+        if n and n not in living_names:
+            prev_names.append(n)
+    for fb in _load(getattr(shot, "text_fallbacks_json", None) or "[]", []):
+        n = str(fb.get("name") or "").strip()
+        if n and n not in living_names:
+            prev_names.append(n)
+    bg = shot.background or ""
+    if prev_names:
+        shot.background = _scrub_deleted_names(bg, prev_names)
+        shot.action = _scrub_deleted_names(shot.action or "", prev_names)
+        bg = shot.background
+
     actions = {ln.get("position"): ln.get("action") or ln.get("transient") or "" for ln in lines}
     prompts = compile_first_frame(
         style=project.style,
-        slots=packed.slots,
+        slots=reindexed,
         character_count=shot.character_count,
-        background=shot.background,
+        background=bg,
         actions=actions,
-        text_fallbacks=packed.text_fallbacks,
+        text_fallbacks=text_fbs,
     )
     h3_lines = []
     for ln in lines:
@@ -236,7 +310,7 @@ def compile_shot_prompts(project: Project, shot: Shot, assets: list[Asset]) -> N
         narration=shot.narration,
     )
     slot_dump = []
-    for p in packed.slots:
+    for p in reindexed:
         asset = by_id.get(p.asset_id or "") if p.asset_id else None
         slot_dump.append(
             {
@@ -262,11 +336,11 @@ def compile_shot_prompts(project: Project, shot: Shot, assets: list[Asset]) -> N
                 "text": fb.text,
                 "note": fb.note,
             }
-            for fb in packed.text_fallbacks
+            for fb in text_fbs
         ]
     )
     image_reqs: list[tuple[Asset, str]] = []
-    for p in packed.slots:
+    for p in reindexed:
         asset = by_id.get(p.asset_id or "") if p.asset_id else None
         if asset:
             image_reqs.append((asset, p.image_key))
@@ -324,17 +398,31 @@ async def generate_storyboard(
         named = raw.get("characters") or []
         scene_name = raw.get("scene_name")
         scene = _match_name(scenes, scene_name, "scene") if scene_name else None
-        cap = max_named_characters()
-        named = named[:cap]
         duration = float(raw.get("duration_s") or 6)
         duration = min(15.0, max(4.0, duration))
         camera = raw.get("camera") if raw.get("camera") in CAMERAS else "固定"
         lines = []
-        for person in named:
+        for pi, person in enumerate(named):
             asset = _match_name(chars, person.get("name"), "character")
             if not asset:
                 continue
-            pos = person.get("position") if person.get("position") in ("左一", "中", "右一") else "中"
+            if pi == 0:
+                default_pos = "左一" if len(named) >= 2 else "中"
+            elif pi == 1 and len(named) == 2:
+                default_pos = "右一"
+            elif pi == 1:
+                default_pos = "中"
+            elif pi == 2:
+                default_pos = "右一"
+            else:
+                default_pos = "自然站位"
+            raw_pos = person.get("position")
+            if pi >= 3:
+                pos = "自然站位"
+            elif raw_pos in ("左一", "中", "右一"):
+                pos = raw_pos
+            else:
+                pos = default_pos
             facing = person.get("facing") if person.get("facing") in FACINGS else "面向镜头"
             image_key = _pick_portrait(raw, person, len(named))
             lines.append(

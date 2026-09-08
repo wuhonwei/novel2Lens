@@ -303,6 +303,97 @@ def wrap_rebind_identity(
     )
 
 
+def wrap_sequential_place_on_scene(
+    *,
+    scene_label: str,
+    person_label: str,
+    edit_prompt: str,
+    total_people: int,
+    aspect: str,
+    width: int,
+    height: int,
+) -> str:
+    """Place the first person onto an established scene plate."""
+    slot = standing_slot(0, max(1, total_people))
+    remain = max(0, int(total_people) - 1)
+    room = (
+        f"Leave clear empty space for {remain} more named person(s) later. "
+        if remain
+        else ""
+    )
+    return (
+        f"Using image 1 ({scene_label}), image 2 ({person_label}), create one new image: {edit_prompt}. "
+        "CRITICAL: image 1 is the environment plate — keep its location, layout, lighting, and props. "
+        f"COMPOSITE: place ONLY one identifiable person from image 2 ({person_label}) "
+        f"standing on the {slot.upper()} of the frame. "
+        "Match that reference's face, age, hair, beard/no-beard, outfit color and silhouette exactly. "
+        f"{room}"
+        "Do not invent additional named characters; distant unrecognizable silhouettes only. "
+        f"Output image aspect ratio {aspect}, resolution {width}x{height}."
+    )
+
+
+def wrap_sequential_add_prop(
+    *,
+    base_label: str,
+    prop_label: str,
+    lock_label: str | None,
+    edit_prompt: str,
+    aspect: str,
+    width: int,
+    height: int,
+) -> str:
+    """Add one prop onto the composition plate without rewriting identities."""
+    parts = [f"image 1 ({base_label})"]
+    if lock_label:
+        parts.append(f"image 2 ({lock_label})")
+        parts.append(f"image 3 ({prop_label})")
+        lock_bit = (
+            f"image 2 ({lock_label}) locks an already-placed person — keep that face/outfit unchanged. "
+        )
+        prop_i = 3
+    else:
+        parts.append(f"image 2 ({prop_label})")
+        lock_bit = ""
+        prop_i = 2
+    return (
+        f"Using {', '.join(parts)}, create one new image: {edit_prompt}. "
+        "CRITICAL: image 1 is the composition plate — KEEP every identifiable person, "
+        "their faces, outfits, standing order, scene, and camera. "
+        f"{lock_bit}"
+        f"ADD OBJECT ONLY: incorporate the prop from image {prop_i} ({prop_label}) "
+        "with matching shape and material; place it naturally in the scene or in a character's hand "
+        "as the Chinese prompt implies. "
+        "Do not add new people; do not remove anyone; do not rewrite faces. "
+        f"Output image aspect ratio {aspect}, resolution {width}x{height}."
+    )
+
+
+def is_scene_ref_label(label: str) -> bool:
+    s = (label or "").strip()
+    return any(k in s for k in ("场景", "scene", "Scene", "environment plate", "near plate", "wide plate"))
+
+
+def is_prop_ref_label(label: str) -> bool:
+    s = (label or "").strip()
+    if is_scene_ref_label(s):
+        return False
+    return any(k in s for k in ("物品", "prop", "Prop", "key prop"))
+
+
+def person_ref_indices(ref_labels: list[str]) -> list[int]:
+    """Indices of character refs (skip prop/scene labels)."""
+    out: list[int] = []
+    for i, lab in enumerate(ref_labels):
+        s = (lab or "").strip()
+        if is_scene_ref_label(s) or is_prop_ref_label(s):
+            continue
+        if any(k in s for k in ("物品", "场景", "prop", "scene", "Prop", "Scene")):
+            continue
+        out.append(i)
+    return out
+
+
 def wrap_two_pass_stage1(
     *,
     label: str,
@@ -353,14 +444,3 @@ def two_pass_stage1_negative() -> str:
         "extra face, another man beside, three people, 双人, 第二个人, 两人同框, 三人, "
         "identical twin, white beard on youth, elderly clone"
     )
-
-
-def person_ref_indices(ref_labels: list[str]) -> list[int]:
-    """Indices of character refs (skip prop/scene labels)."""
-    out: list[int] = []
-    for i, lab in enumerate(ref_labels):
-        s = (lab or "").strip()
-        if any(k in s for k in ("物品", "场景", "prop", "scene", "Prop", "Scene")):
-            continue
-        out.append(i)
-    return out

@@ -28,14 +28,15 @@ CAMERAS = (
 VARIANT_REASONS = ("outfit", "age", "injury", "season", "other")
 H3_ENCODER = "qwen3vl_32b_heretic_minimax_h3_nvfp4.safetensors"
 
+# Per Qwen Edit call hard cap (sequential stages still respect this).
 MAX_REF_IMAGES = 3
-# Sequential first frames place people one-by-one; allow more named faces than one Qwen call.
-MAX_NAMED_CHARACTERS = 8
-MAX_MULTI_CHAR_REF_IMAGES = 8
+# Soft ceiling only for legacy callers; packing no longer rejects above this.
+MAX_NAMED_CHARACTERS = 99
+MAX_MULTI_CHAR_REF_IMAGES = 99
 
 
 def max_named_characters(has_scene: bool = False) -> int:
-    """Soft UI/storyboard cap for named people (sequential edit supports up to this)."""
+    """Soft hint for storyboard UI; sequential packing does not enforce this."""
     del has_scene
     return MAX_NAMED_CHARACTERS
 
@@ -101,15 +102,14 @@ def pack_qwen_slots(
     props: list[SlotSubject] | None = None,
     scene: SlotSubject | None = None,
 ) -> PackResult:
-    """Pack reference image slots for a shot.
+    """Pack reference layers for sequential first-frame stacking.
 
-    Single-character / mixed shots: ≤3 images (Qwen Edit hard cap per call).
-    Multi-character (≥2): all character portraits as image slots (≤8); scene/props
-    stay text — ImageWorker places people sequentially.
-    Overflow beyond the slot budget becomes text_fallbacks.
+    Order: scene → characters → props. No people/scene/prop hard cap — ImageWorker
+    stacks layers one edit at a time (≤3 images per call). Callers that know which
+    assets lack files should move those entries to text_fallbacks after packing.
     """
     del half_lock
-    del has_scene  # scene no longer changes character cap or forced first slot
+    del has_scene
 
     unique_chars: list[SlotSubject] = []
     seen_ids: set[str] = set()
@@ -120,60 +120,22 @@ def pack_qwen_slots(
         unique_chars.append(char)
     characters = unique_chars
 
-    if len(characters) > MAX_NAMED_CHARACTERS:
-        raise ValueError(f"具名出镜人物不能超过 {MAX_NAMED_CHARACTERS} 人")
-
     prop_list: list[SlotSubject] = []
     if props:
         prop_list.extend(props)
     elif prop:
         prop_list.append(prop)
 
-    candidates: list[tuple[int, SlotSubject]] = []
-    # priority rank: lower = earlier
-    for char in characters:
-        candidates.append((0, char))
-    # With 2+ named people, keep image slots for faces; describe scene AND props in text.
-    # Qwen-Image-Edit often clones/drops a face when a 3rd plate (scene or prop) shares the budget.
-    early_text_fallbacks: list[TextFallback] = []
+    ordered: list[SlotSubject] = []
     if scene and scene.asset_id:
-        if len(characters) >= 2:
-            early_text_fallbacks.append(
-                TextFallback(
-                    kind="scene",
-                    asset_id=scene.asset_id,
-                    image_key="scene",
-                    name=scene.name or "",
-                    position="",
-                    text=(scene.desc_zh or "").strip(),
-                    note="双人镜优先人物参考槽，场景改文字",
-                )
-            )
-        else:
-            candidates.append((1, scene))
+        ordered.append(scene)
+    ordered.extend(characters)
     for p in prop_list:
-        if not (p and p.asset_id):
-            continue
-        if len(characters) >= 2:
-            early_text_fallbacks.append(
-                TextFallback(
-                    kind="prop",
-                    asset_id=p.asset_id,
-                    image_key=p.image_key or "prop",
-                    name=p.name or "",
-                    position="",
-                    text=(p.desc_zh or "").strip(),
-                    note="双人镜优先人物参考槽，物品改文字",
-                )
-            )
-        else:
-            candidates.append((2, p))
+        if p and p.asset_id:
+            ordered.append(p)
 
-    max_slots = MAX_MULTI_CHAR_REF_IMAGES if len(characters) >= 2 else MAX_REF_IMAGES
     slots: list[PackedSlot] = []
-    text_fallbacks: list[TextFallback] = list(early_text_fallbacks)
-    n = 1
-    for _rank, subject in candidates:
+    for n, subject in enumerate(ordered, start=1):
         kind = subject.kind
         if kind == "character":
             image_key = normalize_portrait_key(subject.image_key)
@@ -182,32 +144,17 @@ def pack_qwen_slots(
         else:
             image_key = subject.image_key or "prop"
             kind = "prop"
-
-        if n <= max_slots:
-            slots.append(
-                PackedSlot(
-                    index=n,
-                    kind=kind,
-                    asset_id=subject.asset_id,
-                    position=subject.position,
-                    facing=subject.facing,
-                    image_key=image_key,
-                    refer_as=subject.refer_as,
-                    name=subject.name or "",
-                )
+        slots.append(
+            PackedSlot(
+                index=n,
+                kind=kind,
+                asset_id=subject.asset_id,
+                position=subject.position,
+                facing=subject.facing,
+                image_key=image_key,
+                refer_as=subject.refer_as,
+                name=subject.name or "",
             )
-            n += 1
-        else:
-            text_fallbacks.append(
-                TextFallback(
-                    kind=kind,
-                    asset_id=subject.asset_id,
-                    image_key=image_key,
-                    name=subject.name or "",
-                    position=subject.position or "",
-                    text=(subject.desc_zh or "").strip(),
-                    note="文字描述补足",
-                )
-            )
+        )
 
-    return PackResult(slots=slots, text_fallbacks=text_fallbacks)
+    return PackResult(slots=slots, text_fallbacks=[])
