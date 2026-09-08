@@ -50,7 +50,14 @@ export function patchBundleFromJobResults(bundle: Bundle, jobs: ImageJob[]): Bun
       if (!shotId || !shots.some((s) => s.id === shotId)) return null;
       shots = shots.map((s) =>
         s.id === shotId
-          ? ({ ...s, first_frame_path: path, first_frame_unready: false } satisfies Shot)
+          ? ({
+              ...s,
+              first_frame_path: path,
+              first_frame_unready: false,
+              // Same file path is overwritten on disk — bump so <img> reloads.
+              first_frame_version:
+                (typeof s.first_frame_version === "number" ? s.first_frame_version : 0) + 1,
+            } satisfies Shot)
           : s,
       );
       touched = true;
@@ -112,6 +119,9 @@ export function useImageJobPoll(
     const next = { id: batchId, total: Math.max(total, 1) };
     imageBatchRef.current = next;
     setImageBatch(next);
+    // Jobs were often empty before enqueue, so the poll interval is stopped.
+    // Kick once so completion is detected and the UI refreshes.
+    queueMicrotask(() => pollImageJobsRef.current?.());
   }
 
   function clearBatchTracking() {

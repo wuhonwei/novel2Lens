@@ -33,6 +33,21 @@ def _effective_far_path(asset: Asset) -> str:
     return asset.image_path or ""
 
 
+def _file_mtime_version(rel: str | None) -> int:
+    rel = (rel or "").strip()
+    if not rel:
+        return 0
+    path = Path(rel)
+    if not path.is_absolute():
+        path = Path(settings.data_dir) / rel
+    try:
+        if path.is_file():
+            return int(path.stat().st_mtime)
+    except OSError:
+        return 0
+    return 0
+
+
 def _asset_media_version(asset: Asset) -> int:
     """Max mtime of stored asset images — used by UI to bust browser cache after regen."""
     fields = (
@@ -43,19 +58,8 @@ def _asset_media_version(asset: Asset) -> int:
         asset.image_path,
     )
     latest = 0
-    root = Path(settings.data_dir)
     for rel in fields:
-        rel = (rel or "").strip()
-        if not rel:
-            continue
-        path = Path(rel)
-        if not path.is_absolute():
-            path = root / rel
-        try:
-            if path.is_file():
-                latest = max(latest, int(path.stat().st_mtime))
-        except OSError:
-            continue
+        latest = max(latest, _file_mtime_version(rel))
     return latest
 
 
@@ -170,6 +174,7 @@ def serialize_shot(shot: Shot, chapter_title: str = "", assets: list[Asset] | No
         "lines": lines,
         "half_lock": shot.half_lock,
         "first_frame_path": getattr(shot, "first_frame_path", "") or "",
+        "first_frame_version": _file_mtime_version(getattr(shot, "first_frame_path", "") or ""),
         "first_frame_score": getattr(shot, "first_frame_score", None),
         "first_frame_score_comment": getattr(shot, "first_frame_score_comment", "") or "",
         "references": references,

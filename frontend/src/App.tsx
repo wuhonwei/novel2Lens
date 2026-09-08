@@ -656,6 +656,7 @@ export default function App() {
                         setImageJobs(jobs);
                         imageJobsActiveRef.current = true;
                         if (prevActiveCountRef.current === 0) prevActiveCountRef.current = jobs.length;
+                        pollImageJobsRef.current?.();
                       }
                       setBundle(next);
                       setTab("分镜");
@@ -677,6 +678,7 @@ export default function App() {
                         setImageJobs(jobs);
                         imageJobsActiveRef.current = true;
                         if (prevActiveCountRef.current === 0) prevActiveCountRef.current = jobs.length;
+                        pollImageJobsRef.current?.();
                       }
                       setBundle(next);
                       setTab("分镜");
@@ -780,6 +782,7 @@ export default function App() {
                               setImageJobs([job]);
                               imageJobsActiveRef.current = true;
                               if (prevActiveCountRef.current === 0) prevActiveCountRef.current = 1;
+                              pollImageJobsRef.current?.();
                             }
                             setBundle(next);
                           })

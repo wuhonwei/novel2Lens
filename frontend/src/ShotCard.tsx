@@ -158,7 +158,11 @@ export function ShotCard({
       {shot.first_frame_path ? (
         <div className="shot-first-frame">
           <div className="thumb-with-score">
-            <img src={mediaUrl(shot.first_frame_path)} alt={`镜${shot.order_index}首帧`} />
+            <img
+              key={`${shot.id}-${shot.first_frame_version || 0}-${shot.first_frame_path}`}
+              src={mediaUrl(shot.first_frame_path, shot.first_frame_version)}
+              alt={`镜${shot.order_index}首帧`}
+            />
             <ScoreBadge score={shot.first_frame_score} comment={shot.first_frame_score_comment} />
           </div>
         </div>

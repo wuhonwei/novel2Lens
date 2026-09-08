@@ -117,6 +117,8 @@ export type Shot = {
   character_count: number;
   first_frame_unready: boolean;
   first_frame_path?: string;
+  /** Cache-bust for overwritten first_frame.png (mtime or client bump). */
+  first_frame_version?: number;
   first_frame_score?: number | null;
   first_frame_score_comment?: string;
   prompt_zh: string;
