@@ -37,7 +37,7 @@ from app.comfy_pipeline.character_prompt import (
 )
 from app.image_jobs import has_active_jobs, next_queued_job
 from app.llm_supervisor import LlmSupervisor
-from app.services import refresh_shot_readiness
+from app.storyboard_ops import refresh_shot_readiness
 
 log = logging.getLogger(__name__)
 
@@ -68,6 +68,8 @@ class ImageWorker:
         self._last_kind: str | None = None
         self._running = False
         self._idle_streak = 0
+        self._ckpt_cache: set[str] | None = None
+        self._cancel_cache: dict[str, float] = {}
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
@@ -164,15 +166,32 @@ class ImageWorker:
         return True
 
     def _job_was_cancelled(self, job_id: str) -> bool:
+        # Throttle cancel checks — sequential phase updates hit this often.
+        now = time.monotonic()
+        last = self._cancel_cache.get(job_id)
+        if last is not None and (now - last) < 0.8:
+            return False
+        self._cancel_cache[job_id] = now
         check = self.session_factory()
         try:
             fresh = check.get(ImageJob, job_id)
-            return fresh is not None and fresh.status == "cancelled"
+            cancelled = fresh is not None and fresh.status == "cancelled"
+            if cancelled:
+                self._cancel_cache.pop(job_id, None)
+            return cancelled
         finally:
             check.close()
 
     def _client(self) -> Any:
         return self.comfy._client()
+
+    def _live_checkpoints(self, client: Any) -> set[str]:
+        if self._ckpt_cache is None:
+            self._ckpt_cache = set(client.list_checkpoints() or [])
+        return self._ckpt_cache
+
+    def _invalidate_ckpt_cache(self) -> None:
+        self._ckpt_cache = None
 
     def _run_job(self, db: Session, job: ImageJob) -> None:
         self._running = True
@@ -183,8 +202,9 @@ class ImageWorker:
                 self.llm.wait_released()
             except TimeoutError as exc:
                 raise RuntimeError(f"cannot start Comfy while LLM still up: {exc}") from exc
-            # Extra beat after Ollama unload so CUDA pages can reclaim before Comfy.
-            time.sleep(min(5.0, max(0.0, float(getattr(self.llm, "settle_seconds", 5.0) or 0))))
+            # Extra beat only if Ollama unload may still be reclaiming — keep short;
+            # stop_llm already waited settle_seconds once.
+            time.sleep(min(1.5, max(0.0, float(getattr(self.llm, "settle_seconds", 5.0) or 0) * 0.15)))
             job.status = "running"
             job.error = ""
             job.phase = "ensuring_comfy"
@@ -198,6 +218,7 @@ class ImageWorker:
             if job.kind == "t2i":
                 if self._last_kind == "edit":
                     self.comfy.free_models()
+                    self._invalidate_ckpt_cache()
                 job.phase = "loading_t2i"
                 if not self._save(db, job):
                     return
@@ -208,6 +229,7 @@ class ImageWorker:
             else:
                 if self._last_kind == "t2i":
                     self.comfy.free_models()
+                    self._invalidate_ckpt_cache()
                 job.phase = "loading_edit"
                 if not self._save(db, job):
                     return
@@ -226,6 +248,7 @@ class ImageWorker:
             if not project:
                 raise RuntimeError("project missing")
             payload_shot_id = (payload.get("shot_id") or getattr(job, "shot_id", "") or "").strip()
+            result_path = ""
             if job.target_field == "first_frame" or payload_shot_id:
                 from app.db import Shot
                 from app.image_gen import write_shot_first_frame
@@ -233,13 +256,21 @@ class ImageWorker:
                 shot = db.get(Shot, payload_shot_id or job.asset_id)
                 if not shot or shot.project_id != project.id:
                     raise RuntimeError("shot missing for first_frame")
-                write_shot_first_frame(project, shot, png)
+                result_path = write_shot_first_frame(project, shot, png)
             else:
                 asset = db.get(Asset, job.asset_id)
                 if not asset:
                     raise RuntimeError("project or asset missing")
-                write_asset_image(project, asset, job.target_field, png)
-                refresh_shot_readiness(db, project, commit=False)
+                result_path = write_asset_image(project, asset, job.target_field, png)
+                refresh_shot_readiness(
+                    db, project, commit=False, asset_id=asset.id
+                )
+
+            payload["result_path"] = result_path
+            payload["result_field"] = job.target_field or ""
+            payload["result_asset_id"] = job.asset_id or ""
+            payload["result_shot_id"] = payload_shot_id
+            job.payload_json = json.dumps(payload, ensure_ascii=False)
 
             # Re-check after disk/ORM write: never commit paths if user cancelled.
             if self._job_was_cancelled(job.id):
@@ -273,7 +304,7 @@ class ImageWorker:
         age_tier = payload.get("age_tier") or "unknown"
         prefer_backend = (payload.get("prefer_backend") or "").strip()
         qp = QUALITY_PARAMS.get(quality, QUALITY_PARAMS["standard"])
-        live_ckpts = set(client.list_checkpoints() or [])
+        live_ckpts = self._live_checkpoints(client)
 
         t2i_prompt = prompt
         if subject_type == "character":
@@ -306,22 +337,10 @@ class ImageWorker:
         else:
             style_for_suffix = style
             if subject_type == "prop":
-                # English object anchors first — Guofeng often ignores bare Chinese prop names.
-                prop_en = {
-                    "玉佩": "Chinese carved jade pendant bi disc, nephrite jade ornament",
-                    "文献": "bound ancient Chinese rice-paper documents scroll stack",
-                    "木盒": "carved rosewood wooden box",
-                    "火折子": "ancient Chinese fire starter tube flint lighter",
-                    "乌木船": "small dark ebony hardwood carved wooden boat model, clear hull and oars, no people",
-                    "千年古松": "miniature ancient pine tree bonsai",
-                    "密道": "narrow wooden secret tunnel doorway entrance",
-                }
-                for zh, en in prop_en.items():
-                    if zh in prompt:
-                        t2i_prompt = f"{en}. {prompt}"
-                        break
-                else:
-                    t2i_prompt = prompt
+                from app.domain.prop_hints import prop_en_anchor
+
+                en = prop_en_anchor(prompt)
+                t2i_prompt = f"{en}. {prompt}" if en else prompt
             else:
                 t2i_prompt = prompt
 
@@ -393,38 +412,61 @@ class ImageWorker:
 
         if backend == "ideogram4":
             width, height = resolve_size(aspect, "ideogram4")
-            wf = compile_ideogram_t2i(
-                prompt=positive,
-                negative=negative,
-                width=width,
-                height=height,
-                seed=next_seed(None, 0, False),
-                steps=int(qp["ideogram_steps"]),
-                cfg=float(qp["cfg"]),
-                style=style,
-            )
         else:
             width, height = resolve_size(aspect, "sdxl")
             if subject_type == "character" and aspect == "9:16":
                 width, height = resolve_size("9:16_fullbody", "sdxl")
             ckpt = ckpt_for_backend(backend) or "RealVisXL_V5.0_fp16.safetensors"
-            wf = compile_sdxl_t2i(
-                ckpt=ckpt,
-                prompt=positive,
-                negative=negative,
-                width=width,
-                height=height,
-                seed=next_seed(None, 0, False),
-                steps=int(qp["steps"]),
-                cfg=float(qp["cfg"]),
-            )
 
-        pid = client.queue_prompt(wf)
-        hist = client.wait_history(pid, timeout_seconds=self.job_timeout)
-        images = client.collect_images(hist)
-        if not images:
-            raise RuntimeError("Comfy returned no images")
-        return images[0]
+        from app.comfy_pipeline.qa import assess_image_bytes
+
+        require_fb = bool(payload.get("require_fullbody"))
+        last_err = ""
+        last_png: bytes | None = None
+        attempts = 3 if require_fb or subject_type == "character" else 2
+        for attempt in range(attempts):
+            steps = int(qp["steps"]) + attempt * 4
+            cfg = float(qp["cfg"]) + attempt * 0.25
+            if backend == "ideogram4":
+                wf = compile_ideogram_t2i(
+                    prompt=positive,
+                    negative=negative,
+                    width=width,
+                    height=height,
+                    seed=next_seed(None, attempt, True),
+                    steps=int(qp["ideogram_steps"]) + attempt,
+                    cfg=float(qp["cfg"]),
+                    style=style,
+                )
+            else:
+                wf = compile_sdxl_t2i(
+                    ckpt=ckpt,
+                    prompt=positive,
+                    negative=negative,
+                    width=width,
+                    height=height,
+                    seed=next_seed(None, attempt, True),
+                    steps=steps,
+                    cfg=cfg,
+                )
+            pid = client.queue_prompt(wf)
+            hist = client.wait_history(pid, timeout_seconds=self.job_timeout)
+            images = client.collect_images(hist)
+            if not images:
+                last_err = "Comfy returned no images"
+                continue
+            last_png = images[0]
+            qa = assess_image_bytes(
+                last_png,
+                require_fullbody=require_fb,
+                min_character_sides=int(payload.get("min_character_sides") or 0),
+            )
+            if qa.get("ok") or qa.get("passed"):
+                return last_png
+            last_err = f"qa_failed:{','.join(qa.get('reasons') or [])}"
+        if last_png is not None and not require_fb:
+            return last_png
+        raise RuntimeError(last_err or "Comfy t2i failed")
 
     def _run_edit(self, db: Session, client: Any, job: ImageJob, payload: dict[str, Any]) -> bytes:
         from app.comfy_pipeline.qa import assess_image_bytes

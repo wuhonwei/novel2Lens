@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from app.db import Asset, ImageJob, Project
 from app.domain.registry import normalize_kind
 from app.image_gen import _style_for, build_field_prompt, character_persona
-from app.services import _uid
+from app.serialize import _dump, _load, _uid
 
 
 ACTIVE_STATUSES = ("queued", "running")
@@ -153,6 +153,8 @@ def _t2i_payload(asset: Asset, project: Project, field: str, aspect: str) -> dic
         gender, age_tier = character_persona(asset)
         payload["gender"] = gender
         payload["age_tier"] = age_tier
+        if field == "full":
+            payload["require_fullbody"] = True
     return payload
 
 
@@ -161,13 +163,20 @@ def _edit_payload(
     aspect: str,
     ref_field: str | None = None,
     ref_paths: list[str] | None = None,
+    require_fullbody: bool = False,
+    min_character_sides: int = 0,
 ) -> dict[str, Any]:
-    return {
+    payload: dict[str, Any] = {
         "aspect": aspect,
         "ref_field": ref_field or "",
         "ref_paths": list(ref_paths or []),
         "quality": "standard",
     }
+    if require_fullbody:
+        payload["require_fullbody"] = True
+    if min_character_sides:
+        payload["min_character_sides"] = int(min_character_sides)
+    return payload
 
 
 def _build_asset_field_job(project: Project, asset: Asset, field: str) -> ImageJob:
@@ -418,7 +427,7 @@ def _shot_ref_paths(project: Project, shot, assets: list[Asset]) -> tuple[list[s
     """Return (abs_paths, labels, error). Error non-empty if unready or missing files."""
     from app.config import settings
     from app.domain.shot_refs import build_shot_references
-    from app.services import _load
+    from app.serialize import _load
 
     if shot.first_frame_unready:
         return [], [], "首帧参考图未齐备"
@@ -497,6 +506,21 @@ def _active_first_frame_job(db: Session, shot_id: str) -> ImageJob | None:
     )
 
 
+def _first_frame_payload(shot, paths: list[str], labels: list[str]) -> dict[str, Any]:
+    n = int(getattr(shot, "character_count", 0) or 0)
+    payload: dict[str, Any] = {
+        "aspect": "16:9",
+        "ref_paths": paths,
+        "ref_labels": labels,
+        "shot_id": shot.id,
+        "quality": "standard",
+        "require_fullbody": True,
+    }
+    if n >= 2:
+        payload["min_character_sides"] = min(n, 3)
+    return payload
+
+
 def enqueue_shot_first_frame(
     db: Session, project: Project, shot, *, batch_id: str = "", assets: list[Asset] | None = None
 ) -> ImageJob:
@@ -514,13 +538,7 @@ def enqueue_shot_first_frame(
         prior.error = "superseded by re-enqueue"
         db.add(prior)
     clear_shot_first_frame_score(shot)
-    payload = {
-        "aspect": "16:9",
-        "ref_paths": paths,
-        "ref_labels": labels,
-        "shot_id": shot.id,
-        "quality": "standard",
-    }
+    payload = _first_frame_payload(shot, paths, labels)
     job = _make_job(
         project=project,
         asset=None,
@@ -564,13 +582,7 @@ def enqueue_chapter_first_frames(db: Session, project: Project, chapter_id: str)
             if err:
                 errors.append(f"镜{shot.order_index}: {err}")
                 continue
-            payload = {
-                "aspect": "16:9",
-                "ref_paths": paths,
-                "ref_labels": labels,
-                "shot_id": shot.id,
-                "quality": "standard",
-            }
+            payload = _first_frame_payload(shot, paths, labels)
             job = _make_job(
                 project=project,
                 asset=None,
@@ -628,13 +640,7 @@ def enqueue_project_first_frames(db: Session, project: Project) -> dict[str, Any
         if err:
             errors.append(f"{title_by.get(shot.chapter_id, '')}镜{shot.order_index}: {err}")
             continue
-        payload = {
-            "aspect": "16:9",
-            "ref_paths": paths,
-            "ref_labels": labels,
-            "shot_id": shot.id,
-            "quality": "standard",
-        }
+        payload = _first_frame_payload(shot, paths, labels)
         job = _make_job(
             project=project,
             asset=None,

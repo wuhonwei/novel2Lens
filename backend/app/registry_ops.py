@@ -326,7 +326,39 @@ async def full_registry_scan(
 
     Assets are book-scoped (TXT-level), auto-confirmed — no per-chapter confirm.
     """
-    novel = (project.source_text or "")[:NOVEL_SCAN_CHARS]
+    novel_full = project.source_text or ""
+    # Chunk long novels so late chapters are not silently dropped.
+    chunk_size = NOVEL_SCAN_CHARS
+    chunks: list[str] = []
+    if len(novel_full) <= chunk_size:
+        chunks = [novel_full]
+    else:
+        # Prefer chapter boundaries when available.
+        chapters = (
+            db.query(Chapter)
+            .filter(Chapter.project_id == project.id)
+            .order_by(Chapter.index.asc())
+            .all()
+        )
+        if chapters:
+            buf = ""
+            for ch in chapters:
+                piece = (ch.text or "").strip()
+                if not piece:
+                    continue
+                if buf and len(buf) + len(piece) + 2 > chunk_size:
+                    chunks.append(buf)
+                    buf = piece
+                else:
+                    buf = f"{buf}\n\n{piece}" if buf else piece
+            if buf:
+                chunks.append(buf)
+        else:
+            for i in range(0, len(novel_full), chunk_size):
+                chunks.append(novel_full[i : i + chunk_size])
+    if not chunks:
+        chunks = [""]
+
     if replace:
         detach_shot_asset_refs(db, project.id)
         db.query(Asset).filter(Asset.project_id == project.id).delete()
@@ -336,37 +368,42 @@ async def full_registry_scan(
     used_fallback = False
 
     await ensure_not_cancelled(is_cancelled)
-    # Pass 1 — discover
-    data, fallback = await _call_llm(
-        project,
-        [
-            {"role": "system", "content": PRESCAN_PASS1_SYSTEM},
+    # Pass 1 — discover (multi-chunk merge)
+    for ci, novel in enumerate(chunks):
+        await ensure_not_cancelled(is_cancelled)
+        data, fallback = await _call_llm(
+            project,
+            [
+                {"role": "system", "content": PRESCAN_PASS1_SYSTEM},
+                {
+                    "role": "user",
+                    "content": PRESCAN_PASS1_USER.format(style=project.style or "", novel=novel),
+                },
+            ],
+            is_cancelled=is_cancelled,
+        )
+        used_fallback = used_fallback or fallback
+        created, updated = _apply_registry_rows_to_db(db, project, "", _pass1_rows(data), assets)
+        assets = db.query(Asset).filter(Asset.project_id == project.id).all()
+        passes.append(
             {
-                "role": "user",
-                "content": PRESCAN_PASS1_USER.format(style=project.style or "", novel=novel),
-            },
-        ],
-        is_cancelled=is_cancelled,
-    )
-    used_fallback = used_fallback or fallback
-    created, updated = _apply_registry_rows_to_db(db, project, "", _pass1_rows(data), assets)
-    assets = db.query(Asset).filter(Asset.project_id == project.id).all()
-    passes.append(
-        {
-            "pass": 1,
-            "phase": "discover",
-            "created": created,
-            "updated": updated,
-            "completeness": registry_completeness(_asset_dicts(assets)),
-        }
-    )
+                "pass": 1,
+                "phase": "discover",
+                "chunk": ci + 1,
+                "chunks": len(chunks),
+                "created": created,
+                "updated": updated,
+                "completeness": registry_completeness(_asset_dicts(assets)),
+            }
+        )
 
-    # Pass 2+ — audit / supplement loop
+    # Pass 2+ — audit / supplement loop (use first chunk + registry; rotate chunks)
     for audit_i in range(1, MAX_REGISTRY_AUDIT_PASSES + 1):
         await ensure_not_cancelled(is_cancelled)
         assets = db.query(Asset).filter(Asset.project_id == project.id).all()
         if is_registry_complete(_asset_dicts(assets)) and audit_i > 1:
             break
+        novel = chunks[(audit_i - 1) % len(chunks)]
         data, fallback = await _call_llm(
             project,
             [
@@ -399,6 +436,8 @@ async def full_registry_scan(
                 "completeness": completeness,
             }
         )
+        if completeness.get("complete") or complete_flag:
+            break
         if completeness["complete"] or (complete_flag and created == 0 and updated == 0):
             break
         if created == 0 and updated == 0 and not rows:

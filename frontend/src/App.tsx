@@ -9,7 +9,6 @@ import {
   type ImageJob,
   type Project,
   type Shot,
-  type ShotReference,
 } from "./api";
 import {
   assetsByKind,
@@ -21,8 +20,9 @@ import {
   type FlowGuide,
   type TabName,
 } from "./flow";
+import { ScoreBadge, ShotCard } from "./ShotCard";
+import { useImageJobPoll } from "./useImageJobPoll";
 
-const CAMERAS = ["固定", "缓慢推近", "缓慢拉远", "慢摇左", "慢摇右", "微仰", "微俯", "轻度跟随左一", "轻度跟随中", "轻度跟随右一"];
 const LLM_BUSY_TITLE = "参考图生成中";
 
 function isAbortError(e: unknown): boolean {
@@ -79,17 +79,6 @@ function countShotScores(shots: Shot[]): ScoreCounts {
   return counts;
 }
 
-function ScoreBadge({ score, comment }: { score?: number | null; comment?: string }) {
-  const band = scoreBand(score ?? null);
-  const label = band === "none" ? "未评估" : String(score);
-  const tip = band === "none" ? "尚未评估" : comment || `分数 ${score}`;
-  return (
-    <span className={`score-badge band-${band}`} title={tip} data-testid="score-badge">
-      {label}
-    </span>
-  );
-}
-
 function ScoreSummary({ counts }: { counts: ScoreCounts }) {
   return (
     <div className="score-summary" data-testid="score-summary">
@@ -119,20 +108,26 @@ export default function App() {
   const [keepId, setKeepId] = useState("");
   const [dropId, setDropId] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [imageJobs, setImageJobs] = useState<ImageJob[]>([]);
-  const [imageBatch, setImageBatch] = useState<{ id: string; total: number } | null>(null);
-  const imageJobsActiveRef = useRef(false);
-  const prevActiveCountRef = useRef(0);
-  const imageBatchRef = useRef<{ id: string; total: number } | null>(null);
-  const pollImageJobsRef = useRef<(() => void) | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const [aborting, setAborting] = useState(false);
+  const bundleRef = useRef<Bundle | null>(null);
+  bundleRef.current = bundle;
 
-  function noteImageBatch(batchId: string, total: number) {
-    const next = { id: batchId, total: Math.max(total, 1) };
-    imageBatchRef.current = next;
-    setImageBatch(next);
-  }
+  const {
+    imageJobs,
+    setImageJobs,
+    imageBatch,
+    imageJobsActiveRef,
+    prevActiveCountRef,
+    pollImageJobsRef,
+    noteImageBatch,
+    clearBatchTracking,
+  } = useImageJobPoll(
+    bundle?.project.id,
+    bundle?.active_image_jobs,
+    () => bundleRef.current,
+    setBundle,
+  );
 
   async function refreshList() {
     setProjects(await api.list());
@@ -140,88 +135,6 @@ export default function App() {
   useEffect(() => {
     refreshList().catch((e) => setError(String(e)));
   }, []);
-
-  useEffect(() => {
-    if (!bundle) {
-      setImageJobs([]);
-      setImageBatch(null);
-      imageBatchRef.current = null;
-      imageJobsActiveRef.current = false;
-      prevActiveCountRef.current = 0;
-      return;
-    }
-    const pid = bundle.project.id;
-    let stop = false;
-    let timer: ReturnType<typeof setInterval> | null = null;
-
-    function shouldKeepPolling(jobs: ImageJob[]) {
-      return jobs.length > 0 || imageBatchRef.current !== null;
-    }
-
-    function syncInterval(jobs: ImageJob[]) {
-      if (stop) return;
-      if (shouldKeepPolling(jobs) && !timer) {
-        timer = window.setInterval(() => {
-          void poll();
-        }, 1500);
-      } else if (!shouldKeepPolling(jobs) && timer) {
-        window.clearInterval(timer);
-        timer = null;
-      }
-    }
-
-    async function poll() {
-      try {
-        const { jobs } = await api.listImageJobs(pid, true);
-        if (stop) return;
-        const prev = prevActiveCountRef.current;
-        setImageJobs(jobs);
-        prevActiveCountRef.current = jobs.length;
-        if (jobs.length > 0) {
-          imageJobsActiveRef.current = true;
-          if (!imageBatchRef.current) {
-            const bid = jobs.find((j) => j.batch_id)?.batch_id || "";
-            if (bid) noteImageBatch(bid, jobs.length);
-          } else if (jobs.length > imageBatchRef.current.total) {
-            noteImageBatch(imageBatchRef.current.id, jobs.length);
-          }
-        }
-        const finishedSome = imageJobsActiveRef.current && jobs.length < prev;
-        const finishedAll = imageJobsActiveRef.current && jobs.length === 0;
-        if (finishedSome || finishedAll) {
-          const next = await api.get(pid);
-          if (stop) return;
-          setBundle(next);
-        }
-        if (finishedAll) {
-          imageJobsActiveRef.current = false;
-          imageBatchRef.current = null;
-          setImageBatch(null);
-        }
-        // Keep polling while local batch tracking is still open even if first poll raced.
-        syncInterval(jobs);
-      } catch {
-        /* keep last known jobs */
-      }
-    }
-
-    pollImageJobsRef.current = () => {
-      void poll();
-    };
-
-    if (bundle.active_image_jobs?.length) {
-      setImageJobs(bundle.active_image_jobs);
-      imageJobsActiveRef.current = true;
-      prevActiveCountRef.current = bundle.active_image_jobs.length;
-    }
-
-    void poll();
-    return () => {
-      stop = true;
-      pollImageJobsRef.current = null;
-      if (timer) window.clearInterval(timer);
-    };
-  }, [bundle?.project.id]);
 
   const imageBusy = imageJobs.length > 0;
   const llmBlocked = imageBusy;
@@ -264,10 +177,7 @@ export default function App() {
       if (bundle && (imageJobs.length > 0 || imageBatch)) {
         const next = await api.cancelProjectImageJobs(bundle.project.id);
         setImageJobs([]);
-        setImageBatch(null);
-        imageBatchRef.current = null;
-        imageJobsActiveRef.current = false;
-        prevActiveCountRef.current = 0;
+        clearBatchTracking();
         setBundle(next);
       }
       setNotice("已终止");
@@ -282,6 +192,24 @@ export default function App() {
   function selectChapter(id: string, nextTab: TabName = "原文") {
     setChapterId(id);
     setTab(nextTab);
+    const pid = bundle?.project.id;
+    if (!pid) return;
+    const existing = bundle?.chapters.find((c) => c.id === id);
+    if (existing && existing.text != null && existing.text !== "") return;
+    void api
+      .getChapter(pid, id)
+      .then((full) => {
+        setBundle((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            chapters: prev.chapters.map((c) => (c.id === id ? { ...c, ...full } : c)),
+          };
+        });
+      })
+      .catch(() => {
+        /* GET chapter may be unavailable until backend ships slim-bundle support */
+      });
   }
 
   async function actOnGuide(g: FlowGuide) {
@@ -757,7 +685,7 @@ export default function App() {
                   <h2>{chapter.title}</h2>
                   <p className="hint">全书资产在「全书资产」页一键生成；本章只需生成分镜。</p>
                 </div>
-                <article className="original">{chapter.text}</article>
+                <article className="original">{chapter.text || ""}</article>
               </section>
             )}
 
@@ -775,12 +703,7 @@ export default function App() {
                 onChange={setBundle}
                 onRun={run}
                 onBatchQueued={noteImageBatch}
-                onBatchCleared={() => {
-                  setImageBatch(null);
-                  imageBatchRef.current = null;
-                  imageJobsActiveRef.current = false;
-                  prevActiveCountRef.current = 0;
-                }}
+                onBatchCleared={clearBatchTracking}
                 onJobsSeen={(jobs) => {
                   setImageJobs(jobs);
                   if (jobs.length) {
@@ -1668,208 +1591,3 @@ function EditImageModal({
   );
 }
 
-function ShotCard({
-  shot,
-  assets,
-  firstFrameJob,
-  regenDisabled,
-  onRegen,
-  onChange,
-}: {
-  shot: Shot;
-  assets: Asset[];
-  firstFrameJob?: ImageJob | null;
-  regenDisabled?: boolean;
-  onRegen?: () => void;
-  onChange: (patch: Partial<Shot> & { recompile?: boolean }) => Promise<void>;
-}) {
-  const [local, setLocal] = useState(shot);
-  useEffect(() => setLocal(shot), [shot]);
-  const refs = shot.references?.length
-    ? shot.references
-    : fallbackShotRefs(shot, assets);
-  const missing = refs.filter((r) => r.mode !== "text" && !r.uploaded).length;
-  const framePhase = firstFrameJob ? jobPhaseLabel(firstFrameJob) : "";
-
-  return (
-    <article className="shot-card">
-      <div className="shot-head">
-        <strong>镜 {shot.order_index}</strong>
-        <span className="muted">锁 {shot.character_count} 人 · {shot.duration_s}s</span>
-        <span className={`pill ${shot.first_frame_unready ? "warn" : "ok"}`}>
-          {shot.first_frame_unready ? "首帧未就绪" : "首帧就绪"}
-        </span>
-        {shot.first_frame_path ? <span className="pill ok">已出图</span> : null}
-        {framePhase ? <span className="pill warn">{framePhase}</span> : null}
-        {onRegen ? (
-          <button
-            type="button"
-            className="primary compact"
-            data-testid={`btn-shot-first-frame-${shot.order_index}`}
-            disabled={regenDisabled}
-            title={
-              shot.first_frame_unready
-                ? "参考图未齐，无法生成首帧"
-                : shot.first_frame_path
-                  ? "覆盖当前首帧重新生成"
-                  : "生成本镜首帧"
-            }
-            onClick={onRegen}
-          >
-            {shot.first_frame_path ? "重新生成首帧" : "生成首帧"}
-          </button>
-        ) : null}
-      </div>
-
-      {shot.first_frame_path ? (
-        <div className="shot-first-frame">
-          <div className="thumb-with-score">
-            <img src={mediaUrl(shot.first_frame_path)} alt={`镜${shot.order_index}首帧`} />
-            <ScoreBadge score={shot.first_frame_score} comment={shot.first_frame_score_comment} />
-          </div>
-        </div>
-      ) : null}
-
-      <div className="shot-refs">
-        <div className="shot-refs-head">
-          <h4>本镜参考图</h4>
-          <span className={`pill ${missing ? "warn" : "ok"}`}>
-            {missing ? `${missing} 张尚未上传` : "参考图已齐"}
-          </span>
-        </div>
-        <div className="shot-ref-grid">
-          {refs.map((ref, i) => (
-            <div
-              key={`${ref.asset_id}-${ref.image_key}-${i}`}
-              className={`shot-ref ${ref.mode === "text" ? "text" : ref.uploaded ? "ok" : "miss"}`}
-            >
-              {ref.mode === "text" ? (
-                <div className="ph text-ph">{(ref.text || "文字描述补足").slice(0, 72)}</div>
-              ) : ref.uploaded && ref.path ? (
-                <img
-                  src={mediaUrl(
-                    ref.path,
-                    assets.find((a) => a.id === ref.asset_id)?.media_version,
-                  )}
-                  alt={ref.image_role}
-                />
-              ) : (
-                <div className="ph">{ref.status_zh || "尚未上传"}</div>
-              )}
-              <div className="shot-ref-meta">
-                <strong>
-                  {ref.slot_index ? `图${cnNum(ref.slot_index)} · ` : ""}
-                  {ref.image_role}
-                </strong>
-                <span>{ref.asset_name}{ref.position ? ` · ${ref.position}` : ""}</span>
-                {ref.note ? <span className="muted">{ref.note}</span> : null}
-                <span className={ref.mode === "text" ? "muted" : ref.uploaded ? "ok-text" : "warn-text"}>
-                  {ref.status_zh}
-                </span>
-              </div>
-            </div>
-          ))}
-          {refs.length === 0 && <p className="muted">本镜暂无绑定参考资产</p>}
-        </div>
-      </div>
-
-      <div className="settings-grid">
-        <div className="stack">
-          <label>时长</label>
-          <input type="number" min={4} max={15} value={local.duration_s} onChange={(e) => setLocal({ ...local, duration_s: Number(e.target.value) })} />
-        </div>
-        <div className="stack">
-          <label>运镜</label>
-          <select value={local.camera} onChange={(e) => setLocal({ ...local, camera: e.target.value })}>
-            {CAMERAS.map((c) => <option key={c}>{c}</option>)}
-          </select>
-        </div>
-      </div>
-      <label>运镜细节</label>
-      <input value={local.camera_detail} onChange={(e) => setLocal({ ...local, camera_detail: e.target.value })} />
-      <label>旁白</label>
-      <input value={local.narration} onChange={(e) => setLocal({ ...local, narration: e.target.value })} />
-      <label>首帧中文</label>
-      <textarea value={local.prompt_zh} onChange={(e) => setLocal({ ...local, prompt_zh: e.target.value })} />
-      <label>首帧英文</label>
-      <textarea value={local.prompt_en} onChange={(e) => setLocal({ ...local, prompt_en: e.target.value })} />
-      <label>H3</label>
-      <textarea value={local.h3_prompt} onChange={(e) => setLocal({ ...local, h3_prompt: e.target.value })} />
-      <div className="row">
-        <button onClick={() => onChange({ ...local, recompile: false })}>保存提示词</button>
-        <button className="primary" onClick={() => onChange({ ...local, recompile: true })}>按站位重编译</button>
-      </div>
-      {shot.source_excerpt && <p className="muted excerpt">原文：{shot.source_excerpt}</p>}
-    </article>
-  );
-}
-
-const CN_SLOT = ["", "一", "二", "三", "四", "五"];
-function cnNum(n: number) {
-  return CN_SLOT[n] || String(n);
-}
-
-function fallbackShotRefs(shot: Shot, assets: Asset[]): ShotReference[] {
-  const byId = Object.fromEntries(assets.map((a) => [a.id, a]));
-  const out: ShotReference[] = [];
-  const seenChars = new Set<string>();
-  const push = (
-    image_key: "scene" | "full" | "half" | "prop",
-    asset: Asset | undefined,
-    opts: { slot?: number; position?: string; note?: string } = {},
-  ) => {
-    if (!asset) return;
-    if ((image_key === "half" || image_key === "full") && seenChars.has(asset.id)) return;
-    const path =
-      image_key === "half" ? asset.half_path : image_key === "full" ? asset.full_path : asset.image_path;
-    const role =
-      image_key === "scene"
-        ? "核心场景参考图"
-        : image_key === "full"
-          ? "人物全身图"
-          : image_key === "half"
-            ? "人物半身图"
-            : "核心物品参考图";
-    if (image_key === "half" || image_key === "full") seenChars.add(asset.id);
-    out.push({
-      slot_index: opts.slot ?? null,
-      kind: asset.kind,
-      image_key,
-      image_role: role,
-      asset_id: asset.id,
-      asset_name: asset.name,
-      position: opts.position || "",
-      path: path || "",
-      uploaded: Boolean(path),
-      required: true,
-      note: opts.note || "",
-      status_zh: path ? "已上传" : "尚未上传",
-    });
-  };
-  for (const slot of shot.slots || []) {
-    const asset = byId[String(slot.asset_id || "")];
-    const key = String(slot.image_key || "") as "scene" | "full" | "half" | "prop";
-    push(key, asset, {
-      slot: Number(slot.index) || undefined,
-      position: String(slot.position || ""),
-      note: key === "half" ? "本镜用半身" : key === "full" ? "本镜用全身" : key === "scene" ? "场景底板" : "",
-    });
-  }
-  if (shot.scene_asset_id && !out.some((r) => r.image_key === "scene")) {
-    push("scene", byId[shot.scene_asset_id], { note: "本镜场景" });
-  }
-  for (const line of shot.lines || []) {
-    const asset = byId[line.asset_id];
-    const key = (line.image_key === "half" || line.portrait === "half" ? "half" : "full") as "half" | "full";
-    push(key, asset, {
-      position: line.position,
-      note: key === "half" ? "本镜用半身" : "本镜用全身",
-    });
-  }
-  for (const pid of shot.prop_asset_ids || []) {
-    if (!out.some((r) => r.asset_id === pid && r.image_key === "prop")) {
-      push("prop", byId[pid], { note: "本镜核心物品" });
-    }
-  }
-  return out;
-}

@@ -16,7 +16,7 @@ from app.db import Asset, Project, Shot
 from app.domain.registry import normalize_kind
 from app.image_gen import abs_media_path, build_field_prompt
 from app.llm import LLMError, OperationCancelled, chat_completion, ensure_not_cancelled, parse_json_value
-from app.services import _dump, _load
+from app.serialize import _dump, _load
 
 SCORE_FIELDS_BY_KIND = {
     "character": ("full", "half"),
@@ -225,7 +225,8 @@ async def score_project_images(
                     )
                     set_field_score(asset, field, result["score"], result["comment"])
                     scored += 1
-                    db.commit()
+                    if scored % 5 == 0:
+                        db.commit()
                 except OperationCancelled:
                     cancelled = True
                     break
@@ -233,6 +234,7 @@ async def score_project_images(
                     errors.append(f"{asset.name}/{field}: {exc}")
             if cancelled:
                 break
+        db.commit()
 
     if not cancelled and scope in ("shots", "all"):
         for shot in shots:
@@ -255,12 +257,14 @@ async def score_project_images(
                 )
                 set_shot_first_frame_score(shot, result["score"], result["comment"])
                 scored += 1
-                db.commit()
+                if scored % 5 == 0:
+                    db.commit()
             except OperationCancelled:
                 cancelled = True
                 break
             except Exception as exc:  # noqa: BLE001
                 errors.append(f"镜{shot.order_index}: {exc}")
+        db.commit()
 
     if cancelled:
         raise OperationCancelled("cancelled_by_user")

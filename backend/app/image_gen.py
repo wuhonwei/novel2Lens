@@ -17,7 +17,8 @@ from app.comfy_pipeline.persona import (
     infer_age_tier,
     infer_gender,
 )
-from app.services import _load, refresh_shot_readiness, serialize_asset
+from app.serialize import _load, serialize_asset
+from app.storyboard_ops import refresh_shot_readiness
 
 KIND_FOLDERS = {
     "character": "人物",
@@ -122,6 +123,9 @@ def character_persona(asset: Asset) -> tuple[str, str]:
     return gender, age_tier
 
 
+from app.domain.prop_hints import PROP_SHAPE_HINTS_ZH
+
+
 def _prop_visual_brief(name: str, desc: str) -> str:
     """Keep physical props cues; drop narrative ownership / plot prose."""
     import re
@@ -162,15 +166,7 @@ def _prop_visual_brief(name: str, desc: str) -> str:
     return cleaned or name
 
 
-_PROP_SHAPE_HINTS = {
-    "玉佩": "中国古玉佩坠，碧玉或白玉雕成的佩饰，可对半分开的一对玉佩，刻字清晰，桌面静物",
-    "文献": "一叠用丝线捆扎的古旧宣纸文书卷轴，纸张纹理可见",
-    "木盒": "紫檀木雕花小方盒，合盖静物",
-    "火折子": "古代火折子点火器具，竹筒或金属小筒形随身火具",
-    "乌木船": "乌木或深色硬木雕成的小型木船模型静物，船体、船舷与船桨形制清晰，无人物",
-    "千年古松": "一棵苍劲千年古松的微缩盆景式特写，树干与松针清晰",
-    "密道": "木门后的狭窄地下密道入口特写，石阶与木框，无人物",
-}
+_PROP_SHAPE_HINTS = PROP_SHAPE_HINTS_ZH
 
 
 def build_field_prompt(project: Project, asset: Asset, field: str) -> str:
@@ -329,7 +325,7 @@ def clear_asset_image(db: Session, project: Project, asset: Asset, field: str) -
         asset.half_path = ""
         asset.full_path = ""
         clear_field_score(asset, "image")
-    refresh_shot_readiness(db, project)
+    refresh_shot_readiness(db, project, asset_id=asset.id)
     db.commit()
     return serialize_asset(asset)
 

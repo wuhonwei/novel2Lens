@@ -176,17 +176,22 @@ def serialize_shot(shot: Shot, chapter_title: str = "", assets: list[Asset] | No
     }
 
 
-def serialize_chapter(ch: Chapter) -> dict[str, Any]:
-    return {
+def serialize_chapter(ch: Chapter, *, include_text: bool = True) -> dict[str, Any]:
+    out = {
         "id": ch.id,
         "index": ch.index,
         "title": ch.title,
-        "text": ch.text,
         "status": ch.status,
         "used_fallback_llm": ch.used_fallback_llm,
         "last_error": ch.last_error,
         "prescan_done": ch.prescan_done,
+        "text_len": len(ch.text or ""),
     }
+    if include_text:
+        out["text"] = ch.text
+    else:
+        out["text"] = ""
+    return out
 
 
 def serialize_project(p: Project) -> dict[str, Any]:

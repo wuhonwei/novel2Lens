@@ -290,6 +290,8 @@ async def generate_storyboard(
     db: Session, project: Project, chapter: Chapter, overwrite: bool = False, is_cancelled=None
 ) -> list[dict[str, Any]]:
     assets = db.query(Asset).filter(Asset.project_id == project.id).all()
+    repair_shot_prompts_if_needed(db, project, assets)
+    assets = db.query(Asset).filter(Asset.project_id == project.id).all()
     book_ready = any(a.confirmed and normalize_kind(a.kind) == "character" for a in assets)
     if chapter.status not in ("assets_confirmed", "storyboarded") and not book_ready and not overwrite:
         raise ValueError("请先一键生成全书资产（人物/场景/物品）。")
@@ -535,9 +537,34 @@ def save_upload(asset: Asset, field: str, filename: str, data: bytes) -> str:
     return stored
 
 
-def refresh_shot_readiness(db: Session, project: Project, *, commit: bool = True) -> None:
+def _shot_mentions_asset(shot: Shot, asset_id: str) -> bool:
+    if not asset_id:
+        return True
+    if (shot.scene_asset_id or "") == asset_id:
+        return True
+    prop_ids = _load(getattr(shot, "prop_asset_ids_json", None) or "[]", [])
+    if asset_id in prop_ids:
+        return True
+    for line in _load(shot.lines_json, []):
+        if str(line.get("asset_id") or "") == asset_id:
+            return True
+    for slot in _load(shot.slots_json, []):
+        if str(slot.get("asset_id") or "") == asset_id:
+            return True
+    return False
+
+
+def refresh_shot_readiness(
+    db: Session,
+    project: Project,
+    *,
+    commit: bool = True,
+    asset_id: str | None = None,
+) -> None:
     assets = db.query(Asset).filter(Asset.project_id == project.id).all()
     for shot in db.query(Shot).filter(Shot.project_id == project.id):
+        if asset_id and not _shot_mentions_asset(shot, asset_id):
+            continue
         compile_shot_prompts(project, shot, assets)
     if commit:
         db.commit()

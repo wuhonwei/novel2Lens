@@ -66,7 +66,8 @@ export type Chapter = {
   id: string;
   index: number;
   title: string;
-  text: string;
+  /** Omitted from slim project bundles; fetch via getChapter when needed. */
+  text?: string;
   status: string;
   used_fallback_llm: boolean;
   last_error: string;
@@ -218,6 +219,9 @@ export const api = {
     return req<Bundle>("/api/projects/upload", { method: "POST", body: data, signal: opts?.signal });
   },
   get: (id: string, opts?: ReqSignal) => req<Bundle>(`/api/projects/${id}`, { signal: opts?.signal }),
+  /** Full chapter including text when list/bundle omits chapter.text. */
+  getChapter: (pid: string, cid: string, opts?: ReqSignal) =>
+    req<Chapter>(`/api/projects/${pid}/chapters/${cid}`, { signal: opts?.signal }),
   patch: (id: string, body: Partial<Project> & { text?: string }, opts?: ReqSignal) =>
     req<Bundle>(`/api/projects/${id}`, {
       method: "PATCH",

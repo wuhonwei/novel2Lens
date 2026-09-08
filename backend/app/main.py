@@ -45,7 +45,6 @@ from app.services import (
     prescan_project,
     rebuild_chapters,
     refresh_shot_readiness,
-    repair_shot_prompts_if_needed,
     save_upload,
     serialize_asset,
     serialize_chapter,
@@ -234,30 +233,9 @@ async def _request_cancelled(request: Request) -> bool:
 
 
 def _bundle(db: Session, project: Project) -> dict:
-    from app.domain.registry import ensure_character_look_trinity, normalize_kind
-
+    # Read-only: do not mutate assets/shots on GET (repairs belong on write paths).
     chapters = db.query(Chapter).filter(Chapter.project_id == project.id).order_by(Chapter.index).all()
     assets = db.query(Asset).filter(Asset.project_id == project.id).all()
-    repaired = False
-    for a in assets:
-        if normalize_kind(a.kind) != "character":
-            continue
-        desc, app, age = ensure_character_look_trinity(
-            name=a.name or "",
-            refer_as=a.refer_as or "",
-            age_band=a.age_band or "",
-            desc_zh=a.desc_zh or "",
-            appearance=_load(a.appearance_json, {}),
-        )
-        app_json = json_dumps(app)
-        if desc != (a.desc_zh or "") or age != (a.age_band or "") or app_json != (a.appearance_json or "{}"):
-            a.desc_zh = desc
-            a.age_band = age
-            a.appearance_json = app_json
-            repaired = True
-    if repaired:
-        db.commit()
-    repair_shot_prompts_if_needed(db, project, assets)
     shots = db.query(Shot).filter(Shot.project_id == project.id).order_by(Shot.order_index).all()
     proposals = (
         db.query(Proposal)
@@ -267,7 +245,7 @@ def _bundle(db: Session, project: Project) -> dict:
     title_by = {c.id: c.title for c in chapters}
     return {
         "project": serialize_project(project),
-        "chapters": [serialize_chapter(c) for c in chapters],
+        "chapters": [serialize_chapter(c, include_text=False) for c in chapters],
         "assets": [serialize_asset(a) for a in assets],
         "shots": [serialize_shot(s, title_by.get(s.chapter_id, ""), assets) for s in shots],
         "proposals": [{"id": p.id, "chapter_id": p.chapter_id, **(_load(p.payload_json, {}))} for p in proposals],
@@ -338,6 +316,19 @@ def get_project_bundle(project_id: str):
     db = db_session()
     try:
         return _bundle(db, get_project(db, project_id))
+    finally:
+        db.close()
+
+
+@app.get("/api/projects/{project_id}/chapters/{chapter_id}")
+def api_get_chapter(project_id: str, chapter_id: str):
+    db = db_session()
+    try:
+        project = get_project(db, project_id)
+        ch = db.get(Chapter, chapter_id)
+        if not ch or ch.project_id != project.id:
+            raise HTTPException(404, "章节不存在")
+        return serialize_chapter(ch, include_text=True)
     finally:
         db.close()
 
