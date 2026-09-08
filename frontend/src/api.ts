@@ -197,17 +197,26 @@ export type Bundle = {
 
 async function req<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, init);
-  if (!res.ok) {
-    let detail = res.statusText;
+  const raw = await res.text();
+  let data: unknown = null;
+  if (raw) {
     try {
-      const body = await res.json();
-      detail = body.detail || JSON.stringify(body);
+      data = JSON.parse(raw);
     } catch {
-      detail = await res.text();
+      data = raw;
+    }
+  }
+  if (!res.ok) {
+    let detail = res.statusText || `HTTP ${res.status}`;
+    if (data && typeof data === "object" && data !== null && "detail" in data) {
+      const d = (data as { detail: unknown }).detail;
+      detail = typeof d === "string" ? d : JSON.stringify(d);
+    } else if (typeof data === "string" && data.trim()) {
+      detail = data;
     }
     throw new Error(detail);
   }
-  return res.json();
+  return data as T;
 }
 
 export type ReqSignal = { signal?: AbortSignal };
