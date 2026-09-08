@@ -26,6 +26,7 @@ from app.image_gen import (
 from app.image_jobs import (
     cancel_batch,
     cancel_project_jobs,
+    cancel_all_active_jobs,
     enqueue_asset_all_slots,
     enqueue_asset_field,
     enqueue_chapter_first_frames,
@@ -819,7 +820,21 @@ def api_cancel_project_image_jobs(project_id: str):
     try:
         get_project(db, project_id)
         n = cancel_project_jobs(db, project_id)
+        if not has_active_jobs(db):
+            llm_supervisor.set_image_busy(False)
         return {"ok": True, "cancelled": n, **_bundle(db, get_project(db, project_id))}
+    finally:
+        db.close()
+
+
+@app.post("/api/image-jobs/cancel-all")
+def api_cancel_all_image_jobs():
+    """Stop every queued/running image job so LLM routes unlock for any project."""
+    db = db_session()
+    try:
+        n = cancel_all_active_jobs(db)
+        llm_supervisor.set_image_busy(False)
+        return {"ok": True, "cancelled": n}
     finally:
         db.close()
 

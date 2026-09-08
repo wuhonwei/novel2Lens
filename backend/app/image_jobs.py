@@ -87,6 +87,14 @@ def cancel_project_jobs(db: Session, project_id: str) -> int:
     return n
 
 
+def cancel_all_active_jobs(db: Session) -> int:
+    """Cancel queued/running image jobs across every project (global LLM mutex)."""
+    jobs = db.query(ImageJob).filter(ImageJob.status.in_(ACTIVE_STATUSES)).all()
+    n = _cancel_jobs(jobs)
+    db.commit()
+    return n
+
+
 def mark_stale_running_failed(db: Session) -> int:
     rows = db.query(ImageJob).filter(ImageJob.status == "running").all()
     for job in rows:

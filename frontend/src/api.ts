@@ -360,6 +360,8 @@ export const api = {
     req<{ ok: boolean; cancelled: number }>(`/api/projects/${pid}/image-batches/${batchId}/cancel`, { method: "POST" }),
   cancelProjectImageJobs: (pid: string) =>
     req<Bundle & { ok: boolean; cancelled: number }>(`/api/projects/${pid}/image-jobs/cancel`, { method: "POST" }),
+  cancelAllImageJobs: () =>
+    req<{ ok: boolean; cancelled: number }>(`/api/image-jobs/cancel-all`, { method: "POST" }),
   scoreImages: (
     pid: string,
     body: { scope?: "assets" | "shots" | "all"; kind?: string | null },

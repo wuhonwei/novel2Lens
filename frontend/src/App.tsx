@@ -174,14 +174,20 @@ export default function App() {
     setNotice("");
     try {
       abortRef.current?.abort();
-      if (bundle && (imageJobs.length > 0 || imageBatch)) {
-        const next = await api.cancelProjectImageJobs(bundle.project.id);
-        setImageJobs([]);
-        clearBatchTracking();
-        setBundle(next);
+      // Image mutex is global: cancel every project's active jobs, not only the open one.
+      const all = await api.cancelAllImageJobs();
+      setImageJobs([]);
+      clearBatchTracking();
+      if (bundle) {
+        try {
+          setBundle(await api.get(bundle.project.id));
+        } catch {
+          /* ignore refresh errors after cancel */
+        }
       }
-      setNotice("已终止");
+      setNotice(all.cancelled > 0 ? `已终止参考图任务（${all.cancelled}）` : "已终止");
       setBusy("");
+      setError("");
     } catch (e) {
       if (!isAbortError(e)) setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -428,9 +434,12 @@ export default function App() {
             <div className="sub">{p.title}</div>
           </div>
           <div className="row">
-            {(busy || imageBusy) && (
+            {(busy || imageBusy || aborting || (error && error.includes("参考图生成中"))) && (
               <>
                 {busy ? <span className="busy-line">{busy}…</span> : null}
+                {!busy && error?.includes("参考图生成中") ? (
+                  <span className="busy-line">其他项目参考图任务占用中</span>
+                ) : null}
                 <button
                   type="button"
                   className="ghost compact"
