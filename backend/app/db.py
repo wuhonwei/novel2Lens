@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, create_engine, text
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, create_engine, event, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
 
 from app.config import settings
@@ -152,7 +152,26 @@ class Shot(Base):
 
 settings.data_dir.mkdir(parents=True, exist_ok=True)
 DB_PATH = settings.data_dir / "novel2lens.sqlite"
-engine = create_engine(f"sqlite:///{DB_PATH}", connect_args={"check_same_thread": False})
+
+
+def _make_engine(url: str):
+    # timeout=60: wait on locks instead of failing API requests while ImageWorker writes.
+    eng = create_engine(
+        url,
+        connect_args={"check_same_thread": False, "timeout": 60},
+    )
+
+    @event.listens_for(eng, "connect")
+    def _sqlite_pragma(dbapi_conn, _connection_record) -> None:  # noqa: ANN001
+        cur = dbapi_conn.cursor()
+        cur.execute("PRAGMA journal_mode=WAL")
+        cur.execute("PRAGMA busy_timeout=60000")
+        cur.close()
+
+    return eng
+
+
+engine = _make_engine(f"sqlite:///{DB_PATH}")
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 
@@ -162,7 +181,7 @@ def reset_engine(url: str | None = None) -> None:
         settings.data_dir.mkdir(parents=True, exist_ok=True)
         DB_PATH = settings.data_dir / "novel2lens.sqlite"
         url = f"sqlite:///{DB_PATH}"
-    engine = create_engine(url, connect_args={"check_same_thread": False})
+    engine = _make_engine(url)
     SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
     Base.metadata.create_all(engine)
     ensure_schema()

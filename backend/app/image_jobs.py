@@ -21,6 +21,12 @@ def _utcnow() -> datetime:
 
 
 def serialize_job(job: ImageJob) -> dict[str, Any]:
+    try:
+        payload = json.loads(job.payload_json or "{}")
+        if not isinstance(payload, dict):
+            payload = {}
+    except json.JSONDecodeError:
+        payload = {}
     return {
         "id": job.id,
         "project_id": job.project_id,
@@ -33,7 +39,7 @@ def serialize_job(job: ImageJob) -> dict[str, Any]:
         "prompt": job.prompt or "",
         "error": job.error or "",
         "batch_id": job.batch_id or "",
-        "payload": json.loads(job.payload_json or "{}"),
+        "payload": payload,
         "created_at": job.created_at.isoformat() if job.created_at else None,
         "updated_at": job.updated_at.isoformat() if job.updated_at else None,
     }

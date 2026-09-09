@@ -6,9 +6,10 @@ from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from app.comfy_supervisor import ComfySupervisor
@@ -140,6 +141,26 @@ app.add_middleware(
 )
 settings.data_dir.mkdir(parents=True, exist_ok=True)
 app.mount("/media", StaticFiles(directory=str(settings.data_dir)), name="media")
+
+log = logging.getLogger("novel2lens")
+
+
+@app.exception_handler(OperationalError)
+async def sqlite_lock_handler(_: Request, exc: OperationalError):
+    log.warning("sqlite busy: %s", exc)
+    return JSONResponse(
+        status_code=503,
+        content={"detail": "数据库正忙（生图任务写入中），请再点一次生成首帧"},
+    )
+
+
+@app.exception_handler(Exception)
+async def unhandled_handler(_: Request, exc: Exception):
+    log.exception("unhandled error")
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"{type(exc).__name__}: {exc}"},
+    )
 
 
 def db_session():
@@ -707,6 +728,10 @@ def api_generate_shot_first_frame(project_id: str, shot_id: str):
             job = enqueue_shot_first_frame(db, project, shot)
         except ValueError as exc:
             raise HTTPException(409, str(exc)) from exc
+        except OperationalError as exc:
+            raise HTTPException(503, "数据库正忙（生图任务写入中），请再点一次生成首帧") from exc
+        # Re-load after commit so expired ORM state does not blow up _bundle.
+        db.refresh(project)
         return {**_bundle(db, project), "job": serialize_job(job)}
     finally:
         db.close()
