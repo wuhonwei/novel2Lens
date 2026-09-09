@@ -123,14 +123,19 @@ def character_persona(asset: Asset) -> tuple[str, str]:
     return gender, age_tier
 
 
-from app.domain.prop_hints import PROP_SHAPE_HINTS_ZH
+from app.domain.prop_hints import (
+    PROP_SHAPE_HINTS_ZH,
+    lookup_prop_shape_zh,
+    prop_subject_guards,
+    scrub_prop_desc,
+)
 
 
 def _prop_visual_brief(name: str, desc: str) -> str:
-    """Keep physical props cues; drop narrative ownership / plot prose."""
+    """Keep physical props cues; drop narrative ownership / plot prose / competing subjects."""
     import re
 
-    text = (desc or "").strip()
+    text = scrub_prop_desc(name, desc)
     if not text:
         return name
     # Drop clauses that describe ownership / plot usage rather than appearance.
@@ -149,7 +154,7 @@ def _prop_visual_brief(name: str, desc: str) -> str:
         r"是他的|是她的|是他们的|"
         r"[\u4e00-\u9fff]{1,8}的(?:船|剑|刀|枪|佩|盒|物|琴|笛|舟))"
     )
-    damage_look = re.compile(r"(裂痕|破损|裂纹|锈迹|磨损|缺口|残缺)")
+    damage_look = re.compile(r"(裂痕|破损|裂纹|锈迹|磨损|缺口|残缺|烧焦|泛黄|字迹|墨色)")
     kept: list[str] = []
     for part in re.split(r"[，,。；;]+", text):
         clause = part.strip()
@@ -238,13 +243,28 @@ def build_field_prompt(project: Project, asset: Asset, field: str) -> str:
             "禁止新增任何人、人脸、人影、剪影、手部；禁止把地点名称画成人物。"
         )
     if kind == "prop" or field == "image":
-        visual = _prop_visual_brief(asset.name or "", look)
-        shape = _PROP_SHAPE_HINTS.get(asset.name or "", f"单个「{asset.name}」实物道具")
+        name = (asset.name or "").strip() or "道具"
+        visual = _prop_visual_brief(name, look)
+        shape = lookup_prop_shape_zh(name) or f"单个「{name}」实物道具"
+        subject_lock, extra_neg = prop_subject_guards(name)
+        # Photos are flat images — avoid blanket「不要人物」fighting portrait-in-photo.
+        from app.domain.prop_hints import infer_prop_family
+
+        if infer_prop_family(name) == "photo":
+            base_neg = (
+                "单个静物居中，产品级道具质感，浅灰或纯色背景，"
+                "不要手，不要建筑外景，不要房间内景宽镜头，不要风景，"
+                "不要摄影灯、聚光灯、三脚架、现代电器。"
+            )
+        else:
+            base_neg = (
+                "单个静物居中，产品级道具质感，浅灰或纯色背景，"
+                "不要人物，不要手，不要建筑外景，不要房间内景宽镜头，不要风景，"
+                "不要摄影灯、聚光灯、三脚架、现代电器。"
+            )
         return (
-            f"{style}。核心道具特写：{asset.name}。{shape}。形制细节：{visual}。"
-            "单个静物居中，产品级道具质感，浅灰或纯色背景，"
-            "不要人物，不要手，不要建筑外景，不要房间内景宽镜头，不要风景，"
-            "不要摄影灯、聚光灯、三脚架、现代电器。"
+            f"{style}。核心道具特写：{name}。{subject_lock}{shape}。形制细节：{visual}。"
+            f"{base_neg}{extra_neg}"
         )
     return f"{style}。{look}"
 
