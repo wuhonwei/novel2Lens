@@ -11,10 +11,10 @@ PROP_SHAPE_HINTS_ZH: dict[str, str] = {
     "木盒": "紫檀木雕花小方盒，合盖静物，可见盒身与盒盖，无挂件",
     "木箱": "深色紫檀木质方形合盖木箱静物，可见锁扣与锁孔，箱体占画面主体",
     "紫檀木箱": "深色紫檀木质方形合盖木箱静物，可见锁扣与锁孔，箱体占画面主体",
-    "照片": "旧木相框内一张泛黄老照片纸面静物，照片为平面影像，相框与照片纸占主体",
-    "泛黄照片": "旧木相框内一张泛黄老照片纸面静物，照片为平面影像，相框与照片纸占主体",
-    "绝笔信": "展开的泛黄宣纸书信静物，墨色字迹工整，纸边可有磨损，纸面占主体",
-    "信": "展开的泛黄宣纸书信静物，墨色字迹清晰可见，纸面占主体",
+    "照片": "旧木相框内一张泛黄褪色的人像老照片纸面静物，照片里是平面半身人像影像，相纸发黄有划痕，严禁画成花鸟画或工笔花卉",
+    "泛黄照片": "旧木相框内一张泛黄褪色的人像老照片纸面静物，照片里是平面半身人像影像，相纸发黄有划痕，严禁画成花鸟画或工笔花卉",
+    "绝笔信": "单页展开的泛黄宣纸家书绝笔静物，满纸竖行小楷墨迹，纸边磨损焦痕，无圆形图案、无符阵、无地图纹、无卷轴杆",
+    "信": "单页展开的泛黄宣纸家书静物，满纸竖行小楷，无圆形图案、无符阵、无卷轴",
     "地图": "展开铺平的手绘古旧山河地图绢布或厚纸静物，平面地图文书，标注简洁",
     "火折子": "古代火折子点火器具，竹筒或金属小筒形随身火具",
     "乌木船": "乌木或深色硬木雕成的小型木船模型静物，船体、船舷与船桨形制清晰，无人物",
@@ -29,10 +29,10 @@ PROP_SHAPE_HINTS_EN: dict[str, str] = {
     "木盒": "carved rosewood wooden box, closed lid still life",
     "木箱": "dark rosewood rectangular wooden chest with lock clasp, still life",
     "紫檀木箱": "dark rosewood rectangular wooden chest with lock clasp, still life",
-    "照片": "yellowed vintage photograph inside wooden frame, flat paper photo still life",
-    "泛黄照片": "yellowed vintage photograph inside wooden frame, flat paper photo still life",
-    "绝笔信": "unfolded yellowed Chinese rice-paper letter with ink calligraphy, paper still life",
-    "信": "unfolded yellowed Chinese rice-paper letter with ink calligraphy",
+    "照片": "yellowed faded portrait photograph in wooden frame, flat paper photo of a person, not a painting",
+    "泛黄照片": "yellowed faded portrait photograph in wooden frame, flat paper photo of a person, not a painting",
+    "绝笔信": "single unfolded yellowed Chinese rice-paper letter with small-script ink, not a hanging scroll",
+    "信": "single unfolded yellowed Chinese rice-paper letter with small-script ink",
     "地图": "unfolded hand-drawn antique mountain map on silk or thick paper, flat document",
     "火折子": "ancient Chinese fire starter tube flint lighter",
     "乌木船": "small dark ebony hardwood carved wooden boat model, clear hull and oars, no people",
@@ -121,18 +121,21 @@ def prop_subject_guards(name: str) -> tuple[str, str]:
     subject = f"主体只能是「{name}」本身，禁止改画成其他物件。"
     if family == "box":
         return (
-            subject + "只画合盖木箱静物；锁孔可特殊，但不要单独画成玉佩或首饰。",
-            "禁止玉佩挂件、禁止碧玉圆牌、禁止珠宝首饰特写、禁止盆景。",
+            subject + "只画合盖木箱静物；锁孔可特殊，但不要单独画成玉佩或首饰。浅灰纯色背景，箱体独占画面。",
+            "禁止玉佩挂件、禁止碧玉圆牌、禁止珠宝首饰特写、禁止盆景、禁止香炉、禁止地板陈设、禁止房间内景。",
         )
     if family == "photo":
         return (
-            subject + "主体是相框与泛黄照片纸面；照片内可以是平面旧影像，但必须是平面纸面而非真人立体站立。",
-            "禁止真人立体入镜、禁止雕像、禁止玉雕圆球、禁止盆景、禁止风景宽镜头。",
+            subject
+            + "主体是相框与泛黄人像老照片纸面；照片内必须是平面人像旧影像（可模糊），绝不是花卉画。",
+            "禁止花鸟画、禁止工笔花卉、禁止牡丹黄花、禁止书法条幅、禁止印章画、禁止真人立体入镜、禁止玉雕圆球、禁止盆景、禁止风景宽镜头。",
         )
     if family == "letter":
         return (
-            subject + "主体是展开或折叠的纸质书信；不要画成装信的木盒。",
-            "禁止紫檀木盒、禁止木箱、禁止玉佩、禁止信封堆成箱匣。",
+            subject
+            + "主体是单页展开的家书纸面；满纸竖行小字，看起来像一封私人绝笔信，绝不是画册、符纸或地图。",
+            "禁止紫檀木盒、禁止木箱、禁止玉佩、禁止卷轴、禁止天地杆装裱、禁止圆形竹席、"
+            "禁止大字榜书中堂、禁止圆形符阵、禁止太极圆图、禁止地图圆环、禁止印章密布成画。",
         )
     if family == "map":
         return (

@@ -35,6 +35,7 @@ def test_yellowed_photo_stays_flat_photo_not_jade_sphere():
     assert "照片" in lookup_prop_shape_zh("泛黄照片") or "相框" in lookup_prop_shape_zh("泛黄照片")
     assert "相框" in text or "照片" in text
     assert "平面" in text or "纸面" in text
+    assert "花鸟" in text or "花卉" in text  # negatives
     scrubbed = scrub_prop_desc("泛黄照片", "茅草屋桌上相框内，苏晚卿年轻时的旗袍照。")
     assert "茅草屋" not in scrubbed
 
@@ -46,7 +47,7 @@ def test_suicide_letter_not_replaced_by_container_box():
     )
     assert "信" in lookup_prop_shape_zh("母亲绝笔信") or "宣纸" in lookup_prop_shape_zh("母亲绝笔信")
     assert "宣纸" in text or "书信" in text or "信" in text
-    assert "木盒" in text or "木箱" in text  # banned as competing subject
+    assert "卷轴" in text  # banned
     assert "禁止" in text
     scrubbed = scrub_prop_desc(
         "母亲绝笔信",
