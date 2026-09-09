@@ -54,6 +54,9 @@ class Settings(BaseSettings):
     h3_video_vae_name: str = "minimax_h3_video_vae_fp16.safetensors"
     h3_audio_vae_name: str = "minimax_h3_audio_vae_fp32.safetensors"
     h3_turbo_lora_name: str = "minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors"
+    # Single-GPU safety: stop H3 Comfy before image/first-frame jobs so Qwen Edit
+    # does not compete with H3 UNet + Qwen3-VL for VRAM (OOM freezes the machine).
+    h3_stop_for_image: bool = True
 
     @property
     def h3_comfy_base_url(self) -> str:

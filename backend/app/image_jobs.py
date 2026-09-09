@@ -559,7 +559,9 @@ def enqueue_shot_first_frame(
     return job
 
 
-def enqueue_chapter_first_frames(db: Session, project: Project, chapter_id: str) -> dict[str, Any]:
+def enqueue_chapter_first_frames(
+    db: Session, project: Project, chapter_id: str, *, overwrite: bool = False
+) -> dict[str, Any]:
     from app.db import Shot
     from datetime import timedelta
 
@@ -577,10 +579,14 @@ def enqueue_chapter_first_frames(db: Session, project: Project, chapter_id: str)
     errors: list[str] = []
     base_ts = _utcnow()
     skipped_active = 0
+    skipped_existing = 0
     for i, shot in enumerate(shots):
         try:
             if _active_first_frame_job(db, shot.id) is not None:
                 skipped_active += 1
+                continue
+            if not overwrite and (getattr(shot, "first_frame_path", "") or "").strip():
+                skipped_existing += 1
                 continue
             paths, labels, err = _shot_ref_paths(project, shot, assets)
             if err:
@@ -603,20 +609,23 @@ def enqueue_chapter_first_frames(db: Session, project: Project, chapter_id: str)
             db.add(job)
         except Exception as exc:  # noqa: BLE001
             errors.append(f"镜{shot.order_index}: {exc}")
-    if not jobs and skipped_active == 0:
+    if not jobs and skipped_active == 0 and skipped_existing == 0:
         raise ValueError("没有可入队的首帧任务：" + "；".join(errors[:6]))
     if jobs:
         db.commit()
     return {
         "batch_id": batch_id,
         "queued": len(jobs),
-        "skipped": len(errors) + skipped_active,
+        "skipped": len(errors) + skipped_active + skipped_existing,
+        "skipped_existing": skipped_existing,
         "errors": errors,
         "jobs": [serialize_job(j) for j in jobs],
     }
 
 
-def enqueue_project_first_frames(db: Session, project: Project) -> dict[str, Any]:
+def enqueue_project_first_frames(
+    db: Session, project: Project, *, overwrite: bool = False
+) -> dict[str, Any]:
     from app.db import Chapter, Shot
     from datetime import timedelta
 
@@ -636,9 +645,13 @@ def enqueue_project_first_frames(db: Session, project: Project) -> dict[str, Any
     base_ts = _utcnow()
     title_by = {c.id: c.title for c in chapters}
     skipped_active = 0
+    skipped_existing = 0
     for i, shot in enumerate(shots):
         if _active_first_frame_job(db, shot.id) is not None:
             skipped_active += 1
+            continue
+        if not overwrite and (getattr(shot, "first_frame_path", "") or "").strip():
+            skipped_existing += 1
             continue
         paths, labels, err = _shot_ref_paths(project, shot, assets)
         if err:
@@ -659,14 +672,15 @@ def enqueue_project_first_frames(db: Session, project: Project) -> dict[str, Any
         job.updated_at = job.created_at
         jobs.append(job)
         db.add(job)
-    if not jobs and skipped_active == 0:
+    if not jobs and skipped_active == 0 and skipped_existing == 0:
         raise ValueError("没有可入队的首帧任务：" + "；".join(errors[:8]))
     if jobs:
         db.commit()
     return {
         "batch_id": batch_id,
         "queued": len(jobs),
-        "skipped": len(errors) + skipped_active,
+        "skipped": len(errors) + skipped_active + skipped_existing,
+        "skipped_existing": skipped_existing,
         "errors": errors,
         "jobs": [serialize_job(j) for j in jobs],
     }

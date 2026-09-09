@@ -363,14 +363,14 @@ export const api = {
       `/api/projects/${pid}/generate-images`,
       { method: "POST", signal: opts?.signal },
     ),
-  generateChapterFirstFrames: (pid: string, cid: string, opts?: ReqSignal) =>
-    req<Bundle & { batch_id?: string; queued?: number; jobs?: ImageJob[]; errors?: string[] }>(
-      `/api/projects/${pid}/chapters/${cid}/generate-first-frames`,
+  generateChapterFirstFrames: (pid: string, cid: string, overwrite = false, opts?: ReqSignal) =>
+    req<Bundle & { batch_id?: string; queued?: number; jobs?: ImageJob[]; errors?: string[]; skipped?: number; skipped_existing?: number }>(
+      `/api/projects/${pid}/chapters/${cid}/generate-first-frames?overwrite=${overwrite}`,
       { method: "POST", signal: opts?.signal },
     ),
-  generateProjectFirstFrames: (pid: string, opts?: ReqSignal) =>
-    req<Bundle & { batch_id?: string; queued?: number; jobs?: ImageJob[]; errors?: string[] }>(
-      `/api/projects/${pid}/generate-first-frames`,
+  generateProjectFirstFrames: (pid: string, overwrite = false, opts?: ReqSignal) =>
+    req<Bundle & { batch_id?: string; queued?: number; jobs?: ImageJob[]; errors?: string[]; skipped?: number; skipped_existing?: number }>(
+      `/api/projects/${pid}/generate-first-frames?overwrite=${overwrite}`,
       { method: "POST", signal: opts?.signal },
     ),
   generateShotFirstFrame: (pid: string, sid: string, opts?: ReqSignal) =>

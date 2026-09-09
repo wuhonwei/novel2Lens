@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import subprocess
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -104,3 +105,61 @@ def h3_comfy_process_info() -> dict[str, Any]:
         return {"managed": False, "pid": None, "alive": False}
     alive = _process.poll() is None
     return {"managed": True, "pid": _process.pid, "alive": alive}
+
+
+def _kill_h3_port_listeners() -> None:
+    """Force-stop whatever is listening on the H3 Comfy port (Windows-first)."""
+    port = int(settings.h3_comfy_port)
+    script = (
+        f"$conns = Get-NetTCPConnection -LocalPort {port} -State Listen "
+        "-ErrorAction SilentlyContinue; "
+        "foreach ($c in @($conns)) { "
+        "if ($c.OwningProcess) { Stop-Process -Id $c.OwningProcess -Force -ErrorAction SilentlyContinue } "
+        "}"
+    )
+    try:
+        subprocess.run(
+            ["powershell", "-NoProfile", "-Command", script],
+            check=False,
+            capture_output=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+
+
+def release_h3_for_image_work() -> dict[str, Any]:
+    """Make room for image/first-frame Comfy on a shared GPU.
+
+    H3 fl2va (UNET + Qwen3-VL) and Qwen Image Edit cannot coexist safely on one
+    card — leaving H3 warm after video gen is a common OOM freeze trigger.
+    """
+    global _process
+    client = H3ComfyClient()
+    info = client.describe_server()
+    if not info.get("up"):
+        return {"status": "h3_down", **info}
+
+    with _lock:
+        try:
+            client.interrupt()
+        except Exception:
+            pass
+        client.free_memory()
+        if not settings.h3_stop_for_image:
+            return {"status": "freed", **client.describe_server()}
+
+        if _process is not None and _process.poll() is None:
+            try:
+                _process.terminate()
+                _process.wait(timeout=8)
+            except Exception:
+                try:
+                    _process.kill()
+                except Exception:
+                    pass
+            _process = None
+
+        _kill_h3_port_listeners()
+        time.sleep(1.0)
+        return {"status": "stopped_for_image", "url": settings.h3_comfy_base_url}

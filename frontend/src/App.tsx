@@ -711,7 +711,7 @@ export default function App() {
                   disabled={!!busy || imageJobs.length > 0 || !chapter || chapterShots.length === 0}
                   onClick={() =>
                     run("生成本章首帧", async (signal) => {
-                      const next = await api.generateChapterFirstFrames(p.id, chapter!.id, { signal });
+                      const next = await api.generateChapterFirstFrames(p.id, chapter!.id, overwrite, { signal });
                       const jobs = next.jobs || [];
                       const bid = next.batch_id || jobs[0]?.batch_id || "";
                       if (bid) noteImageBatch(bid, jobs.length || next.queued || 1);
@@ -723,6 +723,11 @@ export default function App() {
                       }
                       setBundle(next);
                       setTab("分镜");
+                      if ((next.skipped_existing || 0) > 0 && !jobs.length) {
+                        setNotice(`已有首帧均已跳过（勾选覆盖可重跑）；跳过 ${next.skipped_existing}`);
+                      } else if ((next.skipped_existing || 0) > 0) {
+                        setNotice(`已排队 ${jobs.length}；跳过已有首帧 ${next.skipped_existing}`);
+                      }
                     })
                   }
                 >
@@ -733,7 +738,7 @@ export default function App() {
                   disabled={!!busy || imageJobs.length > 0 || !(bundle.shots?.length)}
                   onClick={() =>
                     run("生成全部首帧", async (signal) => {
-                      const next = await api.generateProjectFirstFrames(p.id, { signal });
+                      const next = await api.generateProjectFirstFrames(p.id, overwrite, { signal });
                       const jobs = next.jobs || [];
                       const bid = next.batch_id || jobs[0]?.batch_id || "";
                       if (bid) noteImageBatch(bid, jobs.length || next.queued || 1);
@@ -745,6 +750,11 @@ export default function App() {
                       }
                       setBundle(next);
                       setTab("分镜");
+                      if ((next.skipped_existing || 0) > 0 && !jobs.length) {
+                        setNotice(`已有首帧均已跳过（勾选覆盖可重跑）；跳过 ${next.skipped_existing}`);
+                      } else if ((next.skipped_existing || 0) > 0) {
+                        setNotice(`已排队 ${jobs.length}；跳过已有首帧 ${next.skipped_existing}`);
+                      }
                     })
                   }
                 >

@@ -189,6 +189,14 @@ class VideoWorker:
         if self._cancelled(job.id):
             return
 
+        # Free image Comfy (Qwen Edit / SDXL) before loading H3 on the same GPU.
+        try:
+            from app.comfy_pipeline.comfy import ComfyClient
+
+            ComfyClient(settings.comfy_base_url).free_memory()
+        except Exception:  # noqa: BLE001
+            log.exception("image Comfy free_memory before H3 failed")
+
         self._ensure_comfy()
         client = self._client_factory()
 
@@ -260,3 +268,8 @@ class VideoWorker:
         job.phase = ""
         job.error = ""
         self._save(db, job)
+        # Unload H3 weights so a later first-frame/image job does not OOM.
+        try:
+            client.free_memory()
+        except Exception:  # noqa: BLE001
+            log.exception("H3 free_memory after video job failed")

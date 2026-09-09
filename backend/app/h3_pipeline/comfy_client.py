@@ -154,3 +154,18 @@ class H3ComfyClient:
                     if path.exists():
                         return path
         raise FileNotFoundError(f"No video file found in Comfy history outputs: {outputs}")
+
+    def free_memory(self, *, unload_models: bool = True) -> None:
+        """Ask H3 Comfy to unload models / free VRAM (best-effort)."""
+        try:
+            with httpx.Client(base_url=self.base_url, timeout=30.0) as client:
+                client.post("/free", json={"unload_models": unload_models, "free_memory": True})
+        except Exception:
+            pass
+
+    def interrupt(self) -> None:
+        try:
+            with httpx.Client(base_url=self.base_url, timeout=5.0) as client:
+                client.post("/interrupt")
+        except Exception:
+            pass

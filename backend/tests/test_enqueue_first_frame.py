@@ -80,7 +80,53 @@ def test_multi_char_packs_four_character_refs(tmp_path, monkeypatch):
         db.close()
 
 
-def test_chapter_enqueue_skips_active_shot(tmp_path, monkeypatch):
+def test_chapter_enqueue_skips_existing_first_frame(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.config.settings.data_dir", tmp_path)
+    reset_engine(f"sqlite:///{tmp_path / 't_exist.sqlite'}")
+    from app.db import SessionLocal
+
+    db = SessionLocal()
+    try:
+        pid = _uid()
+        p = Project(id=pid, title="t", style="半写实", source_text="x")
+        db.add(p)
+        a = Asset(
+            id=_uid(),
+            project_id=pid,
+            kind="character",
+            name="甲",
+            confirmed=True,
+            full_path=f"assets/{pid}/c_full.png",
+        )
+        (tmp_path / a.full_path).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / a.full_path).write_bytes(TINY_PNG)
+        db.add(a)
+        ch = Chapter(id=_uid(), project_id=pid, index=0, title="第一章", text="x", status="ready")
+        db.add(ch)
+        shot = Shot(
+            id=_uid(),
+            project_id=pid,
+            chapter_id=ch.id,
+            order_index=1,
+            prompt_zh="一人",
+            character_count=1,
+            first_frame_path=f"projects/{pid}/shots/s/first_frame.png",
+            lines_json=json.dumps([{"asset_id": a.id, "position": "中", "facing": "面向镜头"}]),
+            slots_json="[]",
+        )
+        db.add(shot)
+        db.commit()
+        monkeypatch.setattr(
+            "app.image_jobs._shot_ref_paths",
+            lambda *_a, **_k: ([str(tmp_path / a.full_path)], ["人物"], ""),
+        )
+        out = enqueue_chapter_first_frames(db, p, ch.id, overwrite=False)
+        assert out["queued"] == 0
+        assert out["skipped_existing"] == 1
+        out2 = enqueue_chapter_first_frames(db, p, ch.id, overwrite=True)
+        assert out2["queued"] == 1
+    finally:
+        db.close()
     monkeypatch.setattr("app.config.settings.data_dir", tmp_path)
     reset_engine(f"sqlite:///{tmp_path / 't2.sqlite'}")
     from app.db import SessionLocal

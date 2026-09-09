@@ -720,13 +720,13 @@ def api_generate_all_images(project_id: str):
 
 
 @app.post("/api/projects/{project_id}/chapters/{chapter_id}/generate-first-frames")
-def api_generate_chapter_first_frames(project_id: str, chapter_id: str):
+def api_generate_chapter_first_frames(project_id: str, chapter_id: str, overwrite: bool = False):
     db = db_session()
     try:
         project = get_project(db, project_id)
         get_chapter(db, project_id, chapter_id)
         try:
-            result = enqueue_chapter_first_frames(db, project, chapter_id)
+            result = enqueue_chapter_first_frames(db, project, chapter_id, overwrite=overwrite)
         except ValueError as exc:
             raise HTTPException(409, str(exc)) from exc
         return {**_bundle(db, project), **result}
@@ -735,12 +735,12 @@ def api_generate_chapter_first_frames(project_id: str, chapter_id: str):
 
 
 @app.post("/api/projects/{project_id}/generate-first-frames")
-def api_generate_project_first_frames(project_id: str):
+def api_generate_project_first_frames(project_id: str, overwrite: bool = False):
     db = db_session()
     try:
         project = get_project(db, project_id)
         try:
-            result = enqueue_project_first_frames(db, project)
+            result = enqueue_project_first_frames(db, project, overwrite=overwrite)
         except ValueError as exc:
             raise HTTPException(409, str(exc)) from exc
         return {**_bundle(db, project), **result}

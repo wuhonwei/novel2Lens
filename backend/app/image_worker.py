@@ -202,6 +202,13 @@ class ImageWorker:
                 self.llm.wait_released()
             except TimeoutError as exc:
                 raise RuntimeError(f"cannot start Comfy while LLM still up: {exc}") from exc
+            # Free H3 video stack first — same GPU cannot hold H3 + Qwen Edit.
+            try:
+                from app.h3_pipeline.comfy_manager import release_h3_for_image_work
+
+                release_h3_for_image_work()
+            except Exception:  # noqa: BLE001
+                log.exception("release_h3_for_image_work failed")
             # Extra beat only if Ollama unload may still be reclaiming — keep short;
             # stop_llm already waited settle_seconds once.
             time.sleep(min(1.5, max(0.0, float(getattr(self.llm, "settle_seconds", 5.0) or 0) * 0.15)))
