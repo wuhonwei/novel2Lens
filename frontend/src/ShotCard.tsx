@@ -143,7 +143,7 @@ export function ShotCard({
             disabled={regenDisabled}
             title={
               shot.first_frame_unready
-                ? "参考图未齐，无法生成首帧"
+                ? "至少需要一张可用参考图（场景/人物/物品）"
                 : shot.first_frame_path
                   ? "覆盖当前首帧重新生成"
                   : "生成本镜首帧"

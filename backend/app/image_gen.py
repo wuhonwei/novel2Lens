@@ -223,11 +223,19 @@ def build_field_prompt(project: Project, asset: Asset, field: str) -> str:
                 "纯白色不透明实底背景，不要透明，不要棋盘格。"
             )
     if kind == "scene" and field == "far":
-        return f"{style}。场景：{asset.name}。{look}。电影布光，环境完整，远景全貌，不要人物特写。"
-    if kind == "scene" and field == "near":
+        # Prefer visual desc over asset.name — names like「苏婆婆木屋」leak characters into empty plates.
+        env = (look or "").strip() or "古风建筑与自然环境"
         return (
-            f"保持场景气质与构图元素一致，生成近景局部特写：{asset.name}。"
-            f"{look}。氛围连贯，不要出现无关人物。"
+            f"{style}。空镜环境远景：{env}。"
+            "电影布光，环境完整，远景全貌，只拍地点与建筑。"
+            "禁止出现任何人、人脸、人影、剪影、手部；禁止把地点名称画成人物。"
+        )
+    if kind == "scene" and field == "near":
+        env = (look or "").strip() or "建筑与环境材质局部"
+        return (
+            f"严格按参考远景图裁切放大为近景空镜局部特写，保留材质、光影与构图元素，主体：{env}。"
+            "氛围连贯，只拍门窗、墙面、篱笆、器物与环境细节。"
+            "禁止新增任何人、人脸、人影、剪影、手部；禁止把地点名称画成人物。"
         )
     if kind == "prop" or field == "image":
         visual = _prop_visual_brief(asset.name or "", look)

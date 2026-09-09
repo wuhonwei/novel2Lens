@@ -48,19 +48,33 @@ def _shot_unready(
     project: Project,
     image_reqs: list[tuple[Asset, str]],
 ) -> bool:
+    """Unready unless style is set and at least one packed ref image exists.
+
+    First-frame generation only needs ≥1 usable reference (scene / person / prop).
+    Missing other assets become text fallbacks and must not block the button.
+    """
     if not (project.style or "").strip():
+        return True
+    if not image_reqs:
         return True
     for asset, image_key in image_reqs:
         key = image_key if image_key in ("scene", "prop") else normalize_portrait_key(image_key)
-        if key == "half" and not asset.half_path:
-            return True
-        if key == "full" and not asset.full_path:
-            return True
-        if key == "scene" and not scene_image_path(asset):
-            return True
-        if key == "prop" and not asset.image_path:
-            return True
-    return False
+        if key == "half" and asset.half_path:
+            return False
+        if key == "full" and asset.full_path:
+            return False
+        if key == "scene" and scene_image_path(asset):
+            return False
+        if key == "prop" and asset.image_path:
+            return False
+    return True
+
+
+def _prefer_scene_image_slot(chars: list[SlotSubject]) -> bool:
+    """Full-body / environment-led shots keep a scene plate; all-half close-ups may skip it."""
+    if not chars:
+        return True
+    return any(c.image_key != "half" for c in chars)
 
 
 def _asset_desc(asset: Asset) -> str:
@@ -196,8 +210,9 @@ def compile_shot_prompts(project: Project, shot: Shot, assets: list[Asset]) -> N
     shot.character_count = len(chars)
     shot.half_lock = bool(len(chars) == 1 and chars and chars[0].image_key == "half")
 
+    use_scene_plate = bool(scene) and _prefer_scene_image_slot(chars)
     scene_subject = None
-    if scene:
+    if scene and use_scene_plate:
         scene_subject = SlotSubject(
             asset_id=scene.id,
             kind="scene",
@@ -222,6 +237,19 @@ def compile_shot_prompts(project: Project, shot: Shot, assets: list[Asset]) -> N
     )
     # Image-aware split: existing asset without file → text fallback; missing asset → omit.
     text_fbs: list[TextFallback] = list(packed.text_fallbacks)
+    # Half close-ups: keep scene as optional text, not a mandatory image plate.
+    if scene and not use_scene_plate:
+        text_fbs.append(
+            TextFallback(
+                kind="scene",
+                asset_id=scene.id,
+                image_key="scene",
+                name=scene.name or "",
+                position="",
+                text=(_asset_desc(scene) or "").strip(),
+                note="半身近景镜场景可选，文字补足",
+            )
+        )
     image_slots: list[PackedSlot] = []
     for p in packed.slots:
         asset = by_id.get(p.asset_id or "") if p.asset_id else None
