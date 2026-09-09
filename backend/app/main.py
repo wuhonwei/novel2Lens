@@ -42,6 +42,16 @@ from app.image_jobs import (
 )
 from app.image_worker import ImageWorker
 from app.llm_supervisor import LlmSupervisor
+from app.video_jobs import (
+    cancel_all_active_video_jobs,
+    cancel_project_video_jobs,
+    enqueue_chapter_videos,
+    enqueue_shot_video,
+    list_video_jobs,
+    mark_stale_video_running_failed,
+    serialize_video_job,
+)
+from app.video_worker import VideoWorker
 from app.services import (
     confirm_proposals,
     export_project,
@@ -74,6 +84,7 @@ comfy_supervisor = ComfySupervisor(
     and not settings.llm_requires_comfy_stop,
 )
 image_worker: ImageWorker | None = None
+video_worker: VideoWorker | None = None
 
 
 def _start_image_worker() -> None:
@@ -93,6 +104,23 @@ def _stop_image_worker() -> None:
     global image_worker
     if image_worker is not None:
         image_worker.stop()
+
+
+def _start_video_worker() -> None:
+    global video_worker
+    if video_worker is None:
+        video_worker = VideoWorker(
+            session_factory=database.SessionLocal,
+            poll_interval=max(0.8, settings.worker_poll_interval),
+            idle_poll_interval=max(3.0, settings.worker_idle_poll_interval),
+        )
+    video_worker.start()
+
+
+def _stop_video_worker() -> None:
+    global video_worker
+    if video_worker is not None:
+        video_worker.stop()
 
 
 def _reject_if_image_busy(db: Session) -> None:
@@ -123,12 +151,15 @@ async def lifespan(_: FastAPI):
     db = database.SessionLocal()
     try:
         mark_stale_running_failed(db)
+        mark_stale_video_running_failed(db)
     finally:
         db.close()
     _start_image_worker()
+    _start_video_worker()
     try:
         yield
     finally:
+        _stop_video_worker()
         _stop_image_worker()
 
 
@@ -285,6 +316,7 @@ def _bundle(db: Session, project: Project) -> dict:
         "shots": [serialize_shot(s, title_by.get(s.chapter_id, ""), assets) for s in shots],
         "proposals": [{"id": p.id, "chapter_id": p.chapter_id, **(_load(p.payload_json, {}))} for p in proposals],
         "active_image_jobs": list_active_jobs(db, project.id, active_only=True),
+        "active_video_jobs": list_video_jobs(db, project.id, active_only=True),
     }
 
 
@@ -733,6 +765,67 @@ def api_generate_shot_first_frame(project_id: str, shot_id: str):
         # Re-load after commit so expired ORM state does not blow up _bundle.
         db.refresh(project)
         return {**_bundle(db, project), "job": serialize_job(job)}
+    finally:
+        db.close()
+
+
+@app.post("/api/projects/{project_id}/shots/{shot_id}/generate-video")
+def api_generate_shot_video(project_id: str, shot_id: str, overwrite: bool = True):
+    db = db_session()
+    try:
+        project = get_project(db, project_id)
+        shot = db.get(Shot, shot_id)
+        if not shot or shot.project_id != project_id:
+            raise HTTPException(404, "分镜不存在")
+        try:
+            job = enqueue_shot_video(db, project, shot, overwrite=overwrite)
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        db.refresh(project)
+        return {**_bundle(db, project), "job": serialize_video_job(job)}
+    finally:
+        db.close()
+
+
+@app.post("/api/projects/{project_id}/chapters/{chapter_id}/generate-videos")
+def api_generate_chapter_videos(project_id: str, chapter_id: str, overwrite: bool = False):
+    db = db_session()
+    try:
+        project = get_project(db, project_id)
+        get_chapter(db, project_id, chapter_id)
+        result = enqueue_chapter_videos(db, project, chapter_id, overwrite=overwrite)
+        return {**_bundle(db, project), **result}
+    finally:
+        db.close()
+
+
+@app.get("/api/projects/{project_id}/video-jobs")
+def api_list_video_jobs(project_id: str, active_only: bool = True):
+    db = db_session()
+    try:
+        get_project(db, project_id)
+        return {"jobs": list_video_jobs(db, project_id, active_only=active_only)}
+    finally:
+        db.close()
+
+
+@app.post("/api/projects/{project_id}/video-jobs/cancel")
+def api_cancel_project_video_jobs(project_id: str):
+    db = db_session()
+    try:
+        get_project(db, project_id)
+        n = cancel_project_video_jobs(db, project_id)
+        return {"ok": True, "cancelled": n}
+    finally:
+        db.close()
+
+
+@app.post("/api/video-jobs/cancel-all")
+def api_cancel_all_video_jobs():
+    db = db_session()
+    try:
+        n = cancel_all_active_video_jobs(db)
+        return {"ok": True, "cancelled": n}
     finally:
         db.close()
 

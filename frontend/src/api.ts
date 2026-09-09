@@ -41,26 +41,45 @@ export type ImageJob = {
   updated_at?: string | null;
 };
 
+export type VideoJob = {
+  id: string;
+  project_id: string;
+  shot_id: string;
+  status: string;
+  phase: string;
+  prompt: string;
+  error: string;
+  batch_id: string;
+  payload?: Record<string, unknown>;
+  created_at?: string | null;
+  updated_at?: string | null;
+};
+
 /** Human-readable phase/status for image job badges. */
-export function jobPhaseLabel(j: ImageJob): string {
-  if (j.phase === "loading_t2i" || j.phase === "ensuring_comfy") return "文生图模型加载中";
+export function jobPhaseLabel(j: ImageJob | VideoJob): string {
+  if (j.phase === "loading_t2i" || j.phase === "ensuring_comfy" || j.phase === "starting_comfy") {
+    return "模型加载中";
+  }
+  if (j.phase === "fitting_frame" || j.phase === "uploading") return "准备首帧";
+  if (j.phase === "queued_comfy") return "已提交 Comfy";
+  if (j.phase === "copying_output") return "写入视频";
   if (j.phase === "loading_edit") return "图片编辑模型加载中";
-  if (j.phase?.startsWith("seq_scene")) {
+  if ("target_field" in j && j.phase?.startsWith("seq_scene")) {
     const m = j.phase.match(/^seq_scene_a(\d+)$/);
     if (m) return `逐层叠加·场景·第${m[1]}轮`;
     return "逐层叠加·场景";
   }
-  if (j.phase?.startsWith("seq_prop")) {
+  if ("target_field" in j && j.phase?.startsWith("seq_prop")) {
     const m = j.phase.match(/^seq_prop(\d+)\/(\d+)_a(\d+)$/);
     if (m) return `逐层叠加·道具${m[1]}/${m[2]}·第${m[3]}轮`;
     return "逐层叠加·道具";
   }
-  if (j.phase?.startsWith("seq_rebind_")) {
+  if ("target_field" in j && j.phase?.startsWith("seq_rebind_")) {
     const m = j.phase.match(/^seq_rebind_p(\d+)_a(\d+)$/);
     if (m) return `逐层叠加·回绑人物${m[1]}·第${m[2]}轮`;
     return "逐层叠加·回绑身份";
   }
-  if (j.phase?.startsWith("seq_p")) {
+  if ("target_field" in j && j.phase?.startsWith("seq_p")) {
     const m = j.phase.match(/^seq_p(\d+)\/(\d+)_a(\d+)$/);
     if (m) return `逐层叠加·人物${m[1]}/${m[2]}·第${m[3]}轮`;
     return "逐层叠加·人物";
@@ -121,6 +140,8 @@ export type Shot = {
   first_frame_version?: number;
   first_frame_score?: number | null;
   first_frame_score_comment?: string;
+  video_path?: string;
+  video_version?: number;
   prompt_zh: string;
   prompt_en: string;
   h3_prompt: string;
@@ -195,6 +216,7 @@ export type Bundle = {
   shots: Shot[];
   proposals: Proposal[];
   active_image_jobs?: ImageJob[];
+  active_video_jobs?: VideoJob[];
 };
 
 async function req<T>(url: string, init?: RequestInit): Promise<T> {
@@ -356,6 +378,29 @@ export const api = {
       method: "POST",
       signal: opts?.signal,
     }),
+  generateShotVideo: (pid: string, sid: string, overwrite = true, opts?: ReqSignal) =>
+    req<Bundle & { job?: VideoJob }>(
+      `/api/projects/${pid}/shots/${sid}/generate-video?overwrite=${overwrite}`,
+      { method: "POST", signal: opts?.signal },
+    ),
+  generateChapterVideos: (pid: string, cid: string, overwrite = false, opts?: ReqSignal) =>
+    req<
+      Bundle & {
+        batch_id?: string;
+        queued?: number;
+        skipped?: Array<{ shot_id: string; reason: string }>;
+        jobs?: VideoJob[];
+      }
+    >(`/api/projects/${pid}/chapters/${cid}/generate-videos?overwrite=${overwrite}`, {
+      method: "POST",
+      signal: opts?.signal,
+    }),
+  listVideoJobs: (pid: string, activeOnly = true) =>
+    req<{ jobs: VideoJob[] }>(`/api/projects/${pid}/video-jobs?active_only=${activeOnly}`),
+  cancelProjectVideoJobs: (pid: string) =>
+    req<{ ok: boolean; cancelled: number }>(`/api/projects/${pid}/video-jobs/cancel`, { method: "POST" }),
+  cancelAllVideoJobs: () =>
+    req<{ ok: boolean; cancelled: number }>(`/api/video-jobs/cancel-all`, { method: "POST" }),
   generateAssetImage: (pid: string, aid: string, field?: string, opts?: ReqSignal) => {
     const qs = field ? `?field=${encodeURIComponent(field)}` : "";
     return req<{ ok: boolean; job: ImageJob; jobs: ImageJob[]; asset: Asset }>(

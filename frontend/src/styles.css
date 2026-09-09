@@ -640,6 +640,17 @@ input, select { width: 100%; }
   border-radius: 8px;
   border: 1px solid var(--line);
 }
+.shot-video {
+  margin: 0 0 0.85rem;
+  max-width: 520px;
+}
+.shot-video video {
+  display: block;
+  width: 100%;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: #000;
+}
 .shot-refs {
   margin: 0.55rem 0 0.85rem;
   padding: 0.7rem 0.75rem;

@@ -177,6 +177,8 @@ def serialize_shot(shot: Shot, chapter_title: str = "", assets: list[Asset] | No
         "first_frame_version": _file_mtime_version(getattr(shot, "first_frame_path", "") or ""),
         "first_frame_score": getattr(shot, "first_frame_score", None),
         "first_frame_score_comment": getattr(shot, "first_frame_score_comment", "") or "",
+        "video_path": getattr(shot, "video_path", "") or "",
+        "video_version": _file_mtime_version(getattr(shot, "video_path", "") or ""),
         "references": references,
     }
 

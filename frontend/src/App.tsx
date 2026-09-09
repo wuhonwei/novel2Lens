@@ -22,6 +22,7 @@ import {
 } from "./flow";
 import { ScoreBadge, ShotCard } from "./ShotCard";
 import { useImageJobPoll } from "./useImageJobPoll";
+import { useVideoJobPoll } from "./useVideoJobPoll";
 
 const LLM_BUSY_TITLE = "参考图生成中";
 
@@ -129,6 +130,20 @@ export default function App() {
     setBundle,
   );
 
+  const {
+    videoJobs,
+    setVideoJobs,
+    noteVideoBatch,
+    clearVideoBatchTracking,
+    pollVideoJobsRef,
+    videoJobsActiveRef,
+  } = useVideoJobPoll(
+    bundle?.project.id,
+    bundle?.active_video_jobs,
+    () => bundleRef.current,
+    setBundle,
+  );
+
   async function refreshList() {
     setProjects(await api.list());
   }
@@ -177,8 +192,11 @@ export default function App() {
       abortRef.current?.abort();
       // Image mutex is global: cancel every project's active jobs, not only the open one.
       const all = await api.cancelAllImageJobs();
+      const allVideo = await api.cancelAllVideoJobs();
       setImageJobs([]);
+      setVideoJobs([]);
       clearBatchTracking();
+      clearVideoBatchTracking();
       if (bundle) {
         try {
           setBundle(await api.get(bundle.project.id));
@@ -189,6 +207,7 @@ export default function App() {
       const parts: string[] = [];
       if (hadBusy) parts.push(`已取消「${busy}」`);
       if (all.cancelled > 0) parts.push(`已取消 ${all.cancelled} 个出图任务（参考图/首帧，含其他项目）`);
+      if (allVideo.cancelled > 0) parts.push(`已取消 ${allVideo.cancelled} 个视频任务`);
       setNotice(parts.length ? parts.join("；") : "没有可取消的任务");
       setBusy("");
       setError("");
@@ -786,25 +805,64 @@ export default function App() {
                           <h2>本章首帧评分</h2>
                           <ScoreSummary counts={countShotScores(chapterShots)} />
                         </div>
-                        <button
-                          type="button"
-                          className="primary"
-                          data-testid="btn-score-first-frames"
-                          disabled={!!busy || llmBlocked || !chapterShots.some((s) => s.first_frame_path)}
-                          title={llmBlocked ? LLM_BUSY_TITLE : undefined}
-                          onClick={() =>
-                            run("评估首帧", async (signal) => {
-                              const next = await api.scoreImages(p.id, { scope: "shots" }, { signal });
-                              setBundle(next);
-                              if (next.cancelled) return;
-                              if (next.errors?.length) {
-                                alert(`评估完成 ${next.scored ?? 0} 张；部分失败：\n${next.errors.slice(0, 5).join("\n")}`);
-                              }
-                            })
-                          }
-                        >
-                          评估图片
-                        </button>
+                        <div className="row">
+                          <button
+                            type="button"
+                            className="primary"
+                            data-testid="btn-chapter-videos"
+                            disabled={
+                              !!busy ||
+                              videoJobs.length > 0 ||
+                              !chapterShots.some((s) => s.first_frame_path && (s.h3_prompt || "").trim())
+                            }
+                            title="为本章有首帧+H3提示词的镜头排队生成视频（默认跳过已有视频）"
+                            onClick={() =>
+                              run("生成本章视频", async (signal) => {
+                                const next = await api.generateChapterVideos(
+                                  p.id,
+                                  chapter!.id,
+                                  overwrite,
+                                  { signal },
+                                );
+                                const jobs = next.jobs || [];
+                                if (jobs.length) {
+                                  const bid = next.batch_id || jobs[0]?.batch_id || jobs[0]?.id || "";
+                                  noteVideoBatch(bid, jobs.length);
+                                  setVideoJobs(jobs);
+                                  videoJobsActiveRef.current = true;
+                                  pollVideoJobsRef.current?.();
+                                }
+                                setBundle(next);
+                                if (next.skipped?.length && !jobs.length) {
+                                  setNotice(`无可排队镜头（跳过 ${next.skipped.length}）`);
+                                } else if (next.skipped?.length) {
+                                  setNotice(`已排队 ${jobs.length}；跳过 ${next.skipped.length}`);
+                                }
+                              })
+                            }
+                          >
+                            生成本章视频
+                          </button>
+                          <button
+                            type="button"
+                            className="primary"
+                            data-testid="btn-score-first-frames"
+                            disabled={!!busy || llmBlocked || !chapterShots.some((s) => s.first_frame_path)}
+                            title={llmBlocked ? LLM_BUSY_TITLE : undefined}
+                            onClick={() =>
+                              run("评估首帧", async (signal) => {
+                                const next = await api.scoreImages(p.id, { scope: "shots" }, { signal });
+                                setBundle(next);
+                                if (next.cancelled) return;
+                                if (next.errors?.length) {
+                                  alert(`评估完成 ${next.scored ?? 0} 张；部分失败：\n${next.errors.slice(0, 5).join("\n")}`);
+                                }
+                              })
+                            }
+                          >
+                            评估图片
+                          </button>
+                        </div>
                       </div>
                     </section>
                     {chapterShots.map((shot) => (
@@ -815,7 +873,14 @@ export default function App() {
                         firstFrameJob={imageJobs.find(
                           (j) => j.shot_id === shot.id && j.target_field === "first_frame",
                         )}
+                        videoJob={videoJobs.find((j) => j.shot_id === shot.id)}
                         regenDisabled={!!busy || imageJobs.length > 0 || shot.first_frame_unready}
+                        videoDisabled={
+                          !!busy ||
+                          videoJobs.length > 0 ||
+                          !shot.first_frame_path ||
+                          !(shot.h3_prompt || "").trim()
+                        }
                         onRegen={() =>
                           run(`重跑镜${shot.order_index}首帧`, async (signal) => {
                             const next = await api.generateShotFirstFrame(p.id, shot.id, { signal });
@@ -827,6 +892,20 @@ export default function App() {
                               imageJobsActiveRef.current = true;
                               if (prevActiveCountRef.current === 0) prevActiveCountRef.current = 1;
                               pollImageJobsRef.current?.();
+                            }
+                            setBundle(next);
+                          })
+                        }
+                        onGenerateVideo={() =>
+                          run(`生成镜${shot.order_index}视频`, async (signal) => {
+                            const next = await api.generateShotVideo(p.id, shot.id, true, { signal });
+                            const job = next.job;
+                            if (job) {
+                              const bid = job.batch_id || job.id;
+                              noteVideoBatch(bid, 1);
+                              setVideoJobs([job]);
+                              videoJobsActiveRef.current = true;
+                              pollVideoJobsRef.current?.();
                             }
                             setBundle(next);
                           })

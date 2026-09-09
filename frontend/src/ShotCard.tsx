@@ -1,5 +1,13 @@
 import { useEffect, useState } from "react";
-import { jobPhaseLabel, mediaUrl, type Asset, type ImageJob, type Shot, type ShotReference } from "./api";
+import {
+  jobPhaseLabel,
+  mediaUrl,
+  type Asset,
+  type ImageJob,
+  type Shot,
+  type ShotReference,
+  type VideoJob,
+} from "./api";
 
 const CAMERAS = [
   "固定",
@@ -106,15 +114,21 @@ export function ShotCard({
   shot,
   assets,
   firstFrameJob,
+  videoJob,
   regenDisabled,
+  videoDisabled,
   onRegen,
+  onGenerateVideo,
   onChange,
 }: {
   shot: Shot;
   assets: Asset[];
   firstFrameJob?: ImageJob | null;
+  videoJob?: VideoJob | null;
   regenDisabled?: boolean;
+  videoDisabled?: boolean;
   onRegen?: () => void;
+  onGenerateVideo?: () => void;
   onChange: (patch: Partial<Shot> & { recompile?: boolean }) => Promise<void>;
 }) {
   const [local, setLocal] = useState(shot);
@@ -122,6 +136,7 @@ export function ShotCard({
   const refs = shot.references?.length ? shot.references : fallbackShotRefs(shot, assets);
   const missing = refs.filter((r) => r.mode !== "text" && !r.uploaded).length;
   const framePhase = firstFrameJob ? jobPhaseLabel(firstFrameJob) : "";
+  const videoPhase = videoJob ? jobPhaseLabel(videoJob) : "";
 
   return (
     <article className="shot-card">
@@ -134,7 +149,9 @@ export function ShotCard({
           {shot.first_frame_unready ? "首帧未就绪" : "首帧就绪"}
         </span>
         {shot.first_frame_path ? <span className="pill ok">已出图</span> : null}
+        {shot.video_path ? <span className="pill ok">已出视频</span> : null}
         {framePhase ? <span className="pill warn">{framePhase}</span> : null}
+        {videoPhase ? <span className="pill warn">视频·{videoPhase}</span> : null}
         {onRegen ? (
           <button
             type="button"
@@ -153,6 +170,26 @@ export function ShotCard({
             {shot.first_frame_path ? "重新生成首帧" : "生成首帧"}
           </button>
         ) : null}
+        {onGenerateVideo ? (
+          <button
+            type="button"
+            className="primary compact"
+            data-testid={`btn-shot-video-${shot.order_index}`}
+            disabled={videoDisabled}
+            title={
+              !shot.first_frame_path
+                ? "请先生成首帧"
+                : !(shot.h3_prompt || "").trim()
+                  ? "请先填写 H3 运镜提示词"
+                  : shot.video_path
+                    ? "覆盖当前视频重新生成"
+                    : "用首帧 + H3 提示词生成本镜视频"
+            }
+            onClick={onGenerateVideo}
+          >
+            {shot.video_path ? "重新生成视频" : "生成视频"}
+          </button>
+        ) : null}
       </div>
 
       {shot.first_frame_path ? (
@@ -165,6 +202,18 @@ export function ShotCard({
             />
             <ScoreBadge score={shot.first_frame_score} comment={shot.first_frame_score_comment} />
           </div>
+        </div>
+      ) : null}
+
+      {shot.video_path ? (
+        <div className="shot-video">
+          <video
+            key={`${shot.id}-${shot.video_version || 0}-${shot.video_path}`}
+            src={mediaUrl(shot.video_path, shot.video_version)}
+            controls
+            playsInline
+            preload="metadata"
+          />
         </div>
       ) : null}
 

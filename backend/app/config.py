@@ -4,6 +4,9 @@ from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+_DEFAULT_H3_ROOT = Path(r"D:\Comfy-Desktop\ComfyUI-Installs\minmaxH3\ComfyUI")
+_DEFAULT_SHARED = Path(r"D:\Comfy-Desktop\ComfyUI-Shared")
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="N2L_")
@@ -32,6 +35,29 @@ class Settings(BaseSettings):
     llm_settle_seconds: float = 8.0
     # When True, release_for_llm stops the Comfy process; when False, only /free.
     llm_requires_comfy_stop: bool = False
+
+    # MiniMax H3 I2V (separate Comfy install / port from image stack).
+    h3_comfy_host: str = "127.0.0.1"
+    h3_comfy_port: int = 8190
+    h3_comfy_root: str = str(_DEFAULT_H3_ROOT)
+    h3_comfy_python: str = str(_DEFAULT_H3_ROOT / ".venv" / "Scripts" / "python.exe")
+    h3_comfy_main: str = str(_DEFAULT_H3_ROOT / "main.py")
+    h3_shared_models: str = str(_DEFAULT_SHARED / "models")
+    h3_shared_input: str = str(_DEFAULT_SHARED / "input")
+    h3_shared_output: str = str(_DEFAULT_SHARED / "output")
+    h3_comfy_ready_timeout_s: float = 180.0
+    h3_comfy_poll_interval_s: float = 1.5
+    h3_job_poll_interval_s: float = 2.0
+    h3_job_timeout_s: float = 3600.0
+    h3_unet_name: str = "minimax_h3_fl2va_pruned_int8_convrot.safetensors"
+    h3_clip_name: str = "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"
+    h3_video_vae_name: str = "minimax_h3_video_vae_fp16.safetensors"
+    h3_audio_vae_name: str = "minimax_h3_audio_vae_fp32.safetensors"
+    h3_turbo_lora_name: str = "minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors"
+
+    @property
+    def h3_comfy_base_url(self) -> str:
+        return f"http://{self.h3_comfy_host}:{self.h3_comfy_port}"
 
 
 settings = Settings()

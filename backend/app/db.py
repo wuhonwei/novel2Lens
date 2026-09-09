@@ -146,8 +146,25 @@ class Shot(Base):
     first_frame_path: Mapped[str] = mapped_column(String(400), default="")
     first_frame_score: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)
     first_frame_score_comment: Mapped[str] = mapped_column(Text, default="")
+    video_path: Mapped[str] = mapped_column(String(400), default="")
 
     project: Mapped[Project] = relationship(back_populates="shots")
+
+
+class VideoJob(Base):
+    __tablename__ = "video_jobs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    project_id: Mapped[str] = mapped_column(String(36), index=True)
+    shot_id: Mapped[str] = mapped_column(String(36), index=True, default="")
+    status: Mapped[str] = mapped_column(String(20), default="queued")
+    phase: Mapped[str] = mapped_column(String(40), default="")
+    prompt: Mapped[str] = mapped_column(Text, default="")
+    payload_json: Mapped[str] = mapped_column(Text, default="{}")
+    error: Mapped[str] = mapped_column(Text, default="")
+    batch_id: Mapped[str] = mapped_column(String(36), default="", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
 settings.data_dir.mkdir(parents=True, exist_ok=True)
@@ -217,9 +234,12 @@ def ensure_schema() -> None:
             conn.execute(text("ALTER TABLE shots ADD COLUMN first_frame_score INTEGER"))
         if "first_frame_score_comment" not in shot_cols:
             conn.execute(text("ALTER TABLE shots ADD COLUMN first_frame_score_comment TEXT DEFAULT ''"))
+        if "video_path" not in shot_cols:
+            conn.execute(text("ALTER TABLE shots ADD COLUMN video_path VARCHAR(400) DEFAULT ''"))
         job_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(image_jobs)")).fetchall()}
         if "shot_id" not in job_cols:
             conn.execute(text("ALTER TABLE image_jobs ADD COLUMN shot_id VARCHAR(36) DEFAULT ''"))
+        # video_jobs is created via create_all; no ALTER needed for brand-new table.
 
 
 def init_db() -> None:
