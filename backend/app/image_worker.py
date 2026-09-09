@@ -307,6 +307,7 @@ class ImageWorker:
         live_ckpts = self._live_checkpoints(client)
 
         t2i_prompt = prompt
+        prop_family = ""
         if subject_type == "character":
             en_lock = identity_lock_en(gender=gender, age_tier=age_tier)
             if en_lock:
@@ -336,9 +337,11 @@ class ImageWorker:
             )
         else:
             style_for_suffix = style
+            prop_family = ""
             if subject_type == "prop":
-                from app.domain.prop_hints import prop_en_anchor
+                from app.domain.prop_hints import infer_prop_family, prop_en_anchor
 
+                prop_family = infer_prop_family(prompt)
                 en = prop_en_anchor(prompt)
                 t2i_prompt = f"{en}. {prompt}" if en else prompt
             else:
@@ -357,7 +360,17 @@ class ImageWorker:
             backend = "sdxl_realvis"
 
         # prefer_backend: Guofeng for all asset T2I; RealVis only when explicitly forced.
-        if prefer_backend == "sdxl_guofeng" and (
+        # Flat paper props (letters) fight Guofeng's hanging-scroll prior — use RealVis.
+        if (
+            subject_type == "prop"
+            and prop_family == "letter"
+            and (
+                "RealVisXL_V5.0_fp16.safetensors" in (live_ckpts or set())
+                or (self.models_dir / "checkpoints" / "RealVisXL_V5.0_fp16.safetensors").exists()
+            )
+        ):
+            backend = "sdxl_realvis"
+        elif prefer_backend == "sdxl_guofeng" and (
             "Guofeng4.2XL.safetensors" in (live_ckpts or set())
             or (self.models_dir / "checkpoints" / "Guofeng4.2XL.safetensors").exists()
         ):
@@ -405,6 +418,11 @@ class ImageWorker:
                     "building exterior, courtyard, room interior, landscape, scenery, wide shot, "
                     "spotlight, tripod, studio softbox, lamp, photography equipment"
                 )
+                if prop_family == "letter":
+                    negative = (
+                        f"{negative}, hanging scroll, handscroll, scroll rollers, wooden rod, "
+                        "mounting scroll, silk hanging cord, vertical scroll, calligraphy scroll"
+                    )
                 positive = (
                     f"single prop product shot, centered object, plain studio background, "
                     f"{t2i_prompt}"

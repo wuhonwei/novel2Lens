@@ -244,13 +244,24 @@ def build_field_prompt(project: Project, asset: Asset, field: str) -> str:
         )
     if kind == "prop" or field == "image":
         name = (asset.name or "").strip() or "道具"
+        from app.domain.prop_hints import infer_prop_family
+
+        family = infer_prop_family(name)
         visual = _prop_visual_brief(name, look)
         shape = lookup_prop_shape_zh(name) or f"单个「{name}」实物道具"
         subject_lock, extra_neg = prop_subject_guards(name)
-        # Photos are flat images — avoid blanket「不要人物」fighting portrait-in-photo.
-        from app.domain.prop_hints import infer_prop_family
-
-        if infer_prop_family(name) == "photo":
+        # Letters: Guofeng strongly prefers hanging scrolls — force a flat single page.
+        if family == "letter":
+            return (
+                f"{style}。核心道具特写：{name}。"
+                "一张平铺浅灰背景上的单页泛黄宣纸家书特写，纸张四角入镜，"
+                "纸面只有竖行小楷墨字，像私人绝笔信，可有轻微折痕与烧焦边。"
+                f"形制细节：{visual}。"
+                "绝对禁止卷轴装裱、禁止上下木杆、禁止红绳悬挂、禁止圆形符阵、禁止地图圆环、"
+                "禁止紫檀木盒、禁止大字榜书中堂。"
+                "单个纸面静物居中，不要人物，不要手，不要风景。"
+            )
+        if family == "photo":
             base_neg = (
                 "单个静物居中，产品级道具质感，浅灰或纯色背景，"
                 "不要手，不要建筑外景，不要房间内景宽镜头，不要风景，"

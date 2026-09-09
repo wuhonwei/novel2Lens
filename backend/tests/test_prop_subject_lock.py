@@ -45,10 +45,9 @@ def test_suicide_letter_not_replaced_by_container_box():
         "母亲绝笔信",
         "泛黄的宣纸，字迹工整秀丽，墨色略淡，纸张边缘有轻微烧焦痕迹或磨损，折叠整齐，装在紫檀木盒中。",
     )
-    assert "信" in lookup_prop_shape_zh("母亲绝笔信") or "宣纸" in lookup_prop_shape_zh("母亲绝笔信")
-    assert "宣纸" in text or "书信" in text or "信" in text
+    assert "单页" in text or "平铺" in text
     assert "卷轴" in text  # banned
-    assert "禁止" in text
+    assert "木杆" in text or "红绳" in text
     scrubbed = scrub_prop_desc(
         "母亲绝笔信",
         "泛黄的宣纸，字迹工整秀丽，装在紫檀木盒中。",
