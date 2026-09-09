@@ -173,6 +173,7 @@ export default function App() {
     setAborting(true);
     setNotice("");
     try {
+      const hadBusy = !!busy;
       abortRef.current?.abort();
       // Image mutex is global: cancel every project's active jobs, not only the open one.
       const all = await api.cancelAllImageJobs();
@@ -185,7 +186,10 @@ export default function App() {
           /* ignore refresh errors after cancel */
         }
       }
-      setNotice(all.cancelled > 0 ? `已终止参考图任务（${all.cancelled}）` : "已终止");
+      const parts: string[] = [];
+      if (hadBusy) parts.push(`已取消「${busy}」`);
+      if (all.cancelled > 0) parts.push(`已取消 ${all.cancelled} 个出图任务（参考图/首帧，含其他项目）`);
+      setNotice(parts.length ? parts.join("；") : "没有可取消的任务");
       setBusy("");
       setError("");
     } catch (e) {
@@ -193,6 +197,33 @@ export default function App() {
     } finally {
       setAborting(false);
     }
+  }
+
+  function abortButtonCopy(opts?: { imageBusy?: boolean }) {
+    const img = !!opts?.imageBusy;
+    if (aborting) return { label: "终止中…", title: "正在取消任务…" };
+    if (busy && img) {
+      return {
+        label: "终止任务与出图",
+        title: `取消当前「${busy}」，并取消全部项目排队/进行中的参考图与首帧生成`,
+      };
+    }
+    if (busy) {
+      return {
+        label: "终止当前任务",
+        title: `取消当前进行中的「${busy}」；若有出图任务也会一并取消`,
+      };
+    }
+    if (img) {
+      return {
+        label: "终止全部出图",
+        title: "取消全部项目排队或进行中的参考图 / 首帧生成（不限当前项目）",
+      };
+    }
+    return {
+      label: "终止出图占用",
+      title: "取消全部项目占用中的参考图 / 首帧任务，以便继续 LLM 操作",
+    };
   }
 
   function selectChapter(id: string, nextTab: TabName = "原文") {
@@ -301,8 +332,15 @@ export default function App() {
             <p className="busy-line row">
               <span>{busy ? `${busy}…` : "终止中…"}</span>
               {busy ? (
-                <button type="button" className="ghost compact" data-testid="btn-abort" disabled={aborting} onClick={() => abortWork()}>
-                  {aborting ? "终止中…" : "终止"}
+                <button
+                  type="button"
+                  className="ghost compact"
+                  data-testid="btn-abort"
+                  disabled={aborting}
+                  title={abortButtonCopy().title}
+                  onClick={() => abortWork()}
+                >
+                  {abortButtonCopy().label}
                 </button>
               ) : null}
             </p>
@@ -437,17 +475,23 @@ export default function App() {
             {(busy || imageBusy || aborting || (error && error.includes("参考图生成中"))) && (
               <>
                 {busy ? <span className="busy-line">{busy}…</span> : null}
-                {!busy && error?.includes("参考图生成中") ? (
-                  <span className="busy-line">其他项目参考图任务占用中</span>
+                {!busy && imageBusy ? (
+                  <span className="busy-line">
+                    出图进行中{imageJobs.length ? `（${imageJobs.length}）` : ""}
+                  </span>
+                ) : null}
+                {!busy && !imageBusy && error?.includes("参考图生成中") ? (
+                  <span className="busy-line">其他项目参考图/首帧任务占用中</span>
                 ) : null}
                 <button
                   type="button"
                   className="ghost compact"
                   data-testid="btn-abort"
                   disabled={aborting}
+                  title={abortButtonCopy({ imageBusy }).title}
                   onClick={() => abortWork()}
                 >
-                  {aborting ? "终止中…" : "终止"}
+                  {abortButtonCopy({ imageBusy }).label}
                 </button>
               </>
             )}
@@ -941,16 +985,17 @@ function BookAssets({
             {imageBusy ? (
               <>
                 <span className="busy-line" data-testid="image-gen-progress">
-                  生成中 ({done}/{total})
+                  出图中 ({done}/{total})
                 </span>
                 <button
                   type="button"
                   className="danger"
                   data-testid="btn-cancel-image-batch"
                   disabled={cancelBusy}
+                  title="只取消本项目排队/进行中的参考图与首帧任务"
                   onClick={() => cancelBatch()}
                 >
-                  {cancelBusy ? "终止中…" : "终止"}
+                  {cancelBusy ? "终止中…" : "终止本项目出图"}
                 </button>
               </>
             ) : null}
