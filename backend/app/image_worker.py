@@ -17,12 +17,9 @@ from app.comfy_pipeline.workflows import (
     QUALITY_PARAMS,
     STYLE_DEFAULT_NEGATIVE,
     build_positive,
-    ckpt_for_backend,
-    compile_ideogram_t2i,
+    compile_qwen21_t2i,
     compile_qwen_edit,
-    compile_sdxl_t2i,
     next_seed,
-    pick_t2i_backend,
     resolve_size,
 )
 from app.comfy_supervisor import ComfySupervisor
@@ -309,9 +306,11 @@ class ImageWorker:
         subject_type = payload.get("subject_type") or "scenery"
         gender = payload.get("gender") or "unknown"
         age_tier = payload.get("age_tier") or "unknown"
-        prefer_backend = (payload.get("prefer_backend") or "").strip()
         qp = QUALITY_PARAMS.get(quality, QUALITY_PARAMS["standard"])
+        del qp  # Qwen 2.1 uses settings.qwen21_steps/cfg instead of SDXL quality table.
         live_ckpts = self._live_checkpoints(client)
+        del live_ckpts
+        del prefer_backend
 
         t2i_prompt = prompt
         prop_family = ""
@@ -353,40 +352,6 @@ class ImageWorker:
                 t2i_prompt = f"{en}. {prompt}" if en else prompt
             else:
                 t2i_prompt = prompt
-
-        try:
-            backend = pick_t2i_backend(
-                style,
-                quality,
-                self.models_dir,
-                t2i_prompt,
-                subject_type=subject_type if subject_type != "prop" else "scenery",
-                available_ckpts=live_ckpts or None,
-            )
-        except ValueError:
-            backend = "sdxl_realvis"
-
-        # prefer_backend: Guofeng for all asset T2I; RealVis only when explicitly forced.
-        # Flat paper props (letters) fight Guofeng's hanging-scroll prior — use RealVis.
-        if (
-            subject_type == "prop"
-            and prop_family == "letter"
-            and (
-                "RealVisXL_V5.0_fp16.safetensors" in (live_ckpts or set())
-                or (self.models_dir / "checkpoints" / "RealVisXL_V5.0_fp16.safetensors").exists()
-            )
-        ):
-            backend = "sdxl_realvis"
-        elif prefer_backend == "sdxl_guofeng" and (
-            "Guofeng4.2XL.safetensors" in (live_ckpts or set())
-            or (self.models_dir / "checkpoints" / "Guofeng4.2XL.safetensors").exists()
-        ):
-            backend = "sdxl_guofeng"
-        elif prefer_backend == "sdxl_realvis" and (
-            "RealVisXL_V5.0_fp16.safetensors" in (live_ckpts or set())
-            or (self.models_dir / "checkpoints" / "RealVisXL_V5.0_fp16.safetensors").exists()
-        ):
-            backend = "sdxl_realvis"
 
         if subject_type == "character":
             positive = build_positive(
@@ -435,45 +400,31 @@ class ImageWorker:
                     f"{t2i_prompt}"
                 )
 
-        if backend == "ideogram4":
-            width, height = resolve_size(aspect, "ideogram4")
-        else:
-            width, height = resolve_size(aspect, "sdxl")
-            if subject_type == "character" and aspect == "9:16":
-                width, height = resolve_size("9:16_fullbody", "sdxl")
-            ckpt = ckpt_for_backend(backend) or "RealVisXL_V5.0_fp16.safetensors"
+        width, height = resolve_size(aspect, "sdxl")
+        if subject_type == "character" and aspect == "9:16":
+            width, height = resolve_size("9:16_fullbody", "sdxl")
 
         from app.comfy_pipeline.qa import assess_image_bytes
+        from app.config import settings as app_settings
 
         require_fb = bool(payload.get("require_fullbody"))
         last_err = ""
         last_png: bytes | None = None
         attempts = 3 if require_fb or subject_type == "character" else 2
+        base_steps = int(app_settings.qwen21_steps)
+        base_cfg = float(app_settings.qwen21_cfg)
         for attempt in range(attempts):
-            steps = int(qp["steps"]) + attempt * 4
-            cfg = float(qp["cfg"]) + attempt * 0.25
-            if backend == "ideogram4":
-                wf = compile_ideogram_t2i(
-                    prompt=positive,
-                    negative=negative,
-                    width=width,
-                    height=height,
-                    seed=next_seed(None, attempt, True),
-                    steps=int(qp["ideogram_steps"]) + attempt,
-                    cfg=float(qp["cfg"]),
-                    style=style,
-                )
-            else:
-                wf = compile_sdxl_t2i(
-                    ckpt=ckpt,
-                    prompt=positive,
-                    negative=negative,
-                    width=width,
-                    height=height,
-                    seed=next_seed(None, attempt, True),
-                    steps=steps,
-                    cfg=cfg,
-                )
+            steps = base_steps + attempt * 4
+            cfg = base_cfg
+            wf = compile_qwen21_t2i(
+                prompt=positive,
+                negative=negative,
+                width=width,
+                height=height,
+                seed=next_seed(None, attempt, True),
+                steps=steps,
+                cfg=cfg,
+            )
             pid = client.queue_prompt(wf)
             hist = client.wait_history(pid, timeout_seconds=self.job_timeout)
             images = client.collect_images(hist)

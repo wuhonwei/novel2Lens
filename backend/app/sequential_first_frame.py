@@ -134,10 +134,13 @@ def run_sequential_layered_first_frame(
 
     last_err = ""
     max_attempts = 3
+    from app.config import settings as app_settings
+
     for attempt in range(1, max_attempts + 1):
-        use_lightning = attempt == 1
-        steps = 4 if use_lightning else 28 + (attempt - 2) * 4
-        cfg = 1.0 if use_lightning else min(6.0, 3.5 + (attempt - 2) * 0.4)
+        # Qwen Image 2.1 jailbreak defaults: euler/simple @ cfg 1.0, ~25 steps.
+        use_lightning = False
+        steps = int(app_settings.qwen21_steps) + (attempt - 1) * 4
+        cfg = float(app_settings.qwen21_cfg)
         plate: bytes | None = None
         last_person_lock: tuple[str, bytes, str] | None = None
 

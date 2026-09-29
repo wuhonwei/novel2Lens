@@ -1,0 +1,104 @@
+{
+  "_meta": {
+    "id": "qwen_image_2_1_edit_gguf_api_v1",
+    "title": "Qwen Image 2.1 GGUF image edit (jailbreak workflow)",
+    "description": "Flattened API port of 越狱工作流 Qwen image 2.1 图片编辑模板. Up to 3 reference images via TextEncodeQwenImage21.",
+    "requires_models": true
+  },
+  "1": {
+    "class_type": "UnetLoaderGGUF",
+    "inputs": {
+      "unet_name": "qwen-image-2.1-Q8_0.gguf"
+    }
+  },
+  "2": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "qwen3vl_8b_bf16.safetensors",
+      "type": "qwen_image",
+      "device": "default"
+    }
+  },
+  "3": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "qwen_image_2.1_vae_bf16.safetensors"
+    }
+  },
+  "4": {
+    "class_type": "QwenImage21Cache",
+    "inputs": {
+      "model": ["1", 0],
+      "device": "auto",
+      "dtype": "default"
+    }
+  },
+  "10": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "ref_1.png"
+    }
+  },
+  "11": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "ref_2.png"
+    }
+  },
+  "12": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "ref_3.png"
+    }
+  },
+  "20": {
+    "class_type": "TextEncodeQwenImage21",
+    "inputs": {
+      "clip": ["2", 0],
+      "vae": ["3", 0],
+      "prompt": "edit instruction",
+      "negative_prompt": "",
+      "resolution": 1024,
+      "images.image_1": ["10", 0],
+      "images.image_2": ["11", 0],
+      "images.image_3": ["12", 0]
+    }
+  },
+  "30": {
+    "class_type": "EmptyLatentImage",
+    "inputs": {
+      "width": 1024,
+      "height": 1024,
+      "batch_size": 1
+    }
+  },
+  "40": {
+    "class_type": "KSampler",
+    "inputs": {
+      "seed": 1,
+      "steps": 25,
+      "cfg": 1.0,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "denoise": 1.0,
+      "model": ["4", 0],
+      "positive": ["20", 0],
+      "negative": ["20", 1],
+      "latent_image": ["30", 0]
+    }
+  },
+  "50": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": ["40", 0],
+      "vae": ["3", 0]
+    }
+  },
+  "60": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "filename_prefix": "novel2lens_qwen21_edit",
+      "images": ["50", 0]
+    }
+  }
+}

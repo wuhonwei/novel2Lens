@@ -22,9 +22,14 @@ class Settings(BaseSettings):
     vision_llm_model: str = "qwen2.5vl:7b"
     zaoxiang_base_url: str = "http://127.0.0.1:8000"
     comfy_base_url: str = "http://127.0.0.1:8189"
-    # Override via N2L_COMFY_ROOT / N2L_COMFY_PYTHON when the install is elsewhere.
-    comfy_root: str = r"D:\Develop\ComfyUI"
-    comfy_python: str = r"D:\Develop\ComfyUI\venv\Scripts\python.exe"
+    # Qwen Image 2.1 GGUF stack (jailbreak workflows). Override via N2L_COMFY_ROOT.
+    comfy_root: str = r"D:\Comfy-Desktop\ComfyUI-Installs\qwen-image-2.1\ComfyUI"
+    comfy_python: str = r"D:\Comfy-Desktop\ComfyUI-Installs\qwen-image-2.1\ComfyUI\.venv\Scripts\python.exe"
+    qwen21_unet_name: str = "qwen-image-2.1-Q8_0.gguf"
+    qwen21_clip_name: str = "qwen3vl_8b_bf16.safetensors"
+    qwen21_vae_name: str = "qwen_image_2.1_vae_bf16.safetensors"
+    qwen21_steps: int = 25
+    qwen21_cfg: float = 1.0
     image_idle_unload_seconds: int = 1800
     stop_comfy_when_idle: bool = False
     # Prefer unload (/free) over full Comfy process restart when flipping LLM↔image.

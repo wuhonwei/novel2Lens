@@ -272,6 +272,109 @@ def compile_sdxl_t2i(
     return wf
 
 
+def compile_qwen21_t2i(
+    *,
+    prompt: str,
+    negative: str = "",
+    width: int,
+    height: int,
+    seed: int,
+    steps: int | None = None,
+    cfg: float | None = None,
+    unet_name: str | None = None,
+    clip_name: str | None = None,
+    vae_name: str | None = None,
+    resolution: int | None = None,
+    workflows_dir: Path | None = None,
+) -> dict[str, Any]:
+    """Qwen Image 2.1 GGUF text-to-image (jailbreak t2i workflow)."""
+    from app.config import settings
+
+    wf_dir = workflows_dir or WORKFLOWS_DIR
+    wf = load_workflow(wf_dir, "qwen_image_2_1_t2i_gguf_api_v1.json")
+    wf["1"]["inputs"]["unet_name"] = unet_name or settings.qwen21_unet_name
+    wf["2"]["inputs"]["clip_name"] = clip_name or settings.qwen21_clip_name
+    wf["3"]["inputs"]["vae_name"] = vae_name or settings.qwen21_vae_name
+    wf["4"]["inputs"]["prompt"] = prompt
+    wf["4"]["inputs"]["negative_prompt"] = negative or STYLE_DEFAULT_NEGATIVE
+    # Prefer the longer edge as encoder resolution hint.
+    wf["4"]["inputs"]["resolution"] = int(resolution or max(width, height))
+    wf["5"]["inputs"]["width"] = int(width)
+    wf["5"]["inputs"]["height"] = int(height)
+    wf["5"]["inputs"]["batch_size"] = 1
+    wf["6"]["inputs"]["seed"] = int(seed)
+    wf["6"]["inputs"]["steps"] = int(steps if steps is not None else settings.qwen21_steps)
+    wf["6"]["inputs"]["cfg"] = float(cfg if cfg is not None else settings.qwen21_cfg)
+    wf["8"]["inputs"]["filename_prefix"] = "novel2lens_qwen21_t2i"
+    return wf
+
+
+def compile_qwen21_edit(
+    *,
+    prompt: str,
+    negative: str,
+    ref_names: list[str],
+    seed: int,
+    steps: int | None = None,
+    cfg: float | None = None,
+    width: int | None = None,
+    height: int | None = None,
+    unet_name: str | None = None,
+    clip_name: str | None = None,
+    vae_name: str | None = None,
+    resolution: int | None = None,
+    use_encoder_latent: bool = False,
+    workflows_dir: Path | None = None,
+) -> dict[str, Any]:
+    """Qwen Image 2.1 GGUF edit (flattened jailbreak edit subgraph)."""
+    from app.config import settings
+
+    wf_dir = workflows_dir or WORKFLOWS_DIR
+    wf = load_workflow(wf_dir, "qwen_image_2_1_edit_gguf_api_v1.json")
+    names = [n for n in ref_names if n]
+    if not names:
+        raise ValueError("at least one reference image required")
+
+    wf["1"]["inputs"]["unet_name"] = unet_name or settings.qwen21_unet_name
+    wf["2"]["inputs"]["clip_name"] = clip_name or settings.qwen21_clip_name
+    wf["3"]["inputs"]["vae_name"] = vae_name or settings.qwen21_vae_name
+
+    encode_inputs = wf["20"]["inputs"]
+    # Clear template image bindings then attach only provided refs.
+    for key in list(encode_inputs.keys()):
+        if key.startswith("images."):
+            encode_inputs.pop(key)
+    load_ids = ("10", "11", "12")
+    for i, load_id in enumerate(load_ids):
+        if i < len(names):
+            wf[load_id]["inputs"]["image"] = names[i]
+            encode_inputs[f"images.image_{i + 1}"] = [load_id, 0]
+        else:
+            wf.pop(load_id, None)
+
+    encode_inputs["prompt"] = prompt
+    encode_inputs["negative_prompt"] = negative or ""
+    if width and height:
+        encode_inputs["resolution"] = int(resolution or max(width, height))
+        wf["30"]["inputs"]["width"] = int(width)
+        wf["30"]["inputs"]["height"] = int(height)
+        wf["40"]["inputs"]["latent_image"] = ["30", 0]
+    elif use_encoder_latent:
+        encode_inputs["resolution"] = int(resolution or 1024)
+        wf.pop("30", None)
+        wf["40"]["inputs"]["latent_image"] = ["20", 2]
+    else:
+        encode_inputs["resolution"] = int(resolution or 1024)
+        wf["40"]["inputs"]["latent_image"] = ["20", 2]
+        wf.pop("30", None)
+
+    wf["40"]["inputs"]["seed"] = int(seed)
+    wf["40"]["inputs"]["steps"] = int(steps if steps is not None else settings.qwen21_steps)
+    wf["40"]["inputs"]["cfg"] = float(cfg if cfg is not None else settings.qwen21_cfg)
+    wf["60"]["inputs"]["filename_prefix"] = "novel2lens_qwen21_edit"
+    return wf
+
+
 def compile_qwen_edit(
     *,
     prompt: str,
@@ -285,33 +388,19 @@ def compile_qwen_edit(
     height: int | None = None,
     workflows_dir: Path | None = None,
 ) -> dict[str, Any]:
-    wf_dir = workflows_dir or WORKFLOWS_DIR
-    wf = load_workflow(wf_dir, "qwen_image_edit_2511_api_v1.json")
-    names = list(ref_names)
-    if not names:
-        raise ValueError("at least one reference image required")
-    while len(names) < 3:
-        names.append(names[-1])
-    wf["10"]["inputs"]["image"] = names[0]
-    wf["11"]["inputs"]["image"] = names[1]
-    wf["12"]["inputs"]["image"] = names[2]
-    wf["20"]["inputs"]["prompt"] = prompt
-    wf["21"]["inputs"]["prompt"] = negative or ""
-    wf["40"]["inputs"]["seed"] = seed
-    wf["40"]["inputs"]["steps"] = steps
-    wf["40"]["inputs"]["cfg"] = cfg
-    if width and height:
-        wf["35"] = {
-            "class_type": "EmptySD3LatentImage",
-            "inputs": {"width": int(width), "height": int(height), "batch_size": 1},
-        }
-        wf["40"]["inputs"]["latent_image"] = ["35", 0]
-    if not use_lightning:
-        wf["4"]["inputs"]["strength_model"] = 0.0
-        wf["40"]["inputs"]["steps"] = max(steps, 20)
-        wf["40"]["inputs"]["cfg"] = max(cfg, 2.5)
-    wf["60"]["inputs"]["filename_prefix"] = "novel2lens_edit"
-    return wf
+    """Backward-compatible alias → Qwen Image 2.1 GGUF edit."""
+    del use_lightning  # 2.1 jailbreak stack does not use the 2511 Lightning LoRA.
+    return compile_qwen21_edit(
+        prompt=prompt,
+        negative=negative,
+        ref_names=ref_names,
+        seed=seed,
+        steps=steps if steps and steps >= 8 else None,
+        cfg=cfg if cfg else None,
+        width=width,
+        height=height,
+        workflows_dir=workflows_dir,
+    )
 
 
 def next_seed(base: int | None, index: int, locked: bool) -> int:

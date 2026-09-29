@@ -3,6 +3,11 @@ backend/.venv/
 backend/**/__pycache__/
 backend/.pytest_cache/
 backend/*.egg-info/
+backend/models/qwen21/**/*.gguf
+backend/models/qwen21/**/*.safetensors
+backend/scripts/_qwen21_*.png
+backend/scripts/_qwen21_*_src.json
+backend/scripts/_tmp_*.json
 frontend/node_modules/
 frontend/test-results/
 frontend/playwright-report/
