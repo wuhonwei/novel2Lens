@@ -14,7 +14,6 @@ from sqlalchemy.orm import Session
 
 from app.comfy_pipeline.workflows import (
     GUOFENG_PERIOD_NEGATIVE,
-    QUALITY_PARAMS,
     STYLE_DEFAULT_NEGATIVE,
     build_positive,
     compile_qwen21_t2i,
@@ -306,11 +305,7 @@ class ImageWorker:
         subject_type = payload.get("subject_type") or "scenery"
         gender = payload.get("gender") or "unknown"
         age_tier = payload.get("age_tier") or "unknown"
-        qp = QUALITY_PARAMS.get(quality, QUALITY_PARAMS["standard"])
-        del qp  # Qwen 2.1 uses settings.qwen21_steps/cfg instead of SDXL quality table.
-        live_ckpts = self._live_checkpoints(client)
-        del live_ckpts
-        del prefer_backend
+        del quality  # Qwen 2.1 uses settings.qwen21_steps/cfg instead of SDXL quality table.
 
         t2i_prompt = prompt
         prop_family = ""
