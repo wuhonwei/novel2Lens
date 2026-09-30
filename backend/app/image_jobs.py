@@ -309,6 +309,10 @@ def enqueue_manual_edit(
         raise ValueError("编辑提示词不能为空")
     if not ref_paths:
         raise ValueError("至少需要一张参考图")
+    from app.domain.slots import MAX_REF_IMAGES
+
+    if len(ref_paths) > MAX_REF_IMAGES:
+        raise ValueError(f"参考图最多 {MAX_REF_IMAGES} 张（Qwen Image 2.1 Edit 上限）")
     clear_field_score(
         asset, target_field if target_field in ("half", "full", "near", "far", "image") else "image"
     )

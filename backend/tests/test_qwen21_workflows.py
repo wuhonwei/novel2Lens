@@ -47,6 +47,35 @@ def test_compile_qwen21_edit_wires_only_provided_refs():
     assert wf["30"]["inputs"]["width"] == 1344
 
 
+def test_compile_qwen21_edit_supports_ten_refs():
+    names = [f"ref{i}.png" for i in range(1, 11)]
+    wf = compile_qwen21_edit(
+        prompt="crowd scene",
+        negative="",
+        ref_names=names,
+        seed=1,
+        width=1344,
+        height=768,
+    )
+    enc = wf["20"]["inputs"]
+    for i in range(10):
+        load_id = str(10 + i)
+        assert wf[load_id]["inputs"]["image"] == names[i]
+        assert enc[f"images.image_{i + 1}"] == [load_id, 0]
+
+
+def test_compile_qwen21_edit_rejects_more_than_ten_refs():
+    import pytest
+
+    with pytest.raises(ValueError, match="at most 10"):
+        compile_qwen21_edit(
+            prompt="x",
+            negative="",
+            ref_names=[f"r{i}.png" for i in range(11)],
+            seed=1,
+        )
+
+
 def test_compile_qwen_edit_alias_routes_to_qwen21():
     wf = compile_qwen_edit(
         prompt="x",

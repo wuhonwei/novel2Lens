@@ -1631,6 +1631,7 @@ function EditImageModal({
   onClose: () => void;
   onQueued: (job: ImageJob) => void;
 }) {
+  const MAX_EDIT_REFS = 10;
   const fieldOptions =
     kind === "character"
       ? [
@@ -1679,7 +1680,7 @@ function EditImageModal({
   function togglePath(path: string) {
     setPicked((prev) => {
       if (prev.includes(path)) return prev.filter((p) => p !== path);
-      if (prev.length >= 3) return prev;
+      if (prev.length >= MAX_EDIT_REFS) return prev;
       return [...prev, path];
     });
   }
@@ -1690,7 +1691,7 @@ function EditImageModal({
       return;
     }
     if (picked.length === 0 && files.length === 0) {
-      alert("请至少选择或上传一张参考图（最多 3 张）");
+      alert(`请至少选择或上传一张参考图（最多 ${MAX_EDIT_REFS} 张）`);
       return;
     }
     setLoading(true);
@@ -1700,7 +1701,7 @@ function EditImageModal({
       form.set("target_field", targetField);
       form.set("aspect", defaultAspectForField(kind, targetField));
       if (picked.length) form.set("ref_paths", JSON.stringify(picked));
-      for (const f of files.slice(0, 3 - picked.length)) form.append("files", f);
+      for (const f of files.slice(0, MAX_EDIT_REFS - picked.length)) form.append("files", f);
       const res = await api.editAssetImage(projectId, asset.id, form);
       onQueued(res.job);
     } catch (e) {
@@ -1723,7 +1724,7 @@ function EditImageModal({
         <div className="panel-head">
           <h3>编辑 · {asset.name}</h3>
           <p className="hint">
-            使用 Qwen Image Edit。从「{kindLabel}」文件夹勾选最多 3 张参考图并填写编辑文字。
+            使用 Qwen Image 2.1 Edit。从「{kindLabel}」文件夹勾选最多 {MAX_EDIT_REFS} 张参考图并填写编辑文字。
             {outDir ? ` 目录：${outDir}\\${kindLabel}` : ""}
           </p>
         </div>
@@ -1738,7 +1739,9 @@ function EditImageModal({
           </select>
           <label>编辑提示词</label>
           <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={4} />
-          <label>「{kindLabel}」目录参考图（已选 {picked.length}/3）</label>
+          <label>
+            「{kindLabel}」目录参考图（已选 {picked.length}/{MAX_EDIT_REFS}）
+          </label>
           {loadingList ? (
             <p className="muted">加载文件列表…</p>
           ) : dirFiles.length === 0 ? (
@@ -1750,7 +1753,7 @@ function EditImageModal({
                   <input
                     type="checkbox"
                     checked={picked.includes(f.path)}
-                    disabled={!picked.includes(f.path) && picked.length >= 3}
+                    disabled={!picked.includes(f.path) && picked.length >= MAX_EDIT_REFS}
                     onChange={() => togglePath(f.path)}
                   />
                   <span title={f.path}>{f.rel || f.name}</span>
@@ -1763,11 +1766,13 @@ function EditImageModal({
             type="file"
             accept="image/*"
             multiple
-            disabled={picked.length >= 3}
-            onChange={(e) => setFiles(Array.from(e.target.files || []).slice(0, 3 - picked.length))}
+            disabled={picked.length >= MAX_EDIT_REFS}
+            onChange={(e) =>
+              setFiles(Array.from(e.target.files || []).slice(0, MAX_EDIT_REFS - picked.length))
+            }
           />
-          {picked.length >= 3 ? (
-            <p className="muted">已选满 3 张目录参考图，请先取消勾选再上传</p>
+          {picked.length >= MAX_EDIT_REFS ? (
+            <p className="muted">已选满 {MAX_EDIT_REFS} 张目录参考图，请先取消勾选再上传</p>
           ) : files.length > 0 ? (
             <p className="muted">已选上传 {files.length} 张</p>
           ) : null}

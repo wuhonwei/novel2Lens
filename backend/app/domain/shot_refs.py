@@ -85,7 +85,7 @@ def build_shot_references(
     assets_by_id: dict[str, Any] | None = None,
     text_fallbacks: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
-    """Image slots (≤3) plus text-fallback assets that did not get a slot."""
+    """Image slots (≤10) plus text-fallback assets that did not get a slot."""
     del half_lock
     del lines
     del props

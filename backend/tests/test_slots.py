@@ -88,3 +88,24 @@ def test_allows_nine_named_people():
     result = pack_qwen_slots(characters=chars)
     assert len(result.slots) == 9
     assert all(s.kind == "character" for s in result.slots)
+
+
+def test_overflow_beyond_ten_becomes_text_fallback_keeping_people_first():
+    chars = [
+        SlotSubject(asset_id=f"c{i}", kind="character", position="中", image_key="full", name=f"人{i}")
+        for i in range(1, 10)
+    ]
+    result = pack_qwen_slots(
+        characters=chars,
+        scene=SlotSubject(asset_id="s1", kind="scene", name="渡口", desc_zh="雾渡"),
+        props=[
+            SlotSubject(asset_id="p1", kind="prop", name="玉佩", desc_zh="半块玉佩"),
+            SlotSubject(asset_id="p2", kind="prop", name="信笺", desc_zh="泛黄信笺"),
+        ],
+    )
+    # scene + 9 chars = 10; both props overflow
+    assert len(result.slots) == 10
+    assert result.slots[0].kind == "scene"
+    assert all(s.kind == "character" for s in result.slots[1:])
+    assert len(result.text_fallbacks) == 2
+    assert {fb.name for fb in result.text_fallbacks} == {"玉佩", "信笺"}

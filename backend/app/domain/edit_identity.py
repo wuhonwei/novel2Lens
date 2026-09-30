@@ -120,13 +120,13 @@ def wrap_multi_char_first_frame(
     width: int,
     height: int,
 ) -> str:
-    """Legacy one-shot multi-char wrap (unused by ImageWorker).
+    """One-shot multi-ref first-frame wrap for Qwen Image 2.1 (≤10 images).
 
-    Production first frames with ≥2 people use sequential placement
-    (`wrap_sequential_place_first` / `wrap_sequential_add_person` / `wrap_rebind_identity`).
-    Kept for unit tests and any external callers.
+    Prefer this over sequential stacking whenever all refs fit in one call —
+    native multi-image conditioning keeps identities more consistent.
     """
     person_bits: list[str] = []
+    person_idxs: list[str] = []
     for i, lab in enumerate(labeled):
         # labeled entries look like "image 1 (…)"
         m = re.match(r"image\s+(\d+)\s*\((.+)\)\s*$", lab.strip(), re.I)
@@ -139,6 +139,7 @@ def wrap_multi_char_first_frame(
                 f"image {idx} is a prop/scene reference only ({inner}); do not turn it into an extra face."
             )
             continue
+        person_idxs.append(idx)
         person_bits.append(
             f"The person described as matching image {idx} must match ONLY from image {idx} "
             f"({inner}): same face, age, hair, beard/no-beard, and outfit. "
@@ -147,19 +148,23 @@ def wrap_multi_char_first_frame(
     binding = " ".join(person_bits) if person_bits else (
         "Each labeled person reference is a DIFFERENT identity."
     )
-    person_count = sum(
-        1
-        for lab in labeled
-        if not any(k in lab for k in ("物品", "场景", "prop", "scene", "Prop", "Scene"))
-    )
+    person_count = len(person_idxs)
     count_lock = ""
     if person_count >= 2:
+        left_img, right_img = person_idxs[0], person_idxs[-1]
+        middle = person_idxs[1:-1]
+        middle_note = ""
+        if middle:
+            middle_note = (
+                f" Middle standing positions follow images {', '.join(middle)} in order."
+            )
         count_lock = (
             f"MANDATORY: the output must show ALL {person_count} people from the person references "
             f"together in one frame (exactly {person_count} identifiable faces). "
             "Never drop a person; never output a solo portrait. "
-            "Standing order: the leftmost named person must be the identity from image 1; "
-            "the rightmost named person must be the identity from image 2 "
+            f"Standing order: the leftmost named person must be the identity from image {left_img}; "
+            f"the rightmost named person must be the identity from image {right_img}"
+            f"{middle_note} "
             "(unless the Chinese prompt explicitly swaps them). "
             "Copy each character reference's garment COLOR and silhouette exactly "
             "(dark armor stays dark; light scholar robes stay light). "

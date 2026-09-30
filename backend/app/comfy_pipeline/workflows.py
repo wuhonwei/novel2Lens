@@ -309,6 +309,11 @@ def compile_qwen21_t2i(
     return wf
 
 
+# Qwen Image 2.1 TextEncodeQwenImage21 accepts image_1 … image_10.
+MAX_QWEN21_EDIT_REFS = 10
+_QWEN21_EDIT_LOAD_IDS = tuple(str(i) for i in range(10, 10 + MAX_QWEN21_EDIT_REFS))
+
+
 def compile_qwen21_edit(
     *,
     prompt: str,
@@ -326,7 +331,7 @@ def compile_qwen21_edit(
     use_encoder_latent: bool = False,
     workflows_dir: Path | None = None,
 ) -> dict[str, Any]:
-    """Qwen Image 2.1 GGUF edit (flattened jailbreak edit subgraph)."""
+    """Qwen Image 2.1 GGUF edit (flattened jailbreak edit subgraph; ≤10 refs)."""
     from app.config import settings
 
     wf_dir = workflows_dir or WORKFLOWS_DIR
@@ -334,6 +339,8 @@ def compile_qwen21_edit(
     names = [n for n in ref_names if n]
     if not names:
         raise ValueError("at least one reference image required")
+    if len(names) > MAX_QWEN21_EDIT_REFS:
+        raise ValueError(f"Qwen Image 2.1 edit supports at most {MAX_QWEN21_EDIT_REFS} reference images")
 
     wf["1"]["inputs"]["unet_name"] = unet_name or settings.qwen21_unet_name
     wf["2"]["inputs"]["clip_name"] = clip_name or settings.qwen21_clip_name
@@ -344,10 +351,12 @@ def compile_qwen21_edit(
     for key in list(encode_inputs.keys()):
         if key.startswith("images."):
             encode_inputs.pop(key)
-    load_ids = ("10", "11", "12")
-    for i, load_id in enumerate(load_ids):
+    for i, load_id in enumerate(_QWEN21_EDIT_LOAD_IDS):
         if i < len(names):
-            wf[load_id]["inputs"]["image"] = names[i]
+            node = wf.get(load_id) or {"class_type": "LoadImage", "inputs": {}}
+            node["class_type"] = "LoadImage"
+            node.setdefault("inputs", {})["image"] = names[i]
+            wf[load_id] = node
             encode_inputs[f"images.image_{i + 1}"] = [load_id, 0]
         else:
             wf.pop(load_id, None)

@@ -32,15 +32,16 @@ def should_run_sequential_first_frame(
     scene_n: int = 0,
     prop_n: int = 0,
 ) -> bool:
-    """Use sequential stacking only when one Qwen call cannot hold the refs.
+    """Use sequential stacking only when one Qwen 2.1 call cannot hold the refs.
 
-    Qwen Edit hard-caps at 3 images per call. One person + scene + one prop
-    fits that budget (fast one-shot). Two+ named people, or more than 3
-    layers, must be stacked.
+    Qwen Image 2.1 Edit accepts up to 10 images per call. Prefer one-shot for
+    multi-character identity (all faces/outfits visible together). Stack only
+    when total layers exceed that budget.
     """
-    if int(person_n) >= 2:
-        return True
-    return int(scene_n) + int(person_n) + int(prop_n) > 3
+    from app.domain.slots import MAX_REF_IMAGES
+
+    total = int(scene_n) + int(person_n) + int(prop_n)
+    return total > MAX_REF_IMAGES
 
 
 def run_sequential_multi_char_first_frame(
@@ -89,7 +90,9 @@ def run_sequential_layered_first_frame(
     job_timeout: float,
     set_phase: SetPhase | None = None,
 ) -> bytes:
-    """Stack scene plate, then each person, then each prop (≤3 refs per edit)."""
+    """Stack scene plate, then each person, then each prop when refs exceed 10."""
+    from app.domain.slots import MAX_REF_IMAGES
+
     scene_idxs = [i for i, lab in enumerate(ref_labels) if is_scene_ref_label(lab)]
     prop_idxs = [i for i, lab in enumerate(ref_labels) if is_prop_ref_label(lab)]
     person_idxs = person_ref_indices(ref_labels)
@@ -97,6 +100,8 @@ def run_sequential_layered_first_frame(
         # Fall back: treat unlabeled paths as people (legacy).
         person_idxs = list(range(min(len(ref_paths), max(2, len(ref_paths)))))
 
+    # Leave room for plate + new person when locking prior identities.
+    max_lock_slots = max(1, MAX_REF_IMAGES - 2)
     people: list[tuple[str, bytes, str]] = []
     for i in person_idxs:
         if i >= len(ref_paths):
@@ -239,7 +244,7 @@ def run_sequential_layered_first_frame(
 
             assert plate is not None
             prev = plate
-            kept = visual_lock_indices(placed_count=pi, max_lock_slots=1)
+            kept = visual_lock_indices(placed_count=pi, max_lock_slots=max_lock_slots)
             dropped = dropped_lock_indices(placed_count=pi, kept=kept)
             wrap_locks = [people[j][0] for j in kept]
             ref_names = [client.upload_image(prev, f"plate_{attempt}_p{pi}.png")]

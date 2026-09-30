@@ -509,7 +509,9 @@ class ImageWorker:
             )
 
         names: list[str] = []
-        for i, p in enumerate(ref_paths[:3]):
+        from app.domain.slots import MAX_REF_IMAGES
+
+        for i, p in enumerate(ref_paths[:MAX_REF_IMAGES]):
             path = Path(p)
             data = path.read_bytes()
             names.append(client.upload_image(data, path.name or f"ref_{i}.png"))
@@ -540,6 +542,23 @@ class ImageWorker:
                 "Do not invent a new character; keep the exact face, hair, and outfit from the reference. "
                 f"Output image aspect ratio {aspect}, resolution {width}x{height}."
             )
+        elif (job.target_field or "") == "first_frame":
+            from app.domain.edit_identity import (
+                multi_char_first_frame_negative,
+                wrap_multi_char_first_frame,
+            )
+
+            wrapped = wrap_multi_char_first_frame(
+                labeled=labeled,
+                edit_prompt=edit_prompt,
+                aspect=aspect,
+                width=width,
+                height=height,
+            )
+            edit_negative = (
+                multi_char_first_frame_negative()
+                + (", " + edit_negative if edit_negative else "")
+            ).strip(", ")
         else:
             wrapped = (
                 f"Using {', '.join(labeled)}, create one new image: {edit_prompt}. "
@@ -551,10 +570,12 @@ class ImageWorker:
         last_png: bytes | None = None
         attempts = 2
         start_attempt = 0
+        from app.config import settings as _settings
+
         for attempt in range(start_attempt, start_attempt + attempts):
-            use_lightning = attempt < 1
-            steps = 4 if use_lightning else 28
-            cfg = 1.0 if use_lightning else 3.5
+            # Prefer durable Qwen 2.1 defaults; retry with slightly higher steps/CFG.
+            steps = int(_settings.qwen21_steps if attempt == 0 else max(28, _settings.qwen21_steps + 4))
+            cfg = float(_settings.qwen21_cfg if attempt == 0 else max(1.5, _settings.qwen21_cfg))
             wf = compile_qwen_edit(
                 prompt=wrapped,
                 negative=edit_negative or (payload.get("negative") or ""),
@@ -562,7 +583,7 @@ class ImageWorker:
                 seed=next_seed(None, attempt, True),
                 steps=steps,
                 cfg=cfg,
-                use_lightning=use_lightning,
+                use_lightning=False,
                 width=width,
                 height=height,
             )

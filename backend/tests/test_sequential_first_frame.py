@@ -38,7 +38,7 @@ class RecordingComfy:
             text = str(prompt)
         self.prompts.append(text)
         refs = []
-        for nid in ("10", "11", "12"):
+        for nid in (str(i) for i in range(10, 20)):
             try:
                 refs.append(prompt[nid]["inputs"]["image"])
             except Exception:
@@ -114,7 +114,7 @@ def test_two_person_sequential_uploads_plate_lock_new(tmp_path, monkeypatch):
     assert any(n.startswith("plate_") for n in client.uploads)
 
 
-def test_three_person_keeps_newest_lock_then_rebinds_dropped(tmp_path, monkeypatch):
+def test_three_person_keeps_all_prior_locks_with_ten_slot_budget(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "app.sequential_first_frame.assess_image_bytes",
         lambda *a, **k: {"ok": True, "passed": True, "reasons": []},
@@ -151,29 +151,26 @@ def test_three_person_keeps_newest_lock_then_rebinds_dropped(tmp_path, monkeypat
         set_phase=phases.append,
     )
     assert out == TINY_PNG
-    # p1 place + p2 add + p3 add + rebind dropped person0 = 4 prompts
-    assert client.queue_calls == 4
-    assert any("REBIND" in p or "rebind" in p.lower() for p in client.prompts)
-    assert any("seq_rebind_p1" in p for p in phases)
-    # When adding person 3 (index 2), lock should be newest placed (person1), not person0
-    add_p3_batches = [
-        b for b, prompt in zip(client.ref_name_batches, client.prompts) if "COMPOSITE ADD" in prompt and "image 3" in prompt
-    ]
-    # Last COMPOSITE ADD is person3; refs = plate, lock(person1), new(person2)
+    # With ≤10-ref budget: p1 place + p2 add + p3 add; no rebind (all prior locks fit).
+    assert client.queue_calls == 3
+    assert not any("REBIND" in p or "rebind" in p.lower() for p in client.prompts)
     last_add = [b for b, prompt in zip(client.ref_name_batches, client.prompts) if "COMPOSITE ADD" in prompt][-1]
-    assert "person1.png" in last_add  # newest lock
-    assert "person2.png" in last_add  # new person
-    assert "person0.png" not in last_add  # dropped from visual lock; rebound later
-    assert any("rebind" in u for u in client.uploads)
+    assert "person0.png" in last_add
+    assert "person1.png" in last_add
+    assert "person2.png" in last_add
 
 
-def test_should_run_sequential_skips_one_person_plus_scene():
+def test_should_run_sequential_skips_within_ten_ref_budget():
     assert should_run_sequential_first_frame(person_n=1, scene_n=1, prop_n=0) is False
     assert should_run_sequential_first_frame(person_n=1, scene_n=1, prop_n=1) is False
     assert should_run_sequential_first_frame(person_n=1, scene_n=0, prop_n=0) is False
+    # Multi-person fits one Qwen 2.1 call (≤10) — prefer one-shot identity binding.
+    assert should_run_sequential_first_frame(person_n=2, scene_n=1, prop_n=0) is False
+    assert should_run_sequential_first_frame(person_n=5, scene_n=1, prop_n=2) is False
+    assert should_run_sequential_first_frame(person_n=8, scene_n=1, prop_n=1) is False
 
 
-def test_should_run_sequential_for_two_people_or_overflow():
-    assert should_run_sequential_first_frame(person_n=2, scene_n=1, prop_n=0) is True
-    assert should_run_sequential_first_frame(person_n=1, scene_n=1, prop_n=2) is True
-    assert should_run_sequential_first_frame(person_n=5, scene_n=1, prop_n=2) is True
+def test_should_run_sequential_only_when_over_ten_refs():
+    assert should_run_sequential_first_frame(person_n=9, scene_n=1, prop_n=1) is True
+    assert should_run_sequential_first_frame(person_n=10, scene_n=1, prop_n=0) is True
+    assert should_run_sequential_first_frame(person_n=5, scene_n=1, prop_n=5) is True

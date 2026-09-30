@@ -2,7 +2,7 @@
   "_meta": {
     "id": "qwen_image_2_1_edit_gguf_api_v1",
     "title": "Qwen Image 2.1 GGUF image edit (jailbreak workflow)",
-    "description": "Flattened API port of 越狱工作流 Qwen image 2.1 图片编辑模板. Up to 3 reference images via TextEncodeQwenImage21.",
+    "description": "Flattened API port of 越狱工作流 Qwen image 2.1 图片编辑模板. Up to 10 reference images via TextEncodeQwenImage21.",
     "requires_models": true
   },
   "1": {
@@ -51,6 +51,48 @@
       "image": "ref_3.png"
     }
   },
+  "13": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "ref_4.png"
+    }
+  },
+  "14": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "ref_5.png"
+    }
+  },
+  "15": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "ref_6.png"
+    }
+  },
+  "16": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "ref_7.png"
+    }
+  },
+  "17": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "ref_8.png"
+    }
+  },
+  "18": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "ref_9.png"
+    }
+  },
+  "19": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "ref_10.png"
+    }
+  },
   "20": {
     "class_type": "TextEncodeQwenImage21",
     "inputs": {
@@ -61,7 +103,14 @@
       "resolution": 1024,
       "images.image_1": ["10", 0],
       "images.image_2": ["11", 0],
-      "images.image_3": ["12", 0]
+      "images.image_3": ["12", 0],
+      "images.image_4": ["13", 0],
+      "images.image_5": ["14", 0],
+      "images.image_6": ["15", 0],
+      "images.image_7": ["16", 0],
+      "images.image_8": ["17", 0],
+      "images.image_9": ["18", 0],
+      "images.image_10": ["19", 0]
     }
   },
   "30": {

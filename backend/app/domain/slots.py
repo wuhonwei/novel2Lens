@@ -28,11 +28,11 @@ CAMERAS = (
 VARIANT_REASONS = ("outfit", "age", "injury", "season", "other")
 H3_ENCODER = "qwen3vl_32b_heretic_minimax_h3_nvfp4.safetensors"
 
-# Per Qwen Edit call hard cap (sequential stages still respect this).
-MAX_REF_IMAGES = 3
-# Soft ceiling only for legacy callers; packing no longer rejects above this.
+# Per Qwen Image 2.1 Edit call hard cap (image_1 … image_10).
+MAX_REF_IMAGES = 10
+# Soft ceiling only for legacy callers; packing truncates at MAX_REF_IMAGES.
 MAX_NAMED_CHARACTERS = 99
-MAX_MULTI_CHAR_REF_IMAGES = 99
+MAX_MULTI_CHAR_REF_IMAGES = MAX_REF_IMAGES
 
 
 def max_named_characters(has_scene: bool = False) -> int:
@@ -93,6 +93,47 @@ class PackResult:
     text_fallbacks: list[TextFallback]
 
 
+def _subject_to_slot(n: int, subject: SlotSubject) -> PackedSlot:
+    kind = subject.kind
+    if kind == "character":
+        image_key = normalize_portrait_key(subject.image_key)
+    elif kind == "scene":
+        image_key = "scene"
+    else:
+        image_key = subject.image_key or "prop"
+        kind = "prop"
+    return PackedSlot(
+        index=n,
+        kind=kind,
+        asset_id=subject.asset_id,
+        position=subject.position,
+        facing=subject.facing,
+        image_key=image_key,
+        refer_as=subject.refer_as,
+        name=subject.name or "",
+    )
+
+
+def _subject_to_fallback(subject: SlotSubject, *, note: str) -> TextFallback:
+    kind = subject.kind if subject.kind in ("scene", "prop", "character") else "prop"
+    if kind == "character":
+        image_key = normalize_portrait_key(subject.image_key)
+    elif kind == "scene":
+        image_key = "scene"
+    else:
+        image_key = subject.image_key or "prop"
+        kind = "prop"
+    return TextFallback(
+        kind=kind,
+        asset_id=subject.asset_id,
+        image_key=image_key,
+        name=subject.name or "",
+        position=subject.position or "",
+        text=(subject.desc_zh or "").strip(),
+        note=note,
+    )
+
+
 def pack_qwen_slots(
     *,
     has_scene: bool = False,
@@ -102,11 +143,11 @@ def pack_qwen_slots(
     props: list[SlotSubject] | None = None,
     scene: SlotSubject | None = None,
 ) -> PackResult:
-    """Pack reference layers for sequential first-frame stacking.
+    """Pack reference layers for one-shot first-frame edit (≤10 images).
 
-    Order: scene → characters → props. No people/scene/prop hard cap — ImageWorker
-    stacks layers one edit at a time (≤3 images per call). Callers that know which
-    assets lack files should move those entries to text_fallbacks after packing.
+    Order: scene → characters → props. Overflow beyond MAX_REF_IMAGES becomes
+    text_fallbacks (prefer keeping people over trailing props). Callers that know
+    which assets lack files should move those entries to text_fallbacks after packing.
     """
     del half_lock
     del has_scene
@@ -134,27 +175,17 @@ def pack_qwen_slots(
         if p and p.asset_id:
             ordered.append(p)
 
-    slots: list[PackedSlot] = []
-    for n, subject in enumerate(ordered, start=1):
-        kind = subject.kind
-        if kind == "character":
-            image_key = normalize_portrait_key(subject.image_key)
-        elif kind == "scene":
-            image_key = "scene"
-        else:
-            image_key = subject.image_key or "prop"
-            kind = "prop"
-        slots.append(
-            PackedSlot(
-                index=n,
-                kind=kind,
-                asset_id=subject.asset_id,
-                position=subject.position,
-                facing=subject.facing,
-                image_key=image_key,
-                refer_as=subject.refer_as,
-                name=subject.name or "",
-            )
-        )
+    kept = ordered[:MAX_REF_IMAGES]
+    overflow = ordered[MAX_REF_IMAGES:]
 
-    return PackResult(slots=slots, text_fallbacks=[])
+    slots: list[PackedSlot] = [
+        _subject_to_slot(n, subject) for n, subject in enumerate(kept, start=1)
+    ]
+    text_fallbacks = [
+        _subject_to_fallback(
+            subject,
+            note=f"超过 Qwen Edit {MAX_REF_IMAGES} 张参考图上限，改为文字描述补足",
+        )
+        for subject in overflow
+    ]
+    return PackResult(slots=slots, text_fallbacks=text_fallbacks)
