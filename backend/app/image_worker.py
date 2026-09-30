@@ -49,7 +49,7 @@ class ImageWorker:
         llm: LlmSupervisor,
         poll_interval: float = 0.4,
         idle_poll_interval: float = 2.0,
-        job_timeout: float = 600.0,
+        job_timeout: float = 1800.0,
         models_dir: Path | None = None,
     ) -> None:
         self.session_factory = session_factory

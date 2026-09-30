@@ -96,6 +96,7 @@ def _start_image_worker() -> None:
             llm=llm_supervisor,
             poll_interval=settings.worker_poll_interval,
             idle_poll_interval=settings.worker_idle_poll_interval,
+            job_timeout=settings.image_job_timeout_s,
         )
     image_worker.start()
 
