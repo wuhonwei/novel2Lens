@@ -398,6 +398,8 @@ async def generate_storyboard(
     if chapter.status not in ("assets_confirmed", "storyboarded") and not book_ready and not overwrite:
         raise ValueError("请先一键生成全书资产（人物/场景/物品）。")
     require_asset_images(assets)
+    if not (chapter.text or "").strip():
+        raise ValueError("本章正文为空，请先重新导入小说或重建章节后再生成分镜。")
     if overwrite:
         db.query(Shot).filter(Shot.chapter_id == chapter.id).delete()
     elif db.query(Shot).filter(Shot.chapter_id == chapter.id).count():
