@@ -57,7 +57,7 @@ class Settings(BaseSettings):
     h3_job_poll_interval_s: float = 2.0
     h3_job_timeout_s: float = 3600.0
     h3_unet_name: str = "minimax_h3_fl2va_pruned_int8_convrot.safetensors"
-    h3_clip_name: str = "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"
+    h3_clip_name: str = "qwen3vl_32b_heretic_minimax_h3_nvfp4.safetensors"
     h3_video_vae_name: str = "minimax_h3_video_vae_fp16.safetensors"
     h3_audio_vae_name: str = "minimax_h3_audio_vae_fp32.safetensors"
     h3_turbo_lora_name: str = "minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors"
