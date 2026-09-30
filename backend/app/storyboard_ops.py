@@ -71,10 +71,13 @@ def _shot_unready(
 
 
 def _prefer_scene_image_slot(chars: list[SlotSubject]) -> bool:
-    """Full-body / environment-led shots keep a scene plate; all-half close-ups may skip it."""
-    if not chars:
-        return True
-    return any(c.image_key != "half" for c in chars)
+    """Always keep a scene image plate when the shot has a scene asset.
+
+    Formerly skipped scene for all-half close-ups to save the old 3-ref budget.
+    Qwen Image 2.1 accepts ≤10 refs, so half portraits + scene (+ props) fit.
+    """
+    del chars
+    return True
 
 
 def _asset_desc(asset: Asset) -> str:
@@ -143,6 +146,14 @@ LEGACY_DUAL_PORTRAIT_MARKERS = (
 def shot_needs_portrait_repair(shot: Shot) -> bool:
     prompt = shot.prompt_zh or ""
     if any(m in prompt for m in LEGACY_DUAL_PORTRAIT_MARKERS):
+        return True
+    # Pre-10-ref era: half close-ups demoted scene plates to text; restore when scene has images.
+    fbs = _load(shot.text_fallbacks_json, [])
+    if any(
+        (fb.get("kind") == "scene")
+        and ("半身近景" in str(fb.get("note") or "") or "场景可选" in str(fb.get("note") or ""))
+        for fb in fbs
+    ):
         return True
     slots = _load(shot.slots_json, [])
     # Legacy dual half+full for the same character in one shot.
@@ -237,19 +248,6 @@ def compile_shot_prompts(project: Project, shot: Shot, assets: list[Asset]) -> N
     )
     # Image-aware split: existing asset without file → text fallback; missing asset → omit.
     text_fbs: list[TextFallback] = list(packed.text_fallbacks)
-    # Half close-ups: keep scene as optional text, not a mandatory image plate.
-    if scene and not use_scene_plate:
-        text_fbs.append(
-            TextFallback(
-                kind="scene",
-                asset_id=scene.id,
-                image_key="scene",
-                name=scene.name or "",
-                position="",
-                text=(_asset_desc(scene) or "").strip(),
-                note="半身近景镜场景可选，文字补足",
-            )
-        )
     image_slots: list[PackedSlot] = []
     for p in packed.slots:
         asset = by_id.get(p.asset_id or "") if p.asset_id else None

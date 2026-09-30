@@ -35,11 +35,11 @@ def test_scrub_scene_desc_strips_person_tokens():
     assert "篱笆" in text and "草药田" in text
 
 
-def test_prefer_scene_plate_skips_all_half_closeups():
+def test_prefer_scene_plate_always_keeps_scene():
     half = SlotSubject(asset_id="c1", kind="character", image_key="half", name="陈守义")
     full = SlotSubject(asset_id="c1", kind="character", image_key="full", name="陈守义")
-    assert _prefer_scene_image_slot([half]) is False
-    assert _prefer_scene_image_slot([half, half]) is False
+    assert _prefer_scene_image_slot([half]) is True
+    assert _prefer_scene_image_slot([half, half]) is True
     assert _prefer_scene_image_slot([full]) is True
     assert _prefer_scene_image_slot([]) is True
 
@@ -53,7 +53,7 @@ def test_shot_unready_needs_at_least_one_ref():
     assert _shot_unready(bare, [(char, "half")]) is True
 
 
-def test_compile_omits_scene_plate_for_half_closeup():
+def test_compile_keeps_scene_plate_for_half_closeup():
     project = Project(id="p", title="t", style="国漫3D", source_text="x")
     scene = Asset(
         id="s1",
@@ -99,9 +99,9 @@ def test_compile_omits_scene_plate_for_half_closeup():
 
     slots = json.loads(shot.slots_json)
     kinds = [s["kind"] for s in slots]
-    assert "scene" not in kinds
+    assert kinds[0] == "scene"
     assert "character" in kinds
     assert "prop" in kinds
     assert shot.first_frame_unready is False
-    fbs = json.loads(shot.text_fallbacks_json)
-    assert any(fb.get("kind") == "scene" for fb in fbs)
+    fbs = json.loads(shot.text_fallbacks_json or "[]")
+    assert not any(fb.get("kind") == "scene" for fb in fbs)
