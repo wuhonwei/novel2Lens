@@ -535,6 +535,14 @@ class ImageWorker:
             label = (ref_labels[i] if i < len(ref_labels) else f"参考图{i + 1}").strip()
             labeled.append(f"image {i + 1} ({label})")
 
+        from app.domain.edit_identity import (
+            is_prop_ref_label,
+            is_scene_ref_label,
+            multi_char_first_frame_negative,
+            person_ref_indices,
+            wrap_multi_char_first_frame,
+        )
+
         if (job.target_field or "") == "half":
             wrapped = (
                 f"Using {labeled[0]}, create one new image that is ONLY a tighter bust-crop reframe "
@@ -542,29 +550,36 @@ class ImageWorker:
                 "Do not invent a new character; keep the exact face, hair, and outfit from the reference. "
                 f"Output image aspect ratio {aspect}, resolution {width}x{height}."
             )
-        elif (job.target_field or "") == "first_frame":
-            from app.domain.edit_identity import (
-                multi_char_first_frame_negative,
-                wrap_multi_char_first_frame,
-            )
-
-            wrapped = wrap_multi_char_first_frame(
-                labeled=labeled,
-                edit_prompt=edit_prompt,
-                aspect=aspect,
-                width=width,
-                height=height,
-            )
-            edit_negative = (
-                multi_char_first_frame_negative()
-                + (", " + edit_negative if edit_negative else "")
-            ).strip(", ")
         else:
-            wrapped = (
-                f"Using {', '.join(labeled)}, create one new image: {edit_prompt}. "
-                "Preserve identity and key details from the references as instructed. "
-                f"Output image aspect ratio {aspect}, resolution {width}x{height}."
+            # Multi-person refs (first frames or manual multi-ref edits) need per-slot identity binding.
+            person_idxs = person_ref_indices(ref_labels) if ref_labels else []
+            if not person_idxs and ref_labels:
+                person_idxs = [
+                    i
+                    for i, lab in enumerate(ref_labels)
+                    if not is_scene_ref_label(lab) and not is_prop_ref_label(lab)
+                ]
+            use_multi = (job.target_field or "") == "first_frame" or len(person_idxs) >= 2 or (
+                not ref_labels and len(names) >= 2
             )
+            if use_multi:
+                wrapped = wrap_multi_char_first_frame(
+                    labeled=labeled,
+                    edit_prompt=edit_prompt,
+                    aspect=aspect,
+                    width=width,
+                    height=height,
+                )
+                edit_negative = (
+                    multi_char_first_frame_negative()
+                    + (", " + edit_negative if edit_negative else "")
+                ).strip(", ")
+            else:
+                wrapped = (
+                    f"Using {', '.join(labeled)}, create one new image: {edit_prompt}. "
+                    "Preserve identity and key details from the references as instructed. "
+                    f"Output image aspect ratio {aspect}, resolution {width}x{height}."
+                )
 
         last_err = ""
         last_png: bytes | None = None
