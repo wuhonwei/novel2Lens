@@ -73,7 +73,10 @@ STYLE_SUFFIX = {
     ),
     "anime": "anime style, clean lineart, vibrant colors, detailed eyes",
     "product": "product photography, studio softbox lighting, clean background",
-    "scenery": "cinematic landscape, atmospheric perspective, rich depth",
+    "scenery": (
+        "cinematic empty landscape plate, atmospheric perspective, rich depth, "
+        "deserted location, no people, no characters, no human figures"
+    ),
     "concept": "concept art, design sheet, clear silhouette, masterful composition",
 }
 

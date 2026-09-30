@@ -103,7 +103,31 @@ def _look_prompt(asset: Asset) -> str:
         text = look_text({"desc_zh": asset.desc_zh, "appearance": _load(asset.appearance_json, {})})
     else:
         text = (asset.desc_zh or "").strip()
+    if kind == "scene":
+        return scrub_scene_desc(text) or "古风建筑与自然环境"
     return text or asset.name
+
+
+_SCENE_PERSON_RE = re.compile(
+    r"("
+    r"苏婆婆|婆婆|爷爷|奶奶|老太|老头|老人|老者|渔夫|船工|艄公|"
+    r"少年|少女|青年|中年|男子|女子|男人|女人|男孩|女孩|孩子|小孩|"
+    r"行人|路人|村民|人群|旅客|客人|侠客|掌柜|伙计|"
+    r"有人|无人看守|"
+    r"[\u4e00-\u9fff]{1,4}(?:婆婆|爷爷|伯伯|叔叔|阿姨|大哥|小妹)"
+    r")"
+)
+
+
+def scrub_scene_desc(text: str) -> str:
+    """Drop person / kinship tokens so empty scene plates do not invent characters."""
+    raw = (text or "").strip()
+    if not raw:
+        return ""
+    cleaned = _SCENE_PERSON_RE.sub("", raw)
+    cleaned = re.sub(r"[，,、]{2,}", "，", cleaned)
+    cleaned = re.sub(r"^[，,、。；;\s]+|[，,、。；;\s]+$", "", cleaned)
+    return cleaned.strip()
 
 
 def character_persona(asset: Asset) -> tuple[str, str]:
@@ -231,16 +255,20 @@ def build_field_prompt(project: Project, asset: Asset, field: str) -> str:
         # Prefer visual desc over asset.name — names like「苏婆婆木屋」leak characters into empty plates.
         env = (look or "").strip() or "古风建筑与自然环境"
         return (
-            f"{style}。空镜环境远景：{env}。"
-            "电影布光，环境完整，远景全貌，只拍地点与建筑。"
-            "禁止出现任何人、人脸、人影、剪影、手部；禁止把地点名称画成人物。"
+            f"{style}。EMPTY ENVIRONMENT ONLY, deserted location plate, no humans. "
+            f"空镜环境远景：{env}。"
+            "电影布光，环境完整，远景全貌，只拍地点、建筑、江面、道路与植被。"
+            "画面中绝对不能有任何人物、人脸、人影、剪影、手部、行人、渔夫或角色站位；"
+            "禁止把地点名称画成人物；无人空景。"
         )
     if kind == "scene" and field == "near":
         env = (look or "").strip() or "建筑与环境材质局部"
         return (
+            f"EMPTY ENVIRONMENT ONLY, no humans. "
             f"严格按参考远景图裁切放大为近景空镜局部特写，保留材质、光影与构图元素，主体：{env}。"
-            "氛围连贯，只拍门窗、墙面、篱笆、器物与环境细节。"
-            "禁止新增任何人、人脸、人影、剪影、手部；禁止把地点名称画成人物。"
+            "氛围连贯，只拍门窗、墙面、篱笆、器物、地面与环境细节。"
+            "若参考图里有任何人物必须完全抹除并补全背景；"
+            "禁止新增任何人、人脸、人影、剪影、手部；禁止把地点名称画成人物；无人空景。"
         )
     if kind == "prop" or field == "image":
         name = (asset.name or "").strip() or "道具"

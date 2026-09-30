@@ -19,9 +19,20 @@ def test_scene_near_prompt_avoids_character_name_leak():
     assert "苏婆婆" not in near
     assert "苏婆婆" not in far
     assert "禁止" in near and ("任何人" in near or "人脸" in near)
-    assert "禁止出现任何人" in far
+    assert "禁止" in far or "绝对不能有任何人物" in far
+    assert "EMPTY ENVIRONMENT" in far
+    assert "EMPTY ENVIRONMENT" in near
     assert "草药田" in near or "篱笆" in near
     assert "草药田" in far or "篱笆" in far
+
+
+def test_scrub_scene_desc_strips_person_tokens():
+    from app.image_gen import scrub_scene_desc
+
+    assert "婆婆" not in scrub_scene_desc("苏婆婆木屋前的篱笆与草药田")
+    assert "渔夫" not in scrub_scene_desc("江边渡口，偶有渔夫停靠")
+    text = scrub_scene_desc("深山深处，篱笆，草药田，温馨简陋。")
+    assert "篱笆" in text and "草药田" in text
 
 
 def test_prefer_scene_plate_skips_all_half_closeups():

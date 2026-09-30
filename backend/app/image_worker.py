@@ -378,7 +378,16 @@ class ImageWorker:
             positive = build_positive(prompt, style)
             negative = STYLE_DEFAULT_NEGATIVE
             if subject_type == "scenery":
-                negative = f"{negative}, people, person, human, face, crowd"
+                negative = (
+                    f"{negative}, people, person, human, humans, man, woman, boy, girl, "
+                    "child, crowd, pedestrian, fisherman, silhouette, face, faces, portrait, "
+                    "character, 1girl, 1boy, 2people, multiple people, hands, fingers, "
+                    "standing figure, walking figure, 人物, 人脸, 人影, 行人, 渔夫, 剪影"
+                )
+                positive = (
+                    "EMPTY ENVIRONMENT ONLY, deserted scenery, no humans anywhere, "
+                    f"{positive}"
+                )
             if subject_type == "prop":
                 negative = (
                     f"{negative}, people, person, human, hands, face, fingers, "
@@ -549,6 +558,19 @@ class ImageWorker:
                 f"of that same person: {edit_prompt}. "
                 "Do not invent a new character; keep the exact face, hair, and outfit from the reference. "
                 f"Output image aspect ratio {aspect}, resolution {width}x{height}."
+            )
+        elif (job.target_field or "") == "near":
+            wrapped = (
+                f"Using {labeled[0]}, create one new EMPTY environment close-up: {edit_prompt}. "
+                "Crop and enlarge architectural / landscape details only. "
+                "CRITICAL: zero people — no human, face, silhouette, hand, fisherman, or character. "
+                "If the reference contains any person, remove them completely and inpaint matching scenery. "
+                f"Output image aspect ratio {aspect}, resolution {width}x{height}."
+            )
+            edit_negative = (
+                "people, person, human, face, crowd, silhouette, hands, character, "
+                "1girl, 1boy, portrait, 人物, 人脸, 人影, 渔夫"
+                + (", " + edit_negative if edit_negative else "")
             )
         else:
             # Multi-person refs (first frames or manual multi-ref edits) need per-slot identity binding.
