@@ -283,8 +283,15 @@ async def chat_json(
         )
     except OperationCancelled:
         raise
-    except LLMError:
+    except LLMError as exc:
         if not allow_fallback:
+            raise
+        same_endpoint = (
+            (primary_base or "").rstrip("/").lower() == (fallback_base or "").rstrip("/").lower()
+            and (primary_model or "") == (fallback_model or "")
+        )
+        if same_endpoint and any(k in str(exc).lower() for k in ("timeout", "timed out", "readtimeout")):
+            # Same Ollama target: retrying after ReadTimeout only doubles the wait.
             raise
         return await _complete_and_parse(
             base_url=fallback_base,
