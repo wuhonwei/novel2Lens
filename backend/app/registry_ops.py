@@ -253,7 +253,7 @@ def _pass1_rows(data: Any) -> list[dict[str, Any]]:
         ("locations", "scene"),
         ("场景", "scene"),
         ("地点", "scene"),
-        ("核心场景", "scene"),
+        ("参考场景", "scene"),
         ("props", "prop"),
         ("prop", "prop"),
         ("items", "prop"),

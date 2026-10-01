@@ -352,7 +352,7 @@ def test_project_first_frames_ordered_by_chapter_index(tmp_path, monkeypatch):
         ]
         monkeypatch.setattr(
             "app.image_jobs._shot_ref_paths",
-            lambda *_a, **_k: ([str(tmp_path / scene.far_path)], ["核心场景参考图"], ""),
+            lambda *_a, **_k: ([str(tmp_path / scene.far_path)], ["参考场景图"], ""),
         )
         out = enqueue_project_first_frames(db, p, overwrite=True)
         assert out["queued"] == 4

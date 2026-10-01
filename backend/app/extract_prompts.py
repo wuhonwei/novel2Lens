@@ -1,5 +1,5 @@
 ASSET_SYSTEM = """你是小说影视化资产导演。只输出一个 JSON 对象，不要 markdown 围栏，不要解说。
-任务：对照「已有资产登记表」阅读本章，给出人物/核心场景/核心物品的提案。
+任务：对照「已有资产登记表」阅读本章，给出人物/参考场景/核心物品的提案。
 
 规则：
 - 人物可能有多个昵称，必须和已有资产对齐（林砚之=砚之）。
@@ -9,7 +9,7 @@ ASSET_SYSTEM = """你是小说影视化资产导演。只输出一个 JSON 对�
   - clone_variant：换装、换发型、明显年龄段、伤残疤、季节正装等稳定差异。从 match_asset_id 复制再改差字段。variant_reason 取 outfit|age|injury|season|other
   - supplement：只是补上之前没写的稳定特征（肤色、瞳色等），写入同一资产
   - transient：被雨淋湿、脸上有血、临时披外套等，不建资产
-- 核心场景：只为反复出现或本章主场、需要底板图的地点。过场走廊不要。时间/破坏用 clone_variant（variant_reason 用 other，appearance.condition 写晨/夜/雨/毁坏）。
+- 参考场景：只为反复出现或本章主场、需要底板图的地点。过场走廊不要。时间/破坏用 clone_variant（variant_reason 用 other，appearance.condition 写晨/夜/雨/毁坏）。
 - 核心物品：只为反复出现且影响认图的信物/武器/载具。桌椅杯碟不要。
 - 外貌分项尽量从文本抽取，没有的字段留空字符串，不要编造现代服装。
 - 人物必须拆成两个互不混写的字段：
@@ -45,7 +45,7 @@ SHOT_SYSTEM = """你是分镜导演。只输出 JSON 对象：{"shots":[...]} �
 - dialogue / voice_direction / action 按位置写，禁止出现角色名（对白里引用人名除外）。
 - 人物 name 必须能在资产表里对上（用登记名，不要新发明角色）。匹配不到的名字不要写进 characters。
 - 每个人物必须指定 portrait：只能是 "full"（全身图）或 "half"（半身图）二选一；同一人物在同一镜禁止两者都用。全身动作/站位/递物用 full；近景对话/面部特写用 half。默认 full。
-- scene_name：必填。优先用资产表里的核心场景名；若本章地点不在资产表，仍写出明确地点名（系统会临时登记为场景资产）。禁止 scene_name=null。近景对白也要绑定所在地点场景。
+- scene_name：必填。优先用资产表里的参考场景名；若本章地点不在资产表，仍写出明确地点名（系统会临时登记为场景资产）。禁止 scene_name=null。近景对白也要绑定所在地点场景。
 - prop_names：本镜画面里需要认出来的核心物品（资产表里的物品名），没有则 []。桌椅杯碟不要。不要引用已删除物品。
 - source_excerpt 引用本章原句。
 - 瞬时状态写在 characters[].transient，不要当新角色。
@@ -60,7 +60,7 @@ SHOT_USER = """项目画风：{style}
 可用角色：
 {characters}
 
-可用场景：
+可用参考场景：
 {scenes}
 
 可用物品：
@@ -72,7 +72,7 @@ SHOT_USER = """项目画风：{style}
 """
 
 PRESCAN_PASS1_SYSTEM = """你是长篇小说的影视资产登记员。这是第一遍全书扫描。只输出 JSON，不要 markdown。
-任务：通读全文，建立「人物形象 / 核心场景 / 核心物品」总表。不要写分镜。
+任务：通读全文，建立「人物形象 / 参考场景 / 核心物品」总表。不要写分镜。
 
 硬规则：
 - 必须使用英文键名 characters / scenes / props 三个数组（不要用中文键，不要合成一个 assets 列表）。
@@ -97,7 +97,7 @@ PRESCAN_PASS1_SYSTEM = """你是长篇小说的影视资产登记员。这是第
 
 PRESCAN_AUDIT_SYSTEM = """你是影视资产完整性审计员。这是查漏补缺扫描。只输出 JSON，不要 markdown。
 对照「已有登记表」和小说原文：
-1) 找出漏掉的人物/核心场景/核心物品 → new_items
+1) 找出漏掉的人物/参考场景/核心物品 → new_items
 2) 找出已有条目但外貌/描述不全的 → missing（action 用 supplement；人物补 background 与 look_zh/appearance，二者勿混写）
 3) 若已经齐全，complete=true，missing 与 new_items 皆为空数组。
 
@@ -115,7 +115,7 @@ PRESCAN_AUDIT_SYSTEM = """你是影视资产完整性审计员。这是查漏补
 
 PRESCAN_PASS1_USER = """项目画风：{style}
 
-请做第一遍全书扫描，建立人物形象 / 核心场景 / 核心物品登记总表。
+请做第一遍全书扫描，建立人物形象 / 参考场景 / 核心物品登记总表。
 
 全文：
 {novel}

@@ -23,7 +23,7 @@ test("list, open 青川渡, tabs, settings, assets upload, export, back, create,
   await page.getByTestId("btn-view-character").click();
   await expect(page.getByTestId("section-人物形象")).toBeVisible();
   await page.getByTestId("btn-view-scene").click();
-  await expect(page.getByTestId("section-核心场景")).toBeVisible();
+  await expect(page.getByTestId("section-参考场景")).toBeVisible();
   await page.getByTestId("btn-view-prop").click();
   await expect(page.getByTestId("section-核心物品")).toBeVisible();
 

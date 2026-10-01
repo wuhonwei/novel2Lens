@@ -60,7 +60,7 @@ function fallbackShotRefs(shot: Shot, assets: Asset[]): ShotReference[] {
       image_key === "half" ? asset.half_path : image_key === "full" ? asset.full_path : asset.image_path;
     const role =
       image_key === "scene"
-        ? "核心场景参考图"
+        ? "参考场景图"
         : image_key === "full"
           ? "人物全身图"
           : image_key === "half"
@@ -88,7 +88,7 @@ function fallbackShotRefs(shot: Shot, assets: Asset[]): ShotReference[] {
     push(key, asset, {
       slot: Number(slot.index) || undefined,
       position: String(slot.position || ""),
-      note: key === "half" ? "本镜用半身" : key === "full" ? "本镜用全身" : key === "scene" ? "场景底板" : "",
+      note: key === "half" ? "本镜用半身" : key === "full" ? "本镜用全身" : key === "scene" ? "参考场景" : "",
     });
   }
   if (shot.scene_asset_id && !out.some((r) => r.image_key === "scene")) {

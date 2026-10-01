@@ -340,7 +340,7 @@ export default function App() {
 
           <ol className="home-steps">
             <li><strong>1. 导入小说</strong><span>粘贴或上传整本 TXT，按章切分</span></li>
-            <li><strong>2. 一键生成全书资产</strong><span>人物形象 / 核心场景 / 核心物品，无需按章确认</span></li>
+            <li><strong>2. 一键生成全书资产</strong><span>人物形象 / 参考场景 / 核心物品，无需按章确认</span></li>
             <li><strong>3. 上传参考图</strong><span>人物半身+全身；场景/物品各一张</span></li>
             <li><strong>4. 按章出分镜并导出</strong><span>首帧双提示词 + H3 脚本</span></li>
           </ol>
@@ -971,7 +971,7 @@ function BookAssets({
 
   const tabs = [
     { id: "character" as const, label: "人物形象", count: characters.length, empty: "还没有人物。点上方一键生成。", assets: characters },
-    { id: "scene" as const, label: "核心场景", count: scenes.length, empty: "还没有核心场景。", assets: scenes },
+    { id: "scene" as const, label: "参考场景", count: scenes.length, empty: "还没有参考场景。", assets: scenes },
     { id: "prop" as const, label: "核心物品", count: props.length, empty: "还没有核心物品。", assets: props },
   ];
   const active = tabs.find((t) => t.id === view)!;
@@ -1010,7 +1010,7 @@ function BookAssets({
         <div className="panel-head">
           <h2>全书资产（正本 TXT）</h2>
           <p className="hint">
-            对整本小说扫描人物形象、核心场景、核心物品。生成后自动写入，无需按章确认。
+            对整本小说扫描人物形象、参考场景、核心物品。生成后自动写入，无需按章确认。
             {scan?.passes?.length
               ? ` 已扫描 ${scan.passes.length} 遍：人物 ${scan.counts?.character ?? characters.length} / 场景 ${scan.counts?.scene ?? scenes.length} / 物品 ${scan.counts?.prop ?? props.length}。`
               : " 尚未生成。"}

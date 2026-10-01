@@ -76,7 +76,7 @@ export function deriveGuide(bundle: Bundle, chapter: Chapter | undefined, shots:
       step: "generate_assets",
       index: 1,
       title: "第 2 步 · 一键生成全书资产",
-      tip: "对整本 TXT 扫描两遍以上：人物形象、核心场景、核心物品。无需按章确认。",
+      tip: "对整本 TXT 扫描两遍以上：人物形象、参考场景、核心物品。无需按章确认。",
       cta: "一键生成全书资产",
       tab: "全书资产",
     };

@@ -6,7 +6,7 @@ from typing import Any
 from app.domain.slots import normalize_portrait_key
 
 IMAGE_ROLE_ZH = {
-    "scene": "核心场景参考图",
+    "scene": "参考场景图",
     "full": "人物全身图",
     "half": "人物半身图",
     "prop": "核心物品参考图",
