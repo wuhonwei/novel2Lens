@@ -567,7 +567,7 @@ class ImageWorker:
         if person_n < 1 and not scene_n and not prop_n:
             person_n = len(ref_paths)
         use_sequential = (job.target_field or "") == "first_frame" and should_run_sequential_first_frame(
-            person_n=person_n, scene_n=scene_n, prop_n=prop_n
+            person_n=person_n, scene_n=scene_n, prop_n=prop_n, ref_labels=ref_labels
         )
         if use_sequential:
             aspect = payload.get("aspect") or "3:4"
@@ -687,6 +687,11 @@ class ImageWorker:
         last_err = ""
         last_png: bytes | None = None
         min_sides = int(payload.get("min_character_sides") or 0)
+        from app.domain.edit_identity import person_labels_age_conflict
+
+        require_contrast = bool(payload.get("require_identity_contrast")) or person_labels_age_conflict(
+            ref_labels
+        )
         attempts = 4 if (job.target_field or "") == "first_frame" and min_sides >= 2 else 2
         start_attempt = 0
         from app.config import settings as _settings
@@ -717,23 +722,24 @@ class ImageWorker:
                 last_png,
                 require_fullbody=bool(payload.get("require_fullbody")),
                 min_character_sides=min_sides,
+                require_identity_contrast=require_contrast,
             )
             if qa.get("ok") or qa.get("passed"):
                 return last_png
             last_err = f"qa_failed:{','.join(qa.get('reasons') or [])}"
 
-        # One-shot dual-char still missing a person → durable sequential fallback.
+        # One-shot dual-char still missing a person / identity collapse → sequential.
         if (
             (job.target_field or "") == "first_frame"
             and person_n >= 2
-            and "missing_second_character" in (last_err or "")
+            and any(k in (last_err or "") for k in ("missing_second_character", "identity_collapse"))
         ):
             job.phase = "sequential_fallback"
             self._save(db, job)
             return self._run_sequential_multi_char_first_frame(
                 client=client,
                 job=job,
-                payload=payload,
+                payload={**payload, "require_identity_contrast": require_contrast},
                 ref_paths=ref_paths,
                 ref_labels=ref_labels,
                 edit_prompt=edit_prompt,

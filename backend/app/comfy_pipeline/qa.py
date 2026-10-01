@@ -174,6 +174,70 @@ def assess_dual_character_presence(img) -> str | None:
     return None
 
 
+def _white_hair_score(img, x0: int, x1: int, y0: int, y1: int) -> float:
+    """Fraction of near-white low-chroma pixels in a head band (elder hair cue)."""
+    px = img.load()
+    w, h = img.size
+    x0, x1 = max(0, x0), min(w, x1)
+    y0, y1 = max(0, y0), min(h, y1)
+    if x1 <= x0 or y1 <= y0:
+        return 0.0
+    hit = 0
+    tot = 0
+    for y in range(y0, y1, max(1, (y1 - y0) // 24)):
+        for x in range(x0, x1, max(1, (x1 - x0) // 24)):
+            r, g, b = px[x, y]
+            tot += 1
+            luma = 0.299 * r + 0.587 * g + 0.114 * b
+            chroma = abs(r - g) + abs(g - b) + abs(b - r)
+            if luma >= 185 and chroma <= 45:
+                hit += 1
+    return hit / max(1, tot)
+
+
+def _dark_hair_score(img, x0: int, x1: int, y0: int, y1: int) -> float:
+    """Fraction of dark low-chroma pixels in a head band (youth black hair cue)."""
+    px = img.load()
+    w, h = img.size
+    x0, x1 = max(0, x0), min(w, x1)
+    y0, y1 = max(0, y0), min(h, y1)
+    if x1 <= x0 or y1 <= y0:
+        return 0.0
+    hit = 0
+    tot = 0
+    for y in range(y0, y1, max(1, (y1 - y0) // 24)):
+        for x in range(x0, x1, max(1, (x1 - x0) // 24)):
+            r, g, b = px[x, y]
+            tot += 1
+            luma = 0.299 * r + 0.587 * g + 0.114 * b
+            chroma = abs(r - g) + abs(g - b) + abs(b - r)
+            if luma <= 70 and chroma <= 55:
+                hit += 1
+    return hit / max(1, tot)
+
+
+def assess_dual_identity_collapse(img, *, require_age_contrast: bool = False) -> str | None:
+    """Reject twin elders when youth+elder contrast was required.
+
+    Heuristic: both standing slots look elder-haired (bright white crown dominates
+    dark hair). Used after dual-presence passes.
+    """
+    if not require_age_contrast:
+        return None
+    w, h = img.size
+    # Head bands on left / right thirds.
+    y0, y1 = int(h * 0.05), int(h * 0.32)
+    left_white = _white_hair_score(img, 0, int(w * 0.38), y0, y1)
+    right_white = _white_hair_score(img, int(w * 0.62), w, y0, y1)
+    left_dark = _dark_hair_score(img, 0, int(w * 0.38), y0, y1)
+    right_dark = _dark_hair_score(img, int(w * 0.62), w, y0, y1)
+    left_elder = left_white >= 0.08 and left_white >= left_dark * 0.9
+    right_elder = right_white >= 0.08 and right_white >= right_dark * 0.9
+    if left_elder and right_elder:
+        return "identity_collapse"
+    return None
+
+
 def assess_image_bytes(
     data: bytes,
     *,
@@ -183,6 +247,7 @@ def assess_image_bytes(
     low_variance: float = 8.0,
     require_fullbody: bool = False,
     min_character_sides: int = 0,
+    require_identity_contrast: bool = False,
     **kwargs: Any,
 ) -> dict[str, Any]:
     """Return dict with ok/passed for worker compatibility."""
@@ -224,6 +289,12 @@ def assess_image_bytes(
             dual = assess_dual_character_presence(img)
             if dual:
                 reasons.append(dual)
+        if (require_identity_contrast or int(min_character_sides or 0) >= 2) and not reasons:
+            # Only enforce twin-elder rejection when contrast was requested.
+            if require_identity_contrast:
+                coll = assess_dual_identity_collapse(img, require_age_contrast=True)
+                if coll:
+                    reasons.append(coll)
         result = QaResult(
             passed=len(reasons) == 0,
             reasons=reasons,

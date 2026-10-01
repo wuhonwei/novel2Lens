@@ -53,6 +53,25 @@ def _look_tokens(asset: Any) -> list[str]:
     return out[:3]
 
 
+def person_labels_age_conflict(ref_labels: list[str] | None) -> bool:
+    """True when packed person refs mix youth/no-beard with elder/beard cues.
+
+    One-shot multi-ref edit often clones the stronger elder identity onto both
+    standing slots; callers should force sequential stacking in that case.
+    """
+    youth = False
+    elder = False
+    for lab in ref_labels or []:
+        s = str(lab or "")
+        if is_scene_ref_label(s) or is_prop_ref_label(s):
+            continue
+        if any(k in s for k in ("少年", "青年", "少女", "孩", "无胡须")):
+            youth = True
+        if any(k in s for k in ("老人", "老年", "婆婆", "爷爷", "白须", "有胡须")):
+            elder = True
+    return youth and elder
+
+
 def garment_tone_hint(image_path: str | Path) -> str:
     """Coarse garment brightness from a character sheet (torso band)."""
     try:

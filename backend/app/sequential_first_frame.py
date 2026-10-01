@@ -31,15 +31,20 @@ def should_run_sequential_first_frame(
     person_n: int,
     scene_n: int = 0,
     prop_n: int = 0,
+    ref_labels: list[str] | None = None,
 ) -> bool:
-    """Use sequential stacking only when one Qwen 2.1 call cannot hold the refs.
+    """Use sequential stacking when refs exceed budget OR age/look contrast is sharp.
 
     Qwen Image 2.1 Edit accepts up to 10 images per call. Prefer one-shot for
-    multi-character identity (all faces/outfits visible together). Stack only
-    when total layers exceed that budget.
+    multi-character identity when looks are similar. When labels mix youth vs
+    elder (or 无胡须 vs 白须), one-shot often clones the elder onto both slots —
+    force sequential placement instead.
     """
+    from app.domain.edit_identity import person_labels_age_conflict
     from app.domain.slots import MAX_REF_IMAGES
 
+    if person_labels_age_conflict(ref_labels):
+        return True
     total = int(scene_n) + int(person_n) + int(prop_n)
     return total > MAX_REF_IMAGES
 
@@ -433,5 +438,22 @@ def run_sequential_layered_first_frame(
             plate = cand
 
         if plate is not None:
+            # Final dual-identity gate when youth+elder (or similar) contrast required.
+            from app.domain.edit_identity import person_labels_age_conflict
+
+            need_contrast = bool(payload.get("require_identity_contrast")) or person_labels_age_conflict(
+                ref_labels
+            )
+            if need_contrast and total_people >= 2:
+                fqa = assess_image_bytes(
+                    plate,
+                    require_fullbody=bool(payload.get("require_fullbody")),
+                    min_character_sides=min(total_people, 3),
+                    require_identity_contrast=True,
+                )
+                if not (fqa.get("ok") or fqa.get("passed")):
+                    last_err = f"sequential_final_qa:{','.join(fqa.get('reasons') or [])}"
+                    plate = None
+                    continue
             return plate
     raise RuntimeError(last_err or "sequential layered first_frame edit failed")

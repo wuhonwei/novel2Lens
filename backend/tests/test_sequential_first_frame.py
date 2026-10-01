@@ -170,6 +170,18 @@ def test_should_run_sequential_skips_within_ten_ref_budget():
     assert should_run_sequential_first_frame(person_n=8, scene_n=1, prop_n=1) is False
 
 
+def test_should_run_sequential_when_person_labels_age_conflict():
+    labels = [
+        "青川渡·参考场景图",
+        "林砚之·少年·无胡须·LIGHT garments as in ref·full-body",
+        "陈守义·老人·白须·DARK garments as in ref·full-body",
+    ]
+    assert (
+        should_run_sequential_first_frame(person_n=2, scene_n=1, prop_n=0, ref_labels=labels)
+        is True
+    )
+
+
 def test_should_run_sequential_only_when_over_ten_refs():
     assert should_run_sequential_first_frame(person_n=9, scene_n=1, prop_n=1) is True
     assert should_run_sequential_first_frame(person_n=10, scene_n=1, prop_n=0) is True
