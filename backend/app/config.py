@@ -40,7 +40,7 @@ class Settings(BaseSettings):
     # Multi-ref Qwen 2.1 edit (≤10 images) can exceed 10 minutes on first load.
     image_job_timeout_s: float = 1800.0
     # Book registry / storyboard JSON with 32B models regularly exceeds 10 minutes.
-    llm_chat_timeout_s: float = 7200.0
+    llm_chat_timeout_s: float = 10800.0
     llm_settle_seconds: float = 8.0
     # When True, release_for_llm stops the Comfy process; when False, only /free.
     llm_requires_comfy_stop: bool = False
