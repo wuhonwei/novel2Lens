@@ -476,6 +476,19 @@ def main() -> int:
                 report["timings_sec"]["first_frames"] = time.perf_counter() - step
                 report["steps"].append("first_frames")
                 log(f"first-frame jobs {counts2}")
+                # Retry any still-missing shots once (dual-char QA / transient Comfy failures).
+                final0 = client.get(f"/api/projects/{pid}").json()
+                shots = final0.get("shots") or []
+                missing = [s for s in shots if not (s.get("first_frame_path") or "").strip()]
+                if missing:
+                    log(f"首帧缺口 {len(missing)}，逐镜重试…")
+                    for s in missing:
+                        rr = client.post(f"/api/projects/{pid}/shots/{s['id']}/generate-first-frame")
+                        log(f"  retry {s.get('order_index')} {rr.status_code}")
+                    counts3 = wait_jobs(client, pid, timeout=21600, poll=5)
+                    report["first_frame_job_status_retry"] = counts3
+                    report["steps"].append("first_frames_retry")
+                    log(f"first-frame retry jobs {counts3}")
             if "first_frames" not in done:
                 done.append("first_frames")
             save_state(pid, done)
@@ -490,6 +503,8 @@ def main() -> int:
         report["first_frames_written"] = with_path
         report["assets_ready"] = assets_have_images(assets)
         report["ok"] = bool(with_path == len(shots) and len(shots) > 0 and report["assets_ready"])
+        if with_path < len(shots):
+            raise RuntimeError(f"first frames incomplete: {with_path}/{len(shots)}")
         report["timings_sec"]["total"] = time.perf_counter() - t0
         report["finished_at"] = datetime.now(timezone.utc).isoformat()
         report["done"] = done
