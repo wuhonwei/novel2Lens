@@ -172,13 +172,17 @@ async def chat_completion(
     model: str,
     messages: list[dict[str, Any]],
     temperature: float = 0.2,
-    timeout: float = 600.0,
+    timeout: float | None = None,
     max_tokens: int = 16384,
     extra: dict | None = None,
     is_cancelled=None,
 ) -> str:
     import asyncio
 
+    from app.config import settings
+
+    if timeout is None:
+        timeout = float(getattr(settings, "llm_chat_timeout_s", 1800.0) or 1800.0)
     url = base_url.rstrip("/") + "/chat/completions"
     payload: dict[str, Any] = {
         "model": model,
@@ -241,7 +245,7 @@ async def chat_json(
         model: str,
         msgs: list[dict[str, Any]],
         used_fallback: bool,
-        timeout: float = 600.0,
+        timeout: float | None = None,
         extra_body: dict | None = None,
     ) -> tuple[Any, bool]:
         text = await chat_completion(
@@ -287,6 +291,5 @@ async def chat_json(
             model=fallback_model,
             msgs=list(messages),
             used_fallback=True,
-            timeout=600.0,
             extra_body={"options": {"num_ctx": 8192}},
         )
