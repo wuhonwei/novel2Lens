@@ -396,6 +396,17 @@ def main() -> int:
                     f"skipped={len(report['storyboard_all']['skipped'])} "
                     f"errors={report['storyboard_all']['errors'][:3]} shots={len(shots)}"
                 )
+                chapters = client.get(f"/api/projects/{pid}").json().get("chapters") or chapters
+                uncovered = [
+                    ch
+                    for ch in chapters
+                    if not any(s.get("chapter_id") == ch["id"] for s in shots)
+                ]
+                if report["storyboard_all"]["errors"] and uncovered:
+                    raise RuntimeError(
+                        f"storyboard-all incomplete: errors={report['storyboard_all']['errors']} "
+                        f"uncovered={[c.get('title') for c in uncovered]}"
+                    )
                 if (
                     report["storyboard_all"]["errors"]
                     and not report["storyboard_all"]["generated"]

@@ -545,7 +545,8 @@ async def generate_storyboard(
     book_ready = any(a.confirmed and normalize_kind(a.kind) == "character" for a in assets)
     if chapter.status not in ("assets_confirmed", "storyboarded") and not book_ready and not overwrite:
         raise ValueError("请先一键生成全书资产（人物/场景/物品）。")
-    require_asset_images(assets)
+    # Characters/props need refs; scene plates are ensured at first-frame time.
+    require_asset_images(assets, kinds=("character", "prop"))
     if not (chapter.text or "").strip():
         raise ValueError("本章正文为空，请先重新导入小说或重建章节后再生成分镜。")
     if overwrite:

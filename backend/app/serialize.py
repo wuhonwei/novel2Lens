@@ -75,10 +75,18 @@ def asset_ref_ready(asset: Asset) -> bool:
     return True
 
 
-def missing_asset_image_messages(assets: list[Asset]) -> list[str]:
+def missing_asset_image_messages(
+    assets: list[Asset],
+    *,
+    kinds: tuple[str, ...] | None = None,
+) -> list[str]:
+    """List missing-ref messages. When kinds is set, only those kinds are checked."""
+    allow = {normalize_kind(k) for k in kinds} if kinds is not None else None
     out: list[str] = []
     for a in assets:
         kind = normalize_kind(a.kind)
+        if allow is not None and kind not in allow:
+            continue
         if asset_ref_ready(a):
             continue
         if kind == "character":
@@ -90,8 +98,18 @@ def missing_asset_image_messages(assets: list[Asset]) -> list[str]:
     return out
 
 
-def require_asset_images(assets: list[Asset]) -> None:
-    msgs = missing_asset_image_messages(assets)
+def require_asset_images(
+    assets: list[Asset],
+    *,
+    kinds: tuple[str, ...] | None = None,
+) -> None:
+    """Raise when required reference images are missing.
+
+    Storyboard generation passes kinds=('character','prop'): scene plates are
+    created on demand during first-frame (ensure_shot_scene_asset + Comfy), so a
+    mid-run temp scene must not block later chapters.
+    """
+    msgs = missing_asset_image_messages(assets, kinds=kinds)
     if msgs:
         raise ValueError("参考图未齐备，无法生成分镜：" + "；".join(msgs[:12]))
 

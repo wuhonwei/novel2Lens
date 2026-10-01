@@ -48,6 +48,18 @@ def test_require_asset_images_raises_chinese():
         require_asset_images(assets)
 
 
+def test_require_asset_images_storyboard_skips_scenes():
+    """Storyboard may create temp scenes; only character/prop refs are mandatory."""
+    assets = [
+        _ns(kind="character", name="林砚之", half_path="h", full_path="f"),
+        _ns(kind="scene", name="陈守义的茅草屋"),  # no plate yet
+        _ns(kind="prop", name="玉佩", image_path="p"),
+    ]
+    require_asset_images(assets, kinds=("character", "prop"))
+    with pytest.raises(ValueError, match="茅草屋"):
+        require_asset_images(assets)
+
+
 def test_require_asset_images_ok_when_complete():
     assets = [
         _ns(kind="character", name="林砚之", half_path="h", full_path="f"),
