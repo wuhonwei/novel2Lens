@@ -143,14 +143,19 @@ def run_sequential_layered_first_frame(
             set_phase(msg)
 
     last_err = ""
-    max_attempts = 3
+    from app.domain.edit_identity import person_labels_age_conflict
+
+    need_contrast = bool(payload.get("require_identity_contrast")) or person_labels_age_conflict(
+        ref_labels
+    )
+    max_attempts = 5 if need_contrast else 3
     from app.config import settings as app_settings
 
     for attempt in range(1, max_attempts + 1):
         # Qwen Image 2.1 jailbreak defaults: euler/simple @ cfg 1.0, ~25 steps.
         use_lightning = False
         steps = int(app_settings.qwen21_steps) + (attempt - 1) * 4
-        cfg = float(app_settings.qwen21_cfg)
+        cfg = float(app_settings.qwen21_cfg) + (0.25 if need_contrast and attempt > 1 else 0.0)
         plate: bytes | None = None
         last_person_lock: tuple[str, bytes, str] | None = None
 
@@ -263,6 +268,12 @@ def run_sequential_layered_first_frame(
                 "KEEP every identifiable person already visible on image 1 with distinct faces "
                 "(do not merge or clone them)."
             )
+            if need_contrast:
+                keep_note += (
+                    " CRITICAL AGE LOCK: if a young black-haired / no-beard person is already on the plate, "
+                    "they must stay young and unbearded; the new person (if elder / white beard) must be a "
+                    "DIFFERENT identity — never turn both people into the same white-haired elder."
+                )
             if dropped:
                 drop_names = ", ".join(people[j][0] for j in dropped)
                 keep_note += (
@@ -309,7 +320,23 @@ def run_sequential_layered_first_frame(
                 plate = None
                 break
             slot = standing_slot(pi, total_people)
-            delta = assess_companion_added(prev, plate, slot=slot)
+            delta = assess_companion_added(
+                prev,
+                plate,
+                slot=slot,
+                min_score=4.0 if need_contrast else 10.0,
+            )
+            if delta is not None:
+                # Age-contrast adds often change pose without a huge grayscale delta;
+                # accept if dual presence already shows two separated people.
+                if need_contrast:
+                    presence = assess_image_bytes(
+                        plate,
+                        require_fullbody=bool(payload.get("require_fullbody")),
+                        min_character_sides=min(pi + 1, 3),
+                    )
+                    if presence.get("ok") or presence.get("passed"):
+                        delta = None
             if delta is not None:
                 last_err = f"sequential_stage{pi + 1}_qa:{delta}"
                 try:

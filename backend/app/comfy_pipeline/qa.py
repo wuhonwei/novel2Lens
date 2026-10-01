@@ -109,6 +109,7 @@ def assess_companion_added(
     after_png: bytes,
     *,
     slot: str = "right",
+    min_score: float = 10.0,
 ) -> str | None:
     """Sequential multi-char stage: target standing slot must change vs previous plate."""
     import io
@@ -127,7 +128,7 @@ def assess_companion_added(
     box = boxes.get((slot or "right").lower(), boxes["right"])
     diff = ImageChops.difference(before.crop(box), after.crop(box))
     score = sum(diff.getdata()) / max(1, diff.size[0] * diff.size[1])
-    if score < 10.0:
+    if score < float(min_score):
         return "missing_second_character"
     return None
 
