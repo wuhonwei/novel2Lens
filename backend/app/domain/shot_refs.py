@@ -106,7 +106,7 @@ def build_shot_references(
         elif image_key == "full":
             note = "本镜用全身"
         elif image_key == "scene":
-            note = "场景底板"
+            note = "参考场景"
         elif image_key == "prop":
             note = "本镜核心物品"
         key = (asset_id, image_key)
