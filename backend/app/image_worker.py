@@ -686,14 +686,15 @@ class ImageWorker:
 
         last_err = ""
         last_png: bytes | None = None
-        attempts = 2
+        min_sides = int(payload.get("min_character_sides") or 0)
+        attempts = 4 if (job.target_field or "") == "first_frame" and min_sides >= 2 else 2
         start_attempt = 0
         from app.config import settings as _settings
 
         for attempt in range(start_attempt, start_attempt + attempts):
-            # Prefer durable Qwen 2.1 defaults; retry with slightly higher steps/CFG.
-            steps = int(_settings.qwen21_steps if attempt == 0 else max(28, _settings.qwen21_steps + 4))
-            cfg = float(_settings.qwen21_cfg if attempt == 0 else max(1.5, _settings.qwen21_cfg))
+            # Prefer durable Qwen 2.1 defaults; escalate steps/CFG on dual-char retries.
+            steps = int(_settings.qwen21_steps if attempt == 0 else max(28, _settings.qwen21_steps + 4 * attempt))
+            cfg = float(_settings.qwen21_cfg if attempt == 0 else max(1.5, _settings.qwen21_cfg + 0.25 * attempt))
             wf = compile_qwen_edit(
                 prompt=wrapped,
                 negative=edit_negative or (payload.get("negative") or ""),
@@ -715,11 +716,31 @@ class ImageWorker:
             qa = assess_image_bytes(
                 last_png,
                 require_fullbody=bool(payload.get("require_fullbody")),
-                min_character_sides=int(payload.get("min_character_sides") or 0),
+                min_character_sides=min_sides,
             )
             if qa.get("ok") or qa.get("passed"):
                 return last_png
             last_err = f"qa_failed:{','.join(qa.get('reasons') or [])}"
+
+        # One-shot dual-char still missing a person → durable sequential fallback.
+        if (
+            (job.target_field or "") == "first_frame"
+            and person_n >= 2
+            and "missing_second_character" in (last_err or "")
+        ):
+            job.phase = "sequential_fallback"
+            self._save(db, job)
+            return self._run_sequential_multi_char_first_frame(
+                client=client,
+                job=job,
+                payload=payload,
+                ref_paths=ref_paths,
+                ref_labels=ref_labels,
+                edit_prompt=edit_prompt,
+                aspect=aspect,
+                width=width,
+                height=height,
+            )
         raise RuntimeError(last_err or "Comfy edit failed")
 
     def _run_sequential_multi_char_first_frame(

@@ -162,6 +162,8 @@ def wrap_multi_char_first_frame(
             f"MANDATORY: the output must show ALL {person_count} people from the person references "
             f"together in one frame (exactly {person_count} identifiable faces). "
             "Never drop a person; never output a solo portrait. "
+            "Place them with clear left-right separation so both bodies are fully visible "
+            "(not overlapped into one silhouette). "
             f"Standing order: the leftmost named person must be the identity from image {left_img}; "
             f"the rightmost named person must be the identity from image {right_img}"
             f"{middle_note} "

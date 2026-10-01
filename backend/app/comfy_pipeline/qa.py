@@ -83,15 +83,18 @@ def assess_fullbody_framing(img) -> str | None:
 
 
 def _skinish(r: int, g: int, b: int) -> bool:
-    """Loose skin cue for stylized 3D / guoman (not photographic Fitzpatrick)."""
-    if r < 80 or g < 50 or b < 40:
+    """Loose skin cue for stylized 3D / guoman (not photographic Fitzpatrick).
+
+    Includes ashen/elderly tones common in 国风3D elders (苏婆婆 etc.).
+    """
+    if r < 70 or g < 45 or b < 35:
         return False
-    if r + 8 < g or r + 5 < b:
+    if r + 12 < g or r + 10 < b:
         return False
     # Exclude warm lantern / bread yellows (high R≈G, very low B).
-    if b < 100 and r > 160 and g > 130 and abs(r - g) < 45 and (r - b) > 70:
+    if b < 90 and r > 160 and g > 130 and abs(r - g) < 45 and (r - b) > 70:
         return False
-    if max(r, g, b) - min(r, g, b) < 22:
+    if max(r, g, b) - min(r, g, b) < 16:
         return False  # near-gray mist / stone
     return True
 
@@ -162,10 +165,11 @@ def assess_dual_character_presence(img) -> str | None:
 
     left_peak, left_cx = peak(0, left_x1)
     right_peak, right_cx = peak(right_x0, sw)
-    need = max(18, (win * win) // 8)
+    # Stylized 3D / elder skin reads thinner than photo — keep floor modest.
+    need = max(12, (win * win) // 12)
     if left_peak < need or right_peak < need:
         return "missing_second_character"
-    if (right_cx - left_cx) < sw * 0.28:
+    if (right_cx - left_cx) < sw * 0.22:
         return "missing_second_character"
     return None
 
