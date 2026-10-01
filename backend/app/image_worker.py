@@ -448,11 +448,73 @@ class ImageWorker:
             return last_png
         raise RuntimeError(last_err or "Comfy t2i failed")
 
+    def _ensure_first_frame_scene_and_refs(
+        self, db: Session, client: Any, job: ImageJob, payload: dict[str, Any]
+    ) -> tuple[list[str], list[str]]:
+        """Guarantee scene asset + plate, then rebuild first-frame ref paths from DB."""
+        from app.db import Shot
+        from app.domain.shot_refs import scene_image_path
+        from app.image_gen import build_field_prompt
+        from app.image_jobs import _first_frame_err_blocks, _shot_ref_paths
+        from app.storyboard_ops import compile_shot_prompts, ensure_shot_scene_asset
+
+        shot_id = (payload.get("shot_id") or getattr(job, "shot_id", "") or "").strip()
+        if not shot_id:
+            raise RuntimeError("first_frame job missing shot_id")
+        shot = db.get(Shot, shot_id)
+        project = db.get(Project, job.project_id)
+        if not shot or not project or shot.project_id != project.id:
+            raise RuntimeError("shot missing for first_frame")
+        assets = db.query(Asset).filter(Asset.project_id == project.id).all()
+        scene = ensure_shot_scene_asset(db, project, shot, assets)
+        if not scene_image_path(scene):
+            job.phase = "generating_scene_plate"
+            self._save(db, job)
+            if self._last_kind == "edit":
+                self.comfy.free_models()
+                self._invalidate_ckpt_cache()
+            far_prompt = build_field_prompt(project, scene, "far")
+            from app.image_gen import _style_for
+
+            far_payload = {
+                "style": _style_for("scene", project.style or ""),
+                "quality": "standard",
+                "aspect": "16:9",
+                "subject_type": "scenery",
+                "no_background": False,
+                "prefer_backend": "sdxl_guofeng",
+            }
+            png = self._run_t2i(client, far_prompt, far_payload)
+            write_asset_image(project, scene, "far", png)
+            db.add(scene)
+            db.flush()
+            # Refresh local asset list after far_path write.
+            assets = db.query(Asset).filter(Asset.project_id == project.id).all()
+            self._last_kind = "t2i"
+        compile_shot_prompts(project, shot, assets)
+        db.add(shot)
+        db.flush()
+        paths, labels, err = _shot_ref_paths(project, shot, assets)
+        if _first_frame_err_blocks(err) or err == "pending_scene_image":
+            raise RuntimeError(err or "首帧参考图未就绪")
+        if not paths:
+            raise RuntimeError("本镜没有可用参考图")
+        payload["ref_paths"] = paths
+        payload["ref_labels"] = labels
+        if (shot.prompt_zh or "").strip():
+            job.prompt = shot.prompt_zh
+        job.payload_json = json.dumps(payload, ensure_ascii=False)
+        job.phase = "generating"
+        self._save(db, job)
+        return paths, labels
+
     def _run_edit(self, db: Session, client: Any, job: ImageJob, payload: dict[str, Any]) -> bytes:
         from app.comfy_pipeline.qa import assess_image_bytes
 
         ref_paths = list(payload.get("ref_paths") or [])
         ref_labels = list(payload.get("ref_labels") or [])
+        if (job.target_field or "") == "first_frame" or payload.get("rebuild_refs"):
+            ref_paths, ref_labels = self._ensure_first_frame_scene_and_refs(db, client, job, payload)
         ref_field = (payload.get("ref_field") or "").strip()
         if not ref_paths and ref_field:
             asset = db.get(Asset, job.asset_id)

@@ -441,9 +441,96 @@ def enqueue_one_click(db: Session, project: Project) -> dict[str, Any]:
     return {"batch_id": batch_id, "job_ids": [j.id for j in jobs], "jobs": [serialize_job(j) for j in jobs]}
 
 
+def _ordered_project_shots(db: Session, project_id: str):
+    """Chapter index → shot order_index (never sort by chapter UUID)."""
+    from app.db import Chapter, Shot
+
+    return (
+        db.query(Shot)
+        .join(Chapter, Chapter.id == Shot.chapter_id)
+        .filter(Shot.project_id == project_id)
+        .order_by(Chapter.index.asc(), Shot.order_index.asc(), Shot.id.asc())
+        .all()
+    )
+
+
+def _ordered_chapter_shots(db: Session, project_id: str, chapter_id: str):
+    from app.db import Shot
+
+    return (
+        db.query(Shot)
+        .filter(Shot.project_id == project_id, Shot.chapter_id == chapter_id)
+        .order_by(Shot.order_index.asc(), Shot.id.asc())
+        .all()
+    )
+
+
+def _scene_needs_plate(scene: Asset | None) -> bool:
+    from app.domain.shot_refs import scene_image_path
+
+    return scene is None or not bool(scene_image_path(scene))
+
+
+def _active_asset_field_job(db: Session, asset_id: str, field: str) -> ImageJob | None:
+    return (
+        db.query(ImageJob)
+        .filter(
+            ImageJob.asset_id == asset_id,
+            ImageJob.target_field == field,
+            ImageJob.status.in_(ACTIVE_STATUSES),
+        )
+        .order_by(ImageJob.created_at.desc())
+        .first()
+    )
+
+
+def _queue_scene_far_if_needed(
+    db: Session,
+    project: Project,
+    scene: Asset,
+    *,
+    batch_id: str,
+    created_at: datetime,
+    queued_scene_ids: set[str],
+) -> ImageJob | None:
+    """Enqueue scene far T2I ahead of first-frame when the plate is missing."""
+    if scene.id in queued_scene_ids:
+        return None
+    if not _scene_needs_plate(scene):
+        queued_scene_ids.add(scene.id)
+        return None
+    prior = _active_asset_field_job(db, scene.id, "far")
+    if prior is not None:
+        queued_scene_ids.add(scene.id)
+        return None
+    job = _build_asset_field_job(project, scene, "far")
+    job.batch_id = batch_id
+    job.created_at = created_at
+    job.updated_at = created_at
+    db.add(job)
+    queued_scene_ids.add(scene.id)
+    return job
+
+
+def _prepare_shot_for_first_frame(
+    db: Session, project: Project, shot, assets: list[Asset]
+) -> tuple[Asset, list[str], list[str], str]:
+    """Ensure scene asset exists, recompile slots, then resolve ref paths."""
+    from app.storyboard_ops import ensure_shot_scene_asset
+
+    scene = ensure_shot_scene_asset(db, project, shot, assets)
+    paths, labels, err = _shot_ref_paths(project, shot, assets)
+    return scene, paths, labels, err
+
+
 def _shot_ref_paths(project: Project, shot, assets: list[Asset]) -> tuple[list[str], list[str], str]:
-    """Return (abs_paths, labels, error). Error non-empty if unready or missing files."""
+    """Return (abs_paths, labels, error). Error non-empty if unready or missing files.
+
+    Special soft error ``pending_scene_image``: scene asset is linked but its plate
+    file is not ready yet (caller should queue far T2I / worker regenerates refs).
+    """
     from app.config import settings
+    from app.domain.edit_identity import is_scene_ref_label
     from app.domain.shot_refs import build_shot_references
     from app.serialize import _load
 
@@ -451,6 +538,8 @@ def _shot_ref_paths(project: Project, shot, assets: list[Asset]) -> tuple[list[s
         return [], [], "首帧参考图未齐备"
     by_id = {a.id: a for a in assets}
     scene = by_id.get(shot.scene_asset_id) if shot.scene_asset_id else None
+    if not scene:
+        return [], [], "本镜缺少场景资产"
     prop_ids = _load(getattr(shot, "prop_asset_ids_json", None) or "[]", [])
     props = [by_id[pid] for pid in prop_ids if pid in by_id]
     refs = build_shot_references(
@@ -493,13 +582,20 @@ def _shot_ref_paths(project: Project, shot, assets: list[Asset]) -> tuple[list[s
 
         paths.append(str(abs_path))
         labels.append(edit_ref_label(asset, role, image_path=abs_path))
-    if not paths:
-        return [], [], "本镜没有可用参考图"
     prompt = (shot.prompt_zh or "").strip()
     if not prompt:
         return [], [], "本镜缺少首帧提示词"
+    if not any(is_scene_ref_label(lab) for lab in labels):
+        # Scene asset linked but plate not on disk / still text-fallback — soft.
+        return paths, labels, "pending_scene_image"
+    if not paths:
+        return [], [], "本镜没有可用参考图"
     return paths, labels, ""
 
+
+def _first_frame_err_blocks(err: str) -> bool:
+    """Hard failures that must not enqueue; soft pending_scene is allowed."""
+    return bool(err) and err != "pending_scene_image"
 
 def _active_first_frame_job(db: Session, shot_id: str) -> ImageJob | None:
     return (
@@ -523,6 +619,7 @@ def _first_frame_payload(shot, paths: list[str], labels: list[str]) -> dict[str,
         "shot_id": shot.id,
         "quality": "standard",
         "require_fullbody": True,
+        "rebuild_refs": True,
     }
     if n >= 2:
         payload["min_character_sides"] = min(n, 3)
@@ -533,11 +630,22 @@ def enqueue_shot_first_frame(
     db: Session, project: Project, shot, *, batch_id: str = "", assets: list[Asset] | None = None
 ) -> ImageJob:
     from app.image_scores import clear_shot_first_frame_score
+    from datetime import timedelta
 
     assets = assets if assets is not None else db.query(Asset).filter(Asset.project_id == project.id).all()
-    paths, labels, err = _shot_ref_paths(project, shot, assets)
-    if err:
+    scene, paths, labels, err = _prepare_shot_for_first_frame(db, project, shot, assets)
+    if _first_frame_err_blocks(err):
         raise ValueError(err)
+    # Ensure scene plate is queued before this first-frame job.
+    base_ts = _utcnow()
+    far_job = _queue_scene_far_if_needed(
+        db,
+        project,
+        scene,
+        batch_id=batch_id,
+        created_at=base_ts,
+        queued_scene_ids=set(),
+    )
     # Single-shot regen: cancel any prior active job for this shot, then enqueue fresh.
     prior = _active_first_frame_job(db, shot.id)
     if prior is not None:
@@ -557,6 +665,9 @@ def enqueue_shot_first_frame(
         batch_id=batch_id,
         shot_id=shot.id,
     )
+    # After any scene-far job so the worker picks plate first.
+    job.created_at = base_ts + timedelta(microseconds=1 if far_job is not None else 0)
+    job.updated_at = job.created_at
     db.add(job)
     db.commit()
     db.refresh(job)
@@ -566,16 +677,10 @@ def enqueue_shot_first_frame(
 def enqueue_chapter_first_frames(
     db: Session, project: Project, chapter_id: str, *, overwrite: bool = False
 ) -> dict[str, Any]:
-    from app.db import Shot
     from datetime import timedelta
 
     assets = db.query(Asset).filter(Asset.project_id == project.id).all()
-    shots = (
-        db.query(Shot)
-        .filter(Shot.project_id == project.id, Shot.chapter_id == chapter_id)
-        .order_by(Shot.order_index.asc())
-        .all()
-    )
+    shots = _ordered_chapter_shots(db, project.id, chapter_id)
     if not shots:
         raise ValueError("本章还没有分镜")
     batch_id = _uid()
@@ -584,7 +689,9 @@ def enqueue_chapter_first_frames(
     base_ts = _utcnow()
     skipped_active = 0
     skipped_existing = 0
-    for i, shot in enumerate(shots):
+    seq = 0
+    queued_scene_ids: set[str] = set()
+    for shot in shots:
         try:
             if _active_first_frame_job(db, shot.id) is not None:
                 skipped_active += 1
@@ -592,10 +699,21 @@ def enqueue_chapter_first_frames(
             if not overwrite and (getattr(shot, "first_frame_path", "") or "").strip():
                 skipped_existing += 1
                 continue
-            paths, labels, err = _shot_ref_paths(project, shot, assets)
-            if err:
+            scene, paths, labels, err = _prepare_shot_for_first_frame(db, project, shot, assets)
+            if _first_frame_err_blocks(err):
                 errors.append(f"镜{shot.order_index}: {err}")
                 continue
+            far = _queue_scene_far_if_needed(
+                db,
+                project,
+                scene,
+                batch_id=batch_id,
+                created_at=base_ts + timedelta(microseconds=seq),
+                queued_scene_ids=queued_scene_ids,
+            )
+            if far is not None:
+                jobs.append(far)
+                seq += 1
             payload = _first_frame_payload(shot, paths, labels)
             job = _make_job(
                 project=project,
@@ -607,19 +725,21 @@ def enqueue_chapter_first_frames(
                 batch_id=batch_id,
                 shot_id=shot.id,
             )
-            job.created_at = base_ts + timedelta(microseconds=i)
+            job.created_at = base_ts + timedelta(microseconds=seq)
             job.updated_at = job.created_at
             jobs.append(job)
             db.add(job)
+            seq += 1
         except Exception as exc:  # noqa: BLE001
             errors.append(f"镜{shot.order_index}: {exc}")
     if not jobs and skipped_active == 0 and skipped_existing == 0:
         raise ValueError("没有可入队的首帧任务：" + "；".join(errors[:6]))
     if jobs:
         db.commit()
+    ff_jobs = [j for j in jobs if j.target_field == "first_frame"]
     return {
         "batch_id": batch_id,
-        "queued": len(jobs),
+        "queued": len(ff_jobs),
         "skipped": len(errors) + skipped_active + skipped_existing,
         "skipped_existing": skipped_existing,
         "errors": errors,
@@ -630,17 +750,12 @@ def enqueue_chapter_first_frames(
 def enqueue_project_first_frames(
     db: Session, project: Project, *, overwrite: bool = False
 ) -> dict[str, Any]:
-    from app.db import Chapter, Shot
+    from app.db import Chapter
     from datetime import timedelta
 
     assets = db.query(Asset).filter(Asset.project_id == project.id).all()
     chapters = db.query(Chapter).filter(Chapter.project_id == project.id).order_by(Chapter.index.asc()).all()
-    shots = (
-        db.query(Shot)
-        .filter(Shot.project_id == project.id)
-        .order_by(Shot.chapter_id.asc(), Shot.order_index.asc())
-        .all()
-    )
+    shots = _ordered_project_shots(db, project.id)
     if not shots:
         raise ValueError("项目还没有分镜")
     batch_id = _uid()
@@ -650,39 +765,57 @@ def enqueue_project_first_frames(
     title_by = {c.id: c.title for c in chapters}
     skipped_active = 0
     skipped_existing = 0
-    for i, shot in enumerate(shots):
+    seq = 0
+    queued_scene_ids: set[str] = set()
+    for shot in shots:
         if _active_first_frame_job(db, shot.id) is not None:
             skipped_active += 1
             continue
         if not overwrite and (getattr(shot, "first_frame_path", "") or "").strip():
             skipped_existing += 1
             continue
-        paths, labels, err = _shot_ref_paths(project, shot, assets)
-        if err:
-            errors.append(f"{title_by.get(shot.chapter_id, '')}镜{shot.order_index}: {err}")
-            continue
-        payload = _first_frame_payload(shot, paths, labels)
-        job = _make_job(
-            project=project,
-            asset=None,
-            kind="edit",
-            target_field="first_frame",
-            prompt=shot.prompt_zh or "",
-            payload=payload,
-            batch_id=batch_id,
-            shot_id=shot.id,
-        )
-        job.created_at = base_ts + timedelta(microseconds=i)
-        job.updated_at = job.created_at
-        jobs.append(job)
-        db.add(job)
+        try:
+            scene, paths, labels, err = _prepare_shot_for_first_frame(db, project, shot, assets)
+            if _first_frame_err_blocks(err):
+                errors.append(f"{title_by.get(shot.chapter_id, '')}镜{shot.order_index}: {err}")
+                continue
+            far = _queue_scene_far_if_needed(
+                db,
+                project,
+                scene,
+                batch_id=batch_id,
+                created_at=base_ts + timedelta(microseconds=seq),
+                queued_scene_ids=queued_scene_ids,
+            )
+            if far is not None:
+                jobs.append(far)
+                seq += 1
+            payload = _first_frame_payload(shot, paths, labels)
+            job = _make_job(
+                project=project,
+                asset=None,
+                kind="edit",
+                target_field="first_frame",
+                prompt=shot.prompt_zh or "",
+                payload=payload,
+                batch_id=batch_id,
+                shot_id=shot.id,
+            )
+            job.created_at = base_ts + timedelta(microseconds=seq)
+            job.updated_at = job.created_at
+            jobs.append(job)
+            db.add(job)
+            seq += 1
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"{title_by.get(shot.chapter_id, '')}镜{shot.order_index}: {exc}")
     if not jobs and skipped_active == 0 and skipped_existing == 0:
         raise ValueError("没有可入队的首帧任务：" + "；".join(errors[:8]))
     if jobs:
         db.commit()
+    ff_jobs = [j for j in jobs if j.target_field == "first_frame"]
     return {
         "batch_id": batch_id,
-        "queued": len(jobs),
+        "queued": len(ff_jobs),
         "skipped": len(errors) + skipped_active + skipped_existing,
         "skipped_existing": skipped_existing,
         "errors": errors,

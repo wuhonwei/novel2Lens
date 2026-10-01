@@ -44,6 +44,92 @@ def _match_name(assets: list[Asset], name: str, kind: str | None = None) -> Asse
     return None
 
 
+def _temp_scene_name(raw: dict[str, Any], order_index: int) -> str:
+    import re
+
+    for key in ("scene_name", "background", "action", "source_excerpt"):
+        blob = re.sub(r"\s+", "", str(raw.get(key) or "").strip())
+        if blob:
+            return blob[:16] if len(blob) > 16 else blob
+    return f"临时场景·镜{order_index}"
+
+
+def ensure_or_create_scene_asset(
+    db: Session,
+    project: Project,
+    *,
+    scenes: list[Asset],
+    scene_name: str | None,
+    background: str = "",
+    order_index: int = 1,
+    chapter_id: str = "",
+    raw: dict[str, Any] | None = None,
+) -> Asset:
+    """Resolve a scene asset for a shot; create a temporary registry row when missing."""
+    raw = raw or {}
+    needle = (scene_name or "").strip()
+    if not needle:
+        needle = _temp_scene_name({**raw, "background": background}, order_index)
+    found = _match_name(scenes, needle, "scene")
+    if found:
+        return found
+    for a in scenes:
+        if needle in (a.name or "") or ((a.name or "") and (a.name or "") in needle):
+            return a
+    desc = (background or str(raw.get("background") or "") or str(raw.get("action") or "")).strip() or needle
+    asset = Asset(
+        id=_uid(),
+        project_id=project.id,
+        kind="scene",
+        name=needle[:120],
+        aliases_json="[]",
+        refer_as="",
+        age_band="",
+        appearance_json="{}",
+        background_zh="",
+        desc_zh=desc[:2000],
+        desc_en="",
+        confirmed=True,
+        created_chapter_id=chapter_id or "",
+    )
+    db.add(asset)
+    scenes.append(asset)
+    return asset
+
+
+def ensure_shot_scene_asset(
+    db: Session,
+    project: Project,
+    shot: Shot,
+    assets: list[Asset] | None = None,
+) -> Asset:
+    """Guarantee shot.scene_asset_id points at a scene asset; create temp if needed."""
+    assets = assets if assets is not None else db.query(Asset).filter(Asset.project_id == project.id).all()
+    by_id = {a.id: a for a in assets}
+    scenes = [a for a in assets if normalize_kind(a.kind) == "scene"]
+    existing = by_id.get(shot.scene_asset_id or "")
+    if existing and normalize_kind(existing.kind) == "scene":
+        return existing
+    background = (shot.background or shot.action or shot.narration or "").strip()
+    scene = ensure_or_create_scene_asset(
+        db,
+        project,
+        scenes=scenes,
+        scene_name=None,
+        background=background,
+        order_index=int(shot.order_index or 1),
+        chapter_id=shot.chapter_id or "",
+        raw={"background": background, "action": shot.action or ""},
+    )
+    if scene not in assets and scene.id not in by_id:
+        assets.append(scene)
+    shot.scene_asset_id = scene.id
+    compile_shot_prompts(project, shot, assets)
+    db.add(shot)
+    db.flush()
+    return scene
+
+
 def _shot_unready(
     project: Project,
     image_reqs: list[tuple[Asset, str]],
@@ -426,6 +512,19 @@ async def generate_storyboard(
         named = raw.get("characters") or []
         scene_name = raw.get("scene_name")
         scene = _match_name(scenes, scene_name, "scene") if scene_name else None
+        if scene is None:
+            scene = ensure_or_create_scene_asset(
+                db,
+                project,
+                scenes=scenes,
+                scene_name=scene_name,
+                background=str(raw.get("background") or ""),
+                order_index=i,
+                chapter_id=chapter.id,
+                raw=raw if isinstance(raw, dict) else {},
+            )
+            if scene.id not in {a.id for a in assets}:
+                assets.append(scene)
         duration = float(raw.get("duration_s") or 6)
         duration = min(15.0, max(4.0, duration))
         camera = raw.get("camera") if raw.get("camera") in CAMERAS else "固定"
@@ -491,7 +590,7 @@ async def generate_storyboard(
             chapter_id=chapter.id,
             order_index=i,
             duration_s=duration,
-            scene_asset_id=scene.id if scene else "",
+            scene_asset_id=scene.id,
             prop_asset_ids_json=_dump(prop_ids),
             camera=camera,
             camera_detail=raw.get("camera_detail") or "",
