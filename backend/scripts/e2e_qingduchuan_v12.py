@@ -177,7 +177,7 @@ def main() -> int:
     text = NOVEL.read_text(encoding="utf-8-sig")
     client = httpx.Client(
         base_url=args.base_url,
-        timeout=httpx.Timeout(3600.0, connect=30.0),
+        timeout=httpx.Timeout(21600.0, connect=30.0),
         trust_env=False,
     )
     done: list[str] = []
@@ -367,52 +367,76 @@ def main() -> int:
                 report["steps"].append("storyboard_all_skipped")
             else:
                 step = time.perf_counter()
-                log("UI: 一键生成全部章节分镜")
-                overwrite = force_from == "storyboard"
-                board = None
-                for attempt in range(1, 4):
-                    board = client.post(f"/api/projects/{pid}/storyboard-all?overwrite={str(overwrite).lower()}")
-                    if board.status_code == 200:
-                        break
-                    log(f"storyboard-all attempt {attempt}: {board.status_code} {board.text[:400]}")
-                    report["retries"].append({"step": "storyboard", "attempt": attempt, "body": board.text[:400]})
-                    time.sleep(10 * attempt)
+                log("UI: 按章生成分镜（缺口章）")
+                generated: list[str] = []
+                skipped: list[str] = []
+                errors: list[str] = []
+                # Only overwrite when explicitly forced and every chapter already has shots.
+                # Gap-fill resumes must keep existing chapter boards.
+                for ch in sorted(chapters, key=lambda x: int(x.get("index") or 0)):
+                    cid = ch["id"]
+                    has = any(s.get("chapter_id") == cid for s in existing_shots)
+                    if has and force_from != "storyboard":
+                        skipped.append(cid)
+                        log(f"skip chapter#{ch.get('index')} {ch.get('title')} (has shots)")
+                        continue
+                    if has and force_from == "storyboard":
+                        # Forced resume: still skip chapters that already have shots to save time
+                        skipped.append(cid)
+                        log(f"keep chapter#{ch.get('index')} {ch.get('title')} (already storyboarded)")
+                        continue
                     wait_llm()
-                if board is None or board.status_code != 200:
-                    raise RuntimeError(f"storyboard-all: {board.text[:1200] if board else 'none'}")
-                body = board.json()
+                    ok = False
+                    last_body = ""
+                    for attempt in range(1, 4):
+                        log(f"storyboard chapter#{ch.get('index')} {ch.get('title')} attempt {attempt}")
+                        board = client.post(
+                            f"/api/projects/{pid}/chapters/{cid}/storyboard",
+                            timeout=httpx.Timeout(10800.0, connect=30.0),
+                        )
+                        last_body = board.text[:800]
+                        if board.status_code == 200:
+                            body = board.json()
+                            n = len(body.get("shots") or [])
+                            log(f"  ok shots={n}")
+                            generated.append(cid)
+                            ok = True
+                            break
+                        log(f"  fail {board.status_code}: {last_body[:300]}")
+                        report["retries"].append(
+                            {"step": "storyboard", "chapter": cid, "attempt": attempt, "body": last_body[:400]}
+                        )
+                        time.sleep(10 * attempt)
+                        wait_llm()
+                    if not ok:
+                        errors.append(f"{ch.get('title')}: {last_body}")
+                    existing_shots = client.get(f"/api/projects/{pid}").json().get("shots") or []
+                shots = existing_shots
                 report["storyboard_all"] = {
-                    "generated": body.get("generated") or [],
-                    "skipped": body.get("skipped") or [],
-                    "errors": body.get("errors") or [],
-                    "cancelled": body.get("cancelled"),
+                    "generated": generated,
+                    "skipped": skipped,
+                    "errors": errors,
+                    "cancelled": False,
                 }
-                shots = body.get("shots") or []
                 report["shots_after_storyboard"] = len(shots)
                 report["timings_sec"]["storyboard_all"] = time.perf_counter() - step
                 report["steps"].append("storyboard_all")
                 log(
-                    f"storyboard generated={len(report['storyboard_all']['generated'])} "
-                    f"skipped={len(report['storyboard_all']['skipped'])} "
-                    f"errors={report['storyboard_all']['errors'][:3]} shots={len(shots)}"
+                    f"storyboard generated={len(generated)} skipped={len(skipped)} "
+                    f"errors={errors[:3]} shots={len(shots)}"
                 )
-                chapters = client.get(f"/api/projects/{pid}").json().get("chapters") or chapters
                 uncovered = [
                     ch
                     for ch in chapters
                     if not any(s.get("chapter_id") == ch["id"] for s in shots)
                 ]
-                if report["storyboard_all"]["errors"] and uncovered:
+                if errors and uncovered:
                     raise RuntimeError(
-                        f"storyboard-all incomplete: errors={report['storyboard_all']['errors']} "
+                        f"storyboard incomplete: errors={errors} "
                         f"uncovered={[c.get('title') for c in uncovered]}"
                     )
-                if (
-                    report["storyboard_all"]["errors"]
-                    and not report["storyboard_all"]["generated"]
-                    and not report["storyboard_all"]["skipped"]
-                ):
-                    raise RuntimeError(f"storyboard-all failed: {report['storyboard_all']['errors']}")
+                if errors and not generated and not skipped:
+                    raise RuntimeError(f"storyboard failed: {errors}")
             if "storyboard" not in done:
                 done.append("storyboard")
             save_state(pid, done)
