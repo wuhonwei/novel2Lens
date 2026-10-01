@@ -466,12 +466,12 @@ def run_sequential_layered_first_frame(
 
         if plate is not None:
             # Final dual-identity gate when youth+elder (or similar) contrast required.
-            from app.domain.edit_identity import person_labels_age_conflict
+            from app.domain.edit_identity import person_labels_age_conflict, wrap_rebind_identity
 
-            need_contrast = bool(payload.get("require_identity_contrast")) or person_labels_age_conflict(
+            need_contrast_final = bool(payload.get("require_identity_contrast")) or person_labels_age_conflict(
                 ref_labels
             )
-            if need_contrast and total_people >= 2:
+            if need_contrast_final and total_people >= 2:
                 fqa = assess_image_bytes(
                     plate,
                     require_fullbody=bool(payload.get("require_fullbody")),
@@ -479,8 +479,55 @@ def run_sequential_layered_first_frame(
                     require_identity_contrast=True,
                 )
                 if not (fqa.get("ok") or fqa.get("passed")):
-                    last_err = f"sequential_final_qa:{','.join(fqa.get('reasons') or [])}"
-                    plate = None
-                    continue
+                    reasons = fqa.get("reasons") or []
+                    if "identity_collapse" in reasons:
+                        # Repair: rebind each youth/no-beard lock onto its standing slot.
+                        for j, (ylab, yraw, yfname) in enumerate(people):
+                            if not any(
+                                k in ylab for k in ("少年", "青年", "少女", "孩", "无胡须")
+                            ):
+                                continue
+                            _phase(f"seq_rebind_youth_p{j + 1}_a{attempt}")
+                            yslot = standing_slot(j, total_people)
+                            rebind_names = [
+                                client.upload_image(plate, f"rebind_youth_{attempt}_{j}.png"),
+                                client.upload_image(yraw, yfname or f"youth{j}.png"),
+                            ]
+                            rwrap = wrap_rebind_identity(
+                                base_label="plate after collapse — restore youth identity",
+                                lock_label=ylab,
+                                slot=yslot,
+                                count_people=total_people,
+                                edit_prompt=edit_prompt,
+                                aspect=aspect,
+                                width=width,
+                                height=height,
+                            )
+                            rwf = compile_qwen_edit(
+                                prompt=rwrap,
+                                negative=multi_char_first_frame_negative(),
+                                ref_names=rebind_names,
+                                seed=next_seed(None, attempt + 90 + j, True),
+                                steps=steps + 4,
+                                cfg=max(cfg, 1.5),
+                                use_lightning=use_lightning,
+                                width=width,
+                                height=height,
+                            )
+                            rpid = client.queue_prompt(rwf)
+                            rhist = client.wait_history(rpid, timeout_seconds=job_timeout)
+                            rimgs = client.collect_images(rhist)
+                            if rimgs:
+                                plate = rimgs[0]
+                        fqa = assess_image_bytes(
+                            plate,
+                            require_fullbody=bool(payload.get("require_fullbody")),
+                            min_character_sides=min(total_people, 3),
+                            require_identity_contrast=True,
+                        )
+                    if not (fqa.get("ok") or fqa.get("passed")):
+                        last_err = f"sequential_final_qa:{','.join(fqa.get('reasons') or [])}"
+                        plate = None
+                        continue
             return plate
     raise RuntimeError(last_err or "sequential layered first_frame edit failed")
