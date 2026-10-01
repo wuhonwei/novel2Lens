@@ -44,15 +44,16 @@ SHOT_SYSTEM = """你是分镜导演。只输出 JSON 对象：{"shots":[...]} �
 - 运镜只允许：固定、缓慢推近、缓慢拉远、慢摇左、慢摇右、微仰、微俯、轻度跟随左一、轻度跟随中、轻度跟随右一。默认固定。
 - dialogue / voice_direction / action 按位置写，禁止出现角色名（对白里引用人名除外）。
 - 人物 name 必须能在资产表里对上（用登记名，不要新发明角色）。匹配不到的名字不要写进 characters。
+- 若资产表同名有多套外表，characters[].look 写本镜服饰/外形关键词（如「黑衣劲装」「洗白长衫」），系统会匹配对应外形资产。
 - 每个人物必须指定 portrait：只能是 "full"（全身图）或 "half"（半身图）二选一；同一人物在同一镜禁止两者都用。全身动作/站位/递物用 full；近景对话/面部特写用 half。默认 full。
 - scene_name：必填。优先用资产表里的参考场景名；若本章地点不在资产表，仍写出明确地点名（系统会临时登记为场景资产）。禁止 scene_name=null。近景对白也要绑定所在地点场景。
 - prop_names：本镜画面里需要认出来的核心物品（资产表里的物品名），没有则 []。桌椅杯碟不要。不要引用已删除物品。
 - source_excerpt 引用本章原句。
-- 瞬时状态写在 characters[].transient，不要当新角色。
+- 瞬时状态写在 characters[].transient，不要当新角色，也不要写进 look。
 
 每个 shot 字段：
 duration_s, scene_name, prop_names, background, camera, camera_detail, narration, action, source_excerpt,
-characters: [{"name","position","facing","portrait","transient","action","dialogue","voice_direction"}]
+characters: [{"name","look","position","facing","portrait","transient","action","dialogue","voice_direction"}]
 """
 
 SHOT_USER = """项目画风：{style}
@@ -81,41 +82,45 @@ PRESCAN_PASS1_SYSTEM = """你是长篇小说的影视资产登记员。这是第
 - refer_as 单独字段写 少年/老者/女子/男子…，供「左一的{refer_as}」，不要放进 aliases，不要用人名。
 - 每个 character 必须拆成两段、互不混写：
   - background：背景/身份/出身/职业/与他人关系（仅供查阅）。「老船工」「遗孤」等写这里。
-  - look_zh + appearance：只写看得见的静态外表，供生图。look_zh 开头必须依次写：性别（男/女）、年龄段、身材；再写脸型、眉形、鼻唇、肤色、发型发色长短、眼睛外形与瞳色（不要写「温柔/严肃」）、疤痕胎记、佩戴饰品、衣服款式颜色质地、鞋履。
-  - appearance 必填 gender（男|女）与 body（身材）；age_band 必填。
-  - look_zh / appearance 严禁任何神情、情绪、性格、动作、职业：如皮笑肉不笑、眉眼温柔、神情严肃、眼神坚定、笑靥如花、动作沉稳、老船工。这些要么删掉，要么写进 background。
-  - eyes 示例正确：「狭长杏眼，深褐瞳」；错误：「眼神温柔」「目光坚定」。
-  - face 示例正确：「鹅蛋脸，眉骨分明，薄唇」；错误：「神情严肃」「面带微笑」。
-  - look_zh 示例正确：「性别：男，年龄段：青年，身材：清瘦修长，鹅蛋脸……」；错误：缺少性别/年龄段/身材任一项。
+  - looks：数组。同一人物若在不同时期/地点有稳定外表差异（换装、换发型、明显年龄段、伤残疤、季节正装），必须拆成多条 look；只有一套外表时 looks 长度为 1。
+  - 每条 look：look_zh + appearance + age_band + variant_reason。
+  - look_zh 开头必须依次写：性别（男/女）、年龄段、身材；再写脸型、眉形、鼻唇、肤色、发型发色长短、眼睛外形与瞳色（不要写「温柔/严肃」）、疤痕胎记、佩戴饰品、衣服款式颜色质地、鞋履。
+  - appearance 必填 gender（男|女）、body（身材）、clothing（该套服饰）。
+  - variant_reason：首套默认外表用 ""；后续套用 outfit|age|injury|season|other。
+  - 瞬时状态（淋湿、血迹、临时披外套）不要单独成 look。
+  - look_zh / appearance 严禁神情/情绪/性格/动作/职业。
+- 兼容：若只给顶层 look_zh/appearance（无 looks），视为单套默认外表。
 - scenes：只列反复出现或主场地点（渡口、茅草屋、主街），过场一句带过的路边不要。
 - props：只列影响认图的核心信物/武器/特殊载具；桌椅杯碟不要；不要把人物放进 props。
 - 不要编造原文没有的现代服装。
 
 格式：
-{"characters":[{"name","aliases":[],"refer_as","age_band","background","look_zh","appearance":{"gender","face","hair","eyes","skin","body","clothing","marks","accessories"}}],"scenes":[{"name","notes"}],"props":[{"name","notes"}]}
+{"characters":[{"name","aliases":[],"refer_as","background","looks":[{"variant_reason":"","age_band","look_zh","appearance":{"gender","face","hair","eyes","skin","body","clothing","marks","accessories"}}]}],"scenes":[{"name","notes"}],"props":[{"name","notes"}]}
 """
 
 PRESCAN_AUDIT_SYSTEM = """你是影视资产完整性审计员。这是查漏补缺扫描。只输出 JSON，不要 markdown。
 对照「已有登记表」和小说原文：
 1) 找出漏掉的人物/参考场景/核心物品 → new_items
-2) 找出已有条目但外貌/描述不全的 → missing（action 用 supplement；人物补 background 与 look_zh/appearance，二者勿混写）
-3) 若已经齐全，complete=true，missing 与 new_items 皆为空数组。
+2) 找出已有人物但缺少另一套稳定外表（换装/年龄段等）→ new_items，且必须带 variant_reason（outfit|age|injury|season|other）与完整 look_zh/appearance.clothing；系统会挂到同名主形象下
+3) 找出已有条目但外貌/描述不全的 → missing（action 用 supplement；不要用 supplement 覆盖成另一套衣服）
+4) 若已经齐全，complete=true，missing 与 new_items 皆为空数组。
 
 硬规则：
 - kind 只能用 character | scene | prop（不要用人名当 kind，不要写半身/全身）。
 - aliases 只补专名异称；不要把少年/母亲等通称写进 aliases（通称放 refer_as 或不写）。
 - 人物必须有可画的纯外表描述（look_zh 或 appearance）才算齐全；且必须含性别、年龄段、身材三项；background 可选但不计入生图。
 - 补 look 时 look_zh 开头写「性别：…，年龄段：…，身材：…」，再补五官/发型/眼睛外形/饰品/衣服等可视项；appearance 补 gender 与 body；不要补情绪动作或职业通称。
+- 同一人物多套服饰必须拆成多条资产（用 variant_reason），禁止把两套衣服揉进一条 desc。
 - 场景/物品必须有可视化 notes/desc_zh。
 - 不要重复已完整的条目。
 
 格式：
-{"complete":false,"missing":[{"kind","name","action":"supplement","aliases":[],"refer_as","age_band","background","look_zh","appearance":{}}],"new_items":[{"kind","name","aliases":[],"refer_as","age_band","background","look_zh","notes","appearance":{}}]}
+{"complete":false,"missing":[{"kind","name","action":"supplement","aliases":[],"refer_as","age_band","background","look_zh","appearance":{}}],"new_items":[{"kind","name","aliases":[],"refer_as","age_band","background","look_zh","notes","appearance":{},"variant_reason":""}]}
 """
 
 PRESCAN_PASS1_USER = """项目画风：{style}
 
-请做第一遍全书扫描，建立人物形象 / 参考场景 / 核心物品登记总表。
+请做第一遍全书扫描，建立人物形象（含多套稳定外表）/ 参考场景 / 核心物品登记总表。
 
 全文：
 {novel}
@@ -123,7 +128,7 @@ PRESCAN_PASS1_USER = """项目画风：{style}
 
 PRESCAN_AUDIT_USER = """项目画风：{style}
 
-这是第 {pass_no} 遍查漏补缺（完整性审计）。对照已有登记表与原文，补全缺失人物/场景/物品与外貌描述。
+这是第 {pass_no} 遍查漏补缺（完整性审计）。对照已有登记表与原文，补全缺失人物/场景/物品、外貌描述，以及同一人物尚未登记的换装/时期外表。
 
 已有登记表：
 {registry}

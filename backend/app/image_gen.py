@@ -198,7 +198,7 @@ def _prop_visual_brief(name: str, desc: str) -> str:
 _PROP_SHAPE_HINTS = PROP_SHAPE_HINTS_ZH
 
 
-def build_field_prompt(project: Project, asset: Asset, field: str) -> str:
+def build_field_prompt(project: Project, asset: Asset, field: str, *, from_parent: bool = False) -> str:
     kind = normalize_kind(asset.kind)
     look = _look_prompt(asset)
     style = project.style or "半写实"
@@ -228,6 +228,14 @@ def build_field_prompt(project: Project, asset: Asset, field: str) -> str:
             except Exception:
                 clothing = ""
             clothes_lock = f"必须身着：{clothing}。" if clothing else ""
+            if from_parent:
+                # Edit from parent plate: keep face/body, change wardrobe (and age marks if any).
+                return (
+                    f"同一人物换装全身像。{clothes_lock}{look}。"
+                    "严格保持参考图的脸型、五官、发型骨架与身材比例，禁止换脸或换成别人。"
+                    "按新服饰重绘服装与配饰；全身站立，从头到脚完整入镜，正面或微侧，可见鞋子。"
+                    "纯白色不透明实底背景，不要透明，不要棋盘格，单人。"
+                )
             # Do not inject asset.name — Chinese proper names have no visual signal for SDXL/Guofeng
             # and only dilute age/outfit locks.
             return (

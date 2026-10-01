@@ -1010,7 +1010,7 @@ function BookAssets({
         <div className="panel-head">
           <h2>全书资产（正本 TXT）</h2>
           <p className="hint">
-            对整本小说扫描人物形象、参考场景、核心物品。生成后自动写入，无需按章确认。
+            对整本小说扫描人物形象（含换装/时期外形）、参考场景、核心物品。多套外表由 AI 自动拆分；生成外形图时会参考主形象锁定五官。
             {scan?.passes?.length
               ? ` 已扫描 ${scan.passes.length} 遍：人物 ${scan.counts?.character ?? characters.length} / 场景 ${scan.counts?.scene ?? scenes.length} / 物品 ${scan.counts?.prop ?? props.length}。`
               : " 尚未生成。"}
@@ -1146,26 +1146,52 @@ function BookAssets({
           <p className="hint">{active.empty}</p>
         ) : (
           <div className="asset-rows">
-            {active.assets.map((asset) => (
-              <AssetCard
-                key={asset.id}
-                asset={asset}
-                projectId={bundle.project.id}
-                jobs={jobsByAsset.get(asset.id) || []}
-                onUpdated={(next) => {
-                  onChange({ ...bundle, assets: bundle.assets.map((a) => (a.id === next.id ? next : a)) });
-                }}
-                onDeleted={(next) => {
-                  onChange(next);
-                  onJobsSeen(imageJobs.filter((j) => j.asset_id !== asset.id));
-                }}
-                onJobsEnqueued={(jobs) => {
-                  onJobsSeen([...imageJobs.filter((j) => j.asset_id !== asset.id), ...jobs]);
-                  const bid = jobs[0]?.batch_id;
-                  if (bid) onBatchQueued(bid, (imageBatch?.id === bid ? imageBatch.total : 0) + jobs.length);
-                }}
-              />
-            ))}
+            {(view === "character" ? groupCharacterFamilies(active.assets) : active.assets.map((a) => ({ root: a, variants: [] as Asset[] }))).map(
+              ({ root, variants }) => (
+                <div key={root.id} className="asset-family">
+                  <AssetCard
+                    asset={root}
+                    projectId={bundle.project.id}
+                    jobs={jobsByAsset.get(root.id) || []}
+                    variantLabel={root.parent_id ? variantReasonLabel(root.variant_reason) : undefined}
+                    onUpdated={(next) => {
+                      onChange({ ...bundle, assets: bundle.assets.map((a) => (a.id === next.id ? next : a)) });
+                    }}
+                    onDeleted={(next) => {
+                      onChange(next);
+                      onJobsSeen(imageJobs.filter((j) => j.asset_id !== root.id));
+                    }}
+                    onJobsEnqueued={(jobs) => {
+                      onJobsSeen([...imageJobs.filter((j) => j.asset_id !== root.id), ...jobs]);
+                      const bid = jobs[0]?.batch_id;
+                      if (bid) onBatchQueued(bid, (imageBatch?.id === bid ? imageBatch.total : 0) + jobs.length);
+                    }}
+                  />
+                  {variants.map((v) => (
+                    <div key={v.id} className="asset-variant-wrap">
+                      <AssetCard
+                        asset={v}
+                        projectId={bundle.project.id}
+                        jobs={jobsByAsset.get(v.id) || []}
+                        variantLabel={variantReasonLabel(v.variant_reason)}
+                        onUpdated={(next) => {
+                          onChange({ ...bundle, assets: bundle.assets.map((a) => (a.id === next.id ? next : a)) });
+                        }}
+                        onDeleted={(next) => {
+                          onChange(next);
+                          onJobsSeen(imageJobs.filter((j) => j.asset_id !== v.id));
+                        }}
+                        onJobsEnqueued={(jobs) => {
+                          onJobsSeen([...imageJobs.filter((j) => j.asset_id !== v.id), ...jobs]);
+                          const bid = jobs[0]?.batch_id;
+                          if (bid) onBatchQueued(bid, (imageBatch?.id === bid ? imageBatch.total : 0) + jobs.length);
+                        }}
+                      />
+                    </div>
+                  ))}
+                </div>
+              ),
+            )}
           </div>
         )}
         <div className="panel" style={{ marginTop: "0.75rem" }} data-testid="manual-asset-create">
@@ -1305,10 +1331,42 @@ function assetReady(kind: string, asset: Asset): boolean {
   return Boolean(asset.image_path);
 }
 
+function variantReasonLabel(reason?: string): string {
+  const r = (reason || "").trim();
+  if (r === "outfit") return "换装外形";
+  if (r === "age") return "年龄外形";
+  if (r === "injury") return "伤残外形";
+  if (r === "season") return "季节外形";
+  if (r) return "其他外形";
+  return "外形变体";
+}
+
+function groupCharacterFamilies(assets: Asset[]): { root: Asset; variants: Asset[] }[] {
+  const chars = assets.filter((a) => normalizeKind(a.kind) === "character");
+  const byId = new Map(chars.map((a) => [a.id, a]));
+  const roots = chars.filter((a) => !a.parent_id || !byId.has(a.parent_id));
+  const used = new Set<string>();
+  const groups = roots.map((root) => {
+    used.add(root.id);
+    const variants = chars
+      .filter((a) => a.parent_id === root.id)
+      .sort((a, b) => (a.variant_reason || "").localeCompare(b.variant_reason || "") || a.id.localeCompare(b.id));
+    variants.forEach((v) => used.add(v.id));
+    return { root, variants };
+  });
+  // Orphan variants whose parent is missing from the list
+  for (const a of chars) {
+    if (used.has(a.id)) continue;
+    groups.push({ root: a, variants: [] });
+  }
+  return groups;
+}
+
 function AssetCard({
   asset,
   projectId,
   jobs,
+  variantLabel,
   onUpdated,
   onDeleted,
   onJobsEnqueued,
@@ -1316,6 +1374,7 @@ function AssetCard({
   asset: Asset;
   projectId: string;
   jobs: ImageJob[];
+  variantLabel?: string;
   onUpdated: (a: Asset) => void;
   onDeleted: (bundle: Bundle) => void;
   onJobsEnqueued: (jobs: ImageJob[]) => void;
@@ -1477,14 +1536,16 @@ function AssetCard({
       <div className="asset-row-main">
         <div className="asset-head">
           <h3>{asset.name}</h3>
+          {variantLabel ? <span className="pill variant">{variantLabel}</span> : null}
           <span className={`pill ${ready ? "ok" : "warn"}`}>{ready ? "图齐" : "缺图"}</span>
           {phaseHints.length > 0 ? <span className="busy-line">{phaseHints.join(" · ")}</span> : null}
           {imgBusy ? <span className="busy-line">{imgBusy}…</span> : null}
         </div>
         <p className="muted">
-          {kind === "character" ? "人物" : kind === "scene" ? "场景" : "物品"}
+          {kind === "character" ? (variantLabel ? "人物外形" : "人物") : kind === "scene" ? "场景" : "物品"}
           {asset.refer_as ? ` · ${asset.refer_as}` : ""}
           {asset.age_band ? ` · ${asset.age_band}` : ""}
+          {asset.appearance?.clothing ? ` · ${asset.appearance.clothing}` : ""}
           {(asset.aliases || []).length > 0 ? ` · 别名 ${(asset.aliases || []).join("、")}` : ""}
         </p>
 

@@ -9,6 +9,12 @@ from sqlalchemy.orm import Session
 from app.db import Asset, Chapter, Project, Shot, project_dir
 from app.domain.export import build_export_document, build_shots_markdown
 from app.domain.prompts import compile_first_frame, compile_h3
+from app.domain.character_looks import (
+    appearance_clothes,
+    clothes_differ,
+    look_clothes_hint,
+    score_look_match,
+)
 from app.domain.registry import look_text, normalize_kind
 from app.domain.shot_refs import scene_image_path
 from app.domain.slots import (
@@ -22,7 +28,7 @@ from app.domain.slots import (
 )
 from app.extract_prompts import SHOT_SYSTEM, SHOT_USER
 from app.llm import OperationCancelled, ensure_not_cancelled
-from app.registry_ops import _call_llm, _registry
+from app.registry_ops import _call_llm, _clone_character_variant, _registry, _root_character
 from app.serialize import (
     _dump,
     _load,
@@ -37,11 +43,69 @@ from app.serialize import (
 
 def _match_name(assets: list[Asset], name: str, kind: str | None = None) -> Asset | None:
     needle = (name or "").strip()
-    pool = [a for a in assets if (kind is None or a.kind == kind)]
+    pool = [a for a in assets if (kind is None or normalize_kind(a.kind) == kind or a.kind == kind)]
+    # Prefer root (non-variant) when multiple share the same name.
+    hits: list[Asset] = []
     for a in pool:
         if needle == a.name or needle in _load(a.aliases_json, []):
-            return a
-    return None
+            hits.append(a)
+    if not hits:
+        return None
+    roots = [a for a in hits if not (a.parent_id or "").strip()]
+    return roots[0] if roots else hits[0]
+
+
+def _match_character_look(
+    db: Session,
+    project: Project,
+    chars: list[Asset],
+    assets: list[Asset],
+    *,
+    name: str,
+    look_hint: str = "",
+    chapter_id: str = "",
+) -> Asset | None:
+    """Pick the best look asset for a character; auto-clone when hint is a new outfit."""
+    base = _match_name(chars, name, "character")
+    if not base:
+        return None
+    root = _root_character(chars, name) or base
+    hint = (look_hint or "").strip()
+    if not hint:
+        return root
+    family = [root] + [a for a in chars if (a.parent_id or "") == root.id]
+    best = root
+    best_score = -1
+    for a in family:
+        app = _load(a.appearance_json, {})
+        score = score_look_match(appearance_clothes(app), a.desc_zh or "", hint)
+        if score > best_score:
+            best_score = score
+            best = a
+    if best_score >= 3:
+        return best
+    # Hint looks like a different stable outfit → register variant automatically.
+    root_clothes = appearance_clothes(_load(root.appearance_json, {})) or look_clothes_hint(root.desc_zh or "")
+    hint_clothes = look_clothes_hint(hint)
+    if hint_clothes and root_clothes and clothes_differ(hint_clothes, root_clothes):
+        clone = _clone_character_variant(
+            db,
+            project,
+            parent=root,
+            row={
+                "look_zh": hint if "性别" in hint else f"{root.desc_zh}；服饰：{hint}".strip("；"),
+                "appearance": {"clothing": hint},
+                "variant_reason": "outfit",
+                "age_band": root.age_band,
+                "refer_as": root.refer_as,
+            },
+            chapter_id=chapter_id,
+            existing=assets,
+        )
+        if clone and clone not in chars:
+            chars.append(clone)
+        return clone or best
+    return best
 
 
 def _temp_scene_name(raw: dict[str, Any], order_index: int) -> str:
@@ -530,7 +594,16 @@ async def generate_storyboard(
         camera = raw.get("camera") if raw.get("camera") in CAMERAS else "固定"
         lines = []
         for pi, person in enumerate(named):
-            asset = _match_name(chars, person.get("name"), "character")
+            look_hint = str(person.get("look") or person.get("outfit") or person.get("clothing") or "").strip()
+            asset = _match_character_look(
+                db,
+                project,
+                chars,
+                assets,
+                name=str(person.get("name") or ""),
+                look_hint=look_hint,
+                chapter_id=chapter.id,
+            )
             if not asset:
                 continue
             if pi == 0:

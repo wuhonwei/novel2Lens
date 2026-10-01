@@ -517,9 +517,12 @@ class ImageWorker:
             ref_paths, ref_labels = self._ensure_first_frame_scene_and_refs(db, client, job, payload)
         ref_field = (payload.get("ref_field") or "").strip()
         if not ref_paths and ref_field:
-            asset = db.get(Asset, job.asset_id)
+            ref_asset_id = (payload.get("ref_asset_id") or job.asset_id or "").strip()
+            asset = db.get(Asset, ref_asset_id) if ref_asset_id else None
             if not asset:
                 raise RuntimeError("asset missing for edit ref")
+            # Fresh read — parent full may have just been written by a prior job.
+            db.refresh(asset)
             stored = ""
             if ref_field == "full":
                 stored = asset.full_path or ""
@@ -532,21 +535,24 @@ class ImageWorker:
             elif ref_field == "image":
                 stored = asset.image_path or ""
             if not stored:
-                raise RuntimeError(f"缺少参考图字段 {ref_field}")
+                raise RuntimeError(f"缺少参考图字段 {ref_field}（asset={ref_asset_id[:8]}）")
             abs_path = abs_media_path(stored)
             if not abs_path.is_file():
                 raise RuntimeError(f"参考图不存在: {stored}")
             ref_paths = [str(abs_path)]
             if not ref_labels:
-                ref_labels = [
-                    {
-                        "full": "character full-body reference",
-                        "far": "scene wide plate",
-                        "half": "character half-body",
-                        "near": "scene near plate",
-                        "image": "prop reference",
-                    }.get(ref_field, f"reference {ref_field}")
-                ]
+                if payload.get("from_parent_variant"):
+                    ref_labels = ["parent character full-body identity lock"]
+                else:
+                    ref_labels = [
+                        {
+                            "full": "character full-body reference",
+                            "far": "scene wide plate",
+                            "half": "character half-body",
+                            "near": "scene near plate",
+                            "image": "prop reference",
+                        }.get(ref_field, f"reference {ref_field}")
+                    ]
 
         if not ref_paths:
             raise RuntimeError("edit job has no reference images")
@@ -620,6 +626,19 @@ class ImageWorker:
                 f"of that same person: {edit_prompt}. "
                 "Do not invent a new character; keep the exact face, hair, and outfit from the reference. "
                 f"Output image aspect ratio {aspect}, resolution {width}x{height}."
+            )
+        elif payload.get("from_parent_variant") and (job.target_field or "") == "full":
+            wrapped = (
+                f"Using {labeled[0]} as the identity lock, create one NEW full-body image of the SAME person "
+                f"with a different outfit/look: {edit_prompt}. "
+                "Keep the exact face, facial structure, age cues, hair silhouette, and body proportions. "
+                "Replace clothing and accessories as instructed. White solid background, single person, "
+                f"full body head-to-toe. Output image aspect ratio {aspect}, resolution {width}x{height}."
+            )
+            edit_negative = (
+                "different person, face swap, identity change, another character, "
+                "checkerboard, transparent background"
+                + (", " + edit_negative if edit_negative else "")
             )
         elif (job.target_field or "") == "near":
             wrapped = (

@@ -455,6 +455,17 @@ input, select { width: 100%; }
   border: 1px solid var(--line);
 }
 .pill.ok { color: var(--ok); border-color: rgba(111, 191, 154, 0.45); }
+.pill.variant {
+  color: #8a6a3a;
+  border-color: rgba(201, 166, 107, 0.55);
+  background: rgba(201, 166, 107, 0.12);
+}
+.asset-family { display: flex; flex-direction: column; gap: 0.55rem; }
+.asset-variant-wrap {
+  margin-left: 1.1rem;
+  padding-left: 0.75rem;
+  border-left: 2px solid rgba(201, 166, 107, 0.35);
+}
 .pill.warn { color: var(--warn); border-color: rgba(201, 166, 107, 0.45); }
 
 .score-panel-head {

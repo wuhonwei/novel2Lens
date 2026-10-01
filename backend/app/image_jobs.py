@@ -177,8 +177,10 @@ def _edit_payload(
     aspect: str,
     ref_field: str | None = None,
     ref_paths: list[str] | None = None,
+    ref_asset_id: str | None = None,
     require_fullbody: bool = False,
     min_character_sides: int = 0,
+    from_parent_variant: bool = False,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "aspect": aspect,
@@ -186,6 +188,10 @@ def _edit_payload(
         "ref_paths": list(ref_paths or []),
         "quality": "standard",
     }
+    if ref_asset_id:
+        payload["ref_asset_id"] = ref_asset_id
+    if from_parent_variant:
+        payload["from_parent_variant"] = True
     if require_fullbody:
         payload["require_fullbody"] = True
     if min_character_sides:
@@ -193,12 +199,44 @@ def _edit_payload(
     return payload
 
 
-def _build_asset_field_job(project: Project, asset: Asset, field: str) -> ImageJob:
+def _parent_ref_for_variant(db: Session | None, asset: Asset) -> Asset | None:
+    """Return parent asset when this character is a look variant."""
+    pid = (getattr(asset, "parent_id", None) or "").strip()
+    if not pid or normalize_kind(asset.kind) != "character":
+        return None
+    if db is not None:
+        parent = db.get(Asset, pid)
+        if parent and parent.project_id == asset.project_id:
+            return parent
+    return None
+
+
+def _build_asset_field_job(
+    project: Project, asset: Asset, field: str, *, db: Session | None = None
+) -> ImageJob:
     """Build a single queued ImageJob for one asset field (not yet added to session)."""
     kind = normalize_kind(asset.kind)
     field = (field or "").strip()
     if kind == "character":
         if field == "full":
+            parent = _parent_ref_for_variant(db, asset)
+            if parent is not None:
+                # Outfit/age variants: edit from the parent's full-body plate to lock face.
+                # Parent plate may still be queued ahead in the same batch — worker resolves path at run time.
+                return _make_job(
+                    project=project,
+                    asset=asset,
+                    kind="edit",
+                    target_field="full",
+                    prompt=build_field_prompt(project, asset, "full", from_parent=True),
+                    payload=_edit_payload(
+                        aspect="9:16",
+                        ref_field="full",
+                        ref_asset_id=parent.id,
+                        require_fullbody=True,
+                        from_parent_variant=True,
+                    ),
+                )
             return _make_job(
                 project=project,
                 asset=asset,
@@ -262,7 +300,7 @@ def enqueue_asset_field(db: Session, project: Project, asset: Asset, field: str)
     from app.image_scores import clear_field_score
 
     clear_field_score(asset, field if field in ("half", "full", "near", "far", "image") else "image")
-    job = _build_asset_field_job(project, asset, field)
+    job = _build_asset_field_job(project, asset, field, db=db)
     db.add(job)
     db.commit()
     db.refresh(job)
@@ -281,7 +319,7 @@ def enqueue_asset_all_slots(db: Session, project: Project, asset: Asset) -> list
     jobs: list[ImageJob] = []
     for i, field in enumerate(fields):
         clear_field_score(asset, field if field in ("half", "full", "near", "far", "image") else "image")
-        job = _build_asset_field_job(project, asset, field)
+        job = _build_asset_field_job(project, asset, field, db=db)
         job.batch_id = batch_id
         job.created_at = base_ts + timedelta(microseconds=i)
         job.updated_at = job.created_at
@@ -332,17 +370,23 @@ def enqueue_manual_edit(
 
 def enqueue_one_click(db: Session, project: Project) -> dict[str, Any]:
     assets = db.query(Asset).filter(Asset.project_id == project.id).all()
-    characters = sorted(
-        [a for a in assets if normalize_kind(a.kind) == "character"],
-        key=lambda a: a.name,
+    characters = [a for a in assets if normalize_kind(a.kind) == "character"]
+    # Base looks first, then variants (so parent full exists before variant edit).
+    char_bases = sorted(
+        [a for a in characters if not (a.parent_id or "").strip()],
+        key=lambda a: a.name or "",
+    )
+    char_variants = sorted(
+        [a for a in characters if (a.parent_id or "").strip()],
+        key=lambda a: (a.name or "", a.variant_reason or "", a.id),
     )
     scenes = sorted(
         [a for a in assets if normalize_kind(a.kind) == "scene"],
-        key=lambda a: a.name,
+        key=lambda a: a.name or "",
     )
     props = sorted(
         [a for a in assets if normalize_kind(a.kind) == "prop"],
-        key=lambda a: a.name,
+        key=lambda a: a.name or "",
     )
 
     batch_id = _uid()
@@ -356,84 +400,22 @@ def enqueue_one_click(db: Session, project: Project) -> dict[str, Any]:
 
         job.created_at = base_ts + timedelta(microseconds=seq)
         job.updated_at = job.created_at
+        job.batch_id = batch_id
         seq += 1
         return job
 
-    for asset in characters:
-        prompt = build_field_prompt(project, asset, "full")
-        jobs.append(
-            _stamp(
-                _make_job(
-                    project=project,
-                    asset=asset,
-                    kind="t2i",
-                    target_field="full",
-                    prompt=prompt,
-                    payload=_t2i_payload(asset, project, "full", "9:16"),
-                    batch_id=batch_id,
-                )
-            )
-        )
+    for asset in char_bases:
+        jobs.append(_stamp(_build_asset_field_job(project, asset, "full", db=db)))
+    for asset in char_variants:
+        jobs.append(_stamp(_build_asset_field_job(project, asset, "full", db=db)))
     for asset in scenes:
-        prompt = build_field_prompt(project, asset, "far")
-        jobs.append(
-            _stamp(
-                _make_job(
-                    project=project,
-                    asset=asset,
-                    kind="t2i",
-                    target_field="far",
-                    prompt=prompt,
-                    payload=_t2i_payload(asset, project, "far", "16:9"),
-                    batch_id=batch_id,
-                )
-            )
-        )
+        jobs.append(_stamp(_build_asset_field_job(project, asset, "far", db=db)))
     for asset in props:
-        prompt = build_field_prompt(project, asset, "image")
-        jobs.append(
-            _stamp(
-                _make_job(
-                    project=project,
-                    asset=asset,
-                    kind="t2i",
-                    target_field="image",
-                    prompt=prompt,
-                    payload=_t2i_payload(asset, project, "image", "1:1"),
-                    batch_id=batch_id,
-                )
-            )
-        )
-    for asset in characters:
-        prompt = build_field_prompt(project, asset, "half")
-        jobs.append(
-            _stamp(
-                _make_job(
-                    project=project,
-                    asset=asset,
-                    kind="edit",
-                    target_field="half",
-                    prompt=prompt,
-                    payload=_edit_payload(aspect="3:4", ref_field="full"),
-                    batch_id=batch_id,
-                )
-            )
-        )
+        jobs.append(_stamp(_build_asset_field_job(project, asset, "image", db=db)))
+    for asset in char_bases + char_variants:
+        jobs.append(_stamp(_build_asset_field_job(project, asset, "half", db=db)))
     for asset in scenes:
-        prompt = build_field_prompt(project, asset, "near")
-        jobs.append(
-            _stamp(
-                _make_job(
-                    project=project,
-                    asset=asset,
-                    kind="edit",
-                    target_field="near",
-                    prompt=prompt,
-                    payload=_edit_payload(aspect="3:4", ref_field="far"),
-                    batch_id=batch_id,
-                )
-            )
-        )
+        jobs.append(_stamp(_build_asset_field_job(project, asset, "near", db=db)))
 
     for job in jobs:
         db.add(job)

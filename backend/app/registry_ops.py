@@ -7,6 +7,14 @@ from sqlalchemy.orm import Session
 
 from app.db import Asset, Chapter, Project, Proposal, Shot
 from app.domain.chapters import split_chapters
+from app.domain.character_looks import (
+    appearance_clothes,
+    clothes_differ,
+    expand_character_look_rows,
+    look_clothes_hint,
+    normalize_clothes_key,
+    score_look_match,
+)
 from app.domain.registry import (
     apply_registry_delta,
     ensure_character_look_trinity,
@@ -72,6 +80,8 @@ def _registry(assets: list[Asset]) -> str:
                 "aliases": _load(a.aliases_json, []),
                 "refer_as": a.refer_as,
                 "parent_id": a.parent_id,
+                "variant_reason": getattr(a, "variant_reason", "") or "",
+                "age_band": a.age_band or "",
                 "background_zh": getattr(a, "background_zh", "") or "",
                 "desc_zh": a.desc_zh,
                 "appearance": _load(a.appearance_json, {}),
@@ -109,6 +119,102 @@ def _find_db_asset(assets: list[Asset], name: str, kind: str) -> Asset | None:
     return None
 
 
+def _root_character(assets: list[Asset], name: str) -> Asset | None:
+    """Prefer parent-less character matching name/alias; else any match."""
+    needle = (name or "").strip()
+    if not needle:
+        return None
+    hits = []
+    for asset in assets:
+        if normalize_kind(asset.kind) != "character":
+            continue
+        names = [asset.name, *_load(asset.aliases_json, [])]
+        if needle in {str(n).strip() for n in names if n}:
+            hits.append(asset)
+    if not hits:
+        return None
+    roots = [a for a in hits if not (a.parent_id or "").strip()]
+    return roots[0] if roots else hits[0]
+
+
+def _find_look_variant(assets: list[Asset], parent: Asset, clothes_key: str) -> Asset | None:
+    key = normalize_clothes_key(clothes_key)
+    if not key:
+        return None
+    family = [parent] + [a for a in assets if (a.parent_id or "") == parent.id]
+    # Walk up if parent itself is a variant
+    root_id = parent.parent_id or parent.id
+    root = next((a for a in assets if a.id == root_id), parent)
+    family = [root] + [a for a in assets if (a.parent_id or "") == root.id]
+    best: Asset | None = None
+    best_score = 0
+    for a in family:
+        app = _load(a.appearance_json, {})
+        score = score_look_match(appearance_clothes(app), a.desc_zh or "", key)
+        if score > best_score:
+            best_score = score
+            best = a
+    return best if best_score >= 3 else None
+
+
+def _clone_character_variant(
+    db: Session,
+    project: Project,
+    *,
+    parent: Asset,
+    row: dict[str, Any],
+    chapter_id: str,
+    existing: list[Asset],
+) -> Asset | None:
+    appearance = dict(_load(parent.appearance_json, {}))
+    incoming_app = row.get("appearance") or {}
+    if isinstance(incoming_app, dict):
+        appearance.update({k: v for k, v in incoming_app.items() if v})
+    look = (row.get("look_zh") or row.get("desc_zh") or row.get("notes") or "").strip()
+    clothes = appearance_clothes(appearance) or look_clothes_hint(look)
+    if clothes and not appearance.get("clothing"):
+        appearance["clothing"] = clothes
+    # Dedupe against existing family looks
+    found = _find_look_variant(existing, parent, clothes or look)
+    if found and found.id != parent.id:
+        return found
+    parent_clothes = appearance_clothes(_load(parent.appearance_json, {})) or look_clothes_hint(parent.desc_zh or "")
+    if clothes and parent_clothes and not clothes_differ(clothes, parent_clothes) and found is parent:
+        return parent
+    if look:
+        look, appearance, ensured_age = ensure_character_look_trinity(
+            name=parent.name,
+            refer_as=str(row.get("refer_as") or parent.refer_as or ""),
+            age_band=str(row.get("age_band") or parent.age_band or ""),
+            desc_zh=look,
+            appearance=appearance,
+        )
+    else:
+        look = parent.desc_zh or ""
+        ensured_age = row.get("age_band") or parent.age_band or ""
+    reason = str(row.get("variant_reason") or "outfit").strip().lower() or "outfit"
+    clone = Asset(
+        id=_uid(),
+        project_id=project.id,
+        kind="character",
+        name=parent.name,
+        aliases_json=parent.aliases_json,
+        refer_as=row.get("refer_as") or parent.refer_as,
+        age_band=ensured_age,
+        appearance_json=_dump(appearance),
+        background_zh=getattr(parent, "background_zh", "") or "",
+        desc_zh=look,
+        desc_en=row.get("desc_en") or parent.desc_en or "",
+        parent_id=parent.id if not parent.parent_id else parent.parent_id,
+        variant_reason=reason,
+        confirmed=True,
+        created_chapter_id=chapter_id,
+    )
+    db.add(clone)
+    existing.append(clone)
+    return clone
+
+
 def _apply_registry_rows_to_db(
     db: Session,
     project: Project,
@@ -116,9 +222,23 @@ def _apply_registry_rows_to_db(
     rows: list[dict[str, Any]],
     existing: list[Asset],
 ) -> tuple[int, int]:
-    """Persist create/supplement rows; returns (created, updated)."""
+    """Persist create/supplement/variant rows; returns (created, updated)."""
+    rows = expand_character_look_rows(list(rows or []))
+    variant_rows = [
+        r
+        for r in rows
+        if isinstance(r, dict)
+        and (
+            str(r.get("action") or "") == "clone_variant"
+            or (
+                normalize_kind(r.get("kind")) == "character"
+                and str(r.get("variant_reason") or "").strip()
+            )
+        )
+    ]
+    base_rows = [r for r in rows if r not in variant_rows]
     working = _asset_dicts(existing)
-    created_n, updated_n = apply_registry_delta(working, rows)
+    created_n, updated_n = apply_registry_delta(working, base_rows)
     # Sync working back onto ORM objects / create new
     by_key: dict[tuple[str, str], Asset] = {}
     for asset in existing:
@@ -198,6 +318,30 @@ def _apply_registry_rows_to_db(
             if row.get("refer_as"):
                 asset.refer_as = row["refer_as"]
             if kind == "character":
+                old_app = _load(asset.appearance_json, {})
+                # Only split on explicit appearance.clothing (hint-from-desc is too noisy for trinity stubs).
+                old_clothes = appearance_clothes(old_app)
+                new_clothes = appearance_clothes(appearance)
+                if old_clothes and new_clothes and clothes_differ(old_clothes, new_clothes):
+                    # Different stable outfit → clone variant, keep base look intact.
+                    clone_row = {
+                        **row,
+                        "look_zh": look_zh,
+                        "appearance": appearance,
+                        "variant_reason": row.get("variant_reason") or "outfit",
+                    }
+                    root = asset if not asset.parent_id else _root_character(existing, asset.name) or asset
+                    if _clone_character_variant(
+                        db, project, parent=root, row=clone_row, chapter_id=chapter_id, existing=existing
+                    ):
+                        created_n += 1
+                    if background_zh:
+                        if not (asset.background_zh or "").strip():
+                            asset.background_zh = background_zh
+                        elif background_zh not in asset.background_zh:
+                            asset.background_zh = f"{asset.background_zh}；{background_zh}"
+                    asset.confirmed = True
+                    continue
                 asset.age_band = row.get("age_band") or asset.age_band or ""
             elif row.get("age_band"):
                 asset.age_band = row["age_band"]
@@ -232,6 +376,52 @@ def _apply_registry_rows_to_db(
             if row.get("desc_en") or row.get("look_en"):
                 asset.desc_en = row.get("desc_en") or row.get("look_en") or asset.desc_en
             asset.confirmed = True
+    # Explicit clone_variant / variant_reason rows (from looks[] or audit new_items)
+    for row in variant_rows:
+        name = (row.get("name") or row.get("match_name") or "").strip()
+        if not name:
+            continue
+        parent = _root_character(existing, name)
+        if parent is None:
+            parent = _find_asset(existing, name, row.get("match_asset_id"))
+        if parent is None:
+            # No base yet — register this look as the root character (not a child).
+            look = (row.get("look_zh") or row.get("desc_zh") or row.get("notes") or "").strip()
+            appearance = sanitize_appearance(row.get("appearance") or {})
+            look, appearance, ensured_age = ensure_character_look_trinity(
+                name=name,
+                refer_as=str(row.get("refer_as") or ""),
+                age_band=str(row.get("age_band") or ""),
+                desc_zh=look,
+                appearance=appearance,
+            )
+            root = Asset(
+                id=_uid(),
+                project_id=project.id,
+                kind="character",
+                name=name,
+                aliases_json=_dump(sanitize_aliases(row.get("aliases") or [], name=name, refer_as=str(row.get("refer_as") or ""))),
+                refer_as=row.get("refer_as") or "人",
+                age_band=ensured_age,
+                appearance_json=_dump(appearance),
+                background_zh=(row.get("background_zh") or row.get("background") or "").strip(),
+                desc_zh=look,
+                desc_en=row.get("desc_en") or "",
+                confirmed=True,
+                created_chapter_id=chapter_id,
+            )
+            db.add(root)
+            existing.append(root)
+            created_n += 1
+            continue
+        before_ids = {a.id for a in existing}
+        clone = _clone_character_variant(
+            db, project, parent=parent, row=row, chapter_id=chapter_id, existing=existing
+        )
+        if clone and clone.id not in before_ids:
+            created_n += 1
+        elif clone:
+            updated_n += 1
     db.flush()
     return created_n, updated_n
 
