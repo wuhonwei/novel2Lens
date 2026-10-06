@@ -182,6 +182,18 @@ def test_should_run_sequential_when_person_labels_age_conflict():
     )
 
 
+def test_should_run_sequential_when_youth_vs_adult_or_garment_contrast():
+    labels = [
+        "青川渡·参考场景图",
+        "林砚之·少年·无胡须·LIGHT garments as in ref·full-body",
+        "赵万山·男子·阴沉·DARK garments as in ref·full-body",
+    ]
+    assert (
+        should_run_sequential_first_frame(person_n=2, scene_n=1, prop_n=0, ref_labels=labels)
+        is True
+    )
+
+
 def test_should_run_sequential_only_when_over_ten_refs():
     assert should_run_sequential_first_frame(person_n=9, scene_n=1, prop_n=1) is True
     assert should_run_sequential_first_frame(person_n=10, scene_n=1, prop_n=0) is True

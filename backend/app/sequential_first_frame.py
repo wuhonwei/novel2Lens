@@ -37,13 +37,13 @@ def should_run_sequential_first_frame(
 
     Qwen Image 2.1 Edit accepts up to 10 images per call. Prefer one-shot for
     multi-character identity when looks are similar. When labels mix youth vs
-    elder (or 无胡须 vs 白须), one-shot often clones the elder onto both slots —
-    force sequential placement instead.
+    adult/elder (or LIGHT vs DARK garments), one-shot often clones the stronger
+    identity onto both slots — force sequential placement instead.
     """
-    from app.domain.edit_identity import person_labels_age_conflict
+    from app.domain.edit_identity import person_labels_need_sequential
     from app.domain.slots import MAX_REF_IMAGES
 
-    if person_labels_age_conflict(ref_labels):
+    if person_labels_need_sequential(ref_labels):
         return True
     total = int(scene_n) + int(person_n) + int(prop_n)
     return total > MAX_REF_IMAGES
@@ -143,9 +143,9 @@ def run_sequential_layered_first_frame(
             set_phase(msg)
 
     last_err = ""
-    from app.domain.edit_identity import person_labels_age_conflict
+    from app.domain.edit_identity import person_labels_need_sequential
 
-    need_contrast = bool(payload.get("require_identity_contrast")) or person_labels_age_conflict(
+    need_contrast = bool(payload.get("require_identity_contrast")) or person_labels_need_sequential(
         ref_labels
     )
     max_attempts = 5 if need_contrast else 3
@@ -466,9 +466,9 @@ def run_sequential_layered_first_frame(
 
         if plate is not None:
             # Final dual-identity gate when youth+elder (or similar) contrast required.
-            from app.domain.edit_identity import person_labels_age_conflict, wrap_rebind_identity
+            from app.domain.edit_identity import person_labels_need_sequential, wrap_rebind_identity
 
-            need_contrast_final = bool(payload.get("require_identity_contrast")) or person_labels_age_conflict(
+            need_contrast_final = bool(payload.get("require_identity_contrast")) or person_labels_need_sequential(
                 ref_labels
             )
             if need_contrast_final and total_people >= 2:

@@ -123,7 +123,11 @@ def test_identity_collapse_passes_youth_left_elder_right():
 
 
 def test_person_labels_age_conflict_helper():
-    from app.domain.edit_identity import person_labels_age_conflict
+    from app.domain.edit_identity import (
+        person_labels_age_conflict,
+        person_labels_garment_conflict,
+        person_labels_need_sequential,
+    )
 
     assert person_labels_age_conflict(
         [
@@ -131,9 +135,27 @@ def test_person_labels_age_conflict_helper():
             "陈守义·老人·白须·DARK garments",
         ]
     )
+    assert person_labels_age_conflict(
+        [
+            "陈守义·老人·白须·DARK garments",
+            "赵万山·男子·阴沉·DARK garments",
+        ]
+    )
     assert not person_labels_age_conflict(
         [
             "林砚之·少年·无胡须",
             "苏婉清·少女·无胡须",
+        ]
+    )
+    assert person_labels_garment_conflict(
+        [
+            "林砚之·少年·无胡须·LIGHT garments as in ref",
+            "赵万山·男子·阴沉·DARK garments as in ref",
+        ]
+    )
+    assert person_labels_need_sequential(
+        [
+            "林砚之·少年·无胡须·LIGHT garments as in ref",
+            "赵万山·男子·阴沉·DARK garments as in ref",
         ]
     )

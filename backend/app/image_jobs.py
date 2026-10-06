@@ -593,7 +593,7 @@ def _active_first_frame_job(db: Session, shot_id: str) -> ImageJob | None:
 
 
 def _first_frame_payload(shot, paths: list[str], labels: list[str]) -> dict[str, Any]:
-    from app.domain.edit_identity import person_labels_age_conflict
+    from app.domain.edit_identity import person_labels_need_sequential
 
     n = int(getattr(shot, "character_count", 0) or 0)
     payload: dict[str, Any] = {
@@ -607,7 +607,7 @@ def _first_frame_payload(shot, paths: list[str], labels: list[str]) -> dict[str,
     }
     if n >= 2:
         payload["min_character_sides"] = min(n, 3)
-    if person_labels_age_conflict(labels):
+    if person_labels_need_sequential(labels):
         payload["require_identity_contrast"] = True
     return payload
 

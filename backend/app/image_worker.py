@@ -687,9 +687,9 @@ class ImageWorker:
         last_err = ""
         last_png: bytes | None = None
         min_sides = int(payload.get("min_character_sides") or 0)
-        from app.domain.edit_identity import person_labels_age_conflict
+        from app.domain.edit_identity import person_labels_need_sequential
 
-        require_contrast = bool(payload.get("require_identity_contrast")) or person_labels_age_conflict(
+        require_contrast = bool(payload.get("require_identity_contrast")) or person_labels_need_sequential(
             ref_labels
         )
         attempts = 4 if (job.target_field or "") == "first_frame" and min_sides >= 2 else 2

@@ -54,22 +54,49 @@ def _look_tokens(asset: Any) -> list[str]:
 
 
 def person_labels_age_conflict(ref_labels: list[str] | None) -> bool:
-    """True when packed person refs mix youth/no-beard with elder/beard cues.
+    """True when packed person refs mix distinct age bands (youth/adult/elder).
 
-    One-shot multi-ref edit often clones the stronger elder identity onto both
-    standing slots; callers should force sequential stacking in that case.
+    One-shot multi-ref edit often clones the stronger adult/elder identity onto
+    both standing slots; callers should force sequential stacking in that case.
     """
-    youth = False
-    elder = False
+    bands: set[str] = set()
     for lab in ref_labels or []:
         s = str(lab or "")
         if is_scene_ref_label(s) or is_prop_ref_label(s):
             continue
-        if any(k in s for k in ("少年", "青年", "少女", "孩", "无胡须")):
-            youth = True
-        if any(k in s for k in ("老人", "老年", "婆婆", "爷爷", "白须", "有胡须")):
-            elder = True
-    return youth and elder
+        if any(k in s for k in ("少年", "孩", "少女")):
+            bands.add("youth")
+        elif "青年" in s:
+            bands.add("young")
+        elif any(k in s for k in ("老人", "老年", "婆婆", "爷爷", "白须")):
+            bands.add("elder")
+        elif any(k in s for k in ("中年", "男子", "老爷", "成年", "夫人")):
+            bands.add("adult")
+        elif "无胡须" in s:
+            bands.add("youth")
+        elif "有胡须" in s:
+            bands.add("elder")
+    return len(bands) >= 2
+
+
+def person_labels_garment_conflict(ref_labels: list[str] | None) -> bool:
+    """True when person refs mix LIGHT vs DARK garment tones."""
+    light = False
+    dark = False
+    for lab in ref_labels or []:
+        s = str(lab or "")
+        if is_scene_ref_label(s) or is_prop_ref_label(s):
+            continue
+        if "LIGHT" in s:
+            light = True
+        if "DARK" in s:
+            dark = True
+    return light and dark
+
+
+def person_labels_need_sequential(ref_labels: list[str] | None) -> bool:
+    """Force sequential first-frame stacking when identities are easy to clone."""
+    return person_labels_age_conflict(ref_labels) or person_labels_garment_conflict(ref_labels)
 
 
 def garment_tone_hint(image_path: str | Path) -> str:
