@@ -202,3 +202,34 @@ def test_h3_uses_image_tag_and_position_nouns_not_names():
     assert "苏晚卿" in text
     assert "林砚之" not in text.replace("我母亲叫苏晚卿", "")
     assert "禁止新增人物" in text
+    assert "普通话" in text
+    assert "禁止日语" in text
+    assert "无人声" not in text
+
+
+def test_h3_silent_shot_forbids_speech_and_foreign_language():
+    text = compile_h3(
+        camera="固定",
+        character_count=0,
+        lines=[],
+        narration="",
+    )
+    assert "旁白（画外音）：无" in text
+    assert "无人声" in text
+    assert "禁止日语" in text
+    assert "普通话" in text
+
+
+def test_ensure_h3_language_lock_is_idempotent():
+    from app.domain.prompts import ensure_h3_language_lock
+
+    raw = "运镜：固定。 旁白（画外音）：无"
+    once = ensure_h3_language_lock(raw)
+    twice = ensure_h3_language_lock(once)
+    assert once == twice
+    assert "禁止日语" in once
+    assert "无人声" in once
+    spoken = ensure_h3_language_lock("开口说道：「给我滚。」")
+    assert "无人声" not in spoken
+    assert "普通话" in spoken
+    assert "禁止日语" in spoken

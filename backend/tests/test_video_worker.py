@@ -16,6 +16,7 @@ class FakeH3Client:
     def __init__(self, output_root: Path) -> None:
         self.output_root = output_root
         self.uploaded: list[str] = []
+        self.last_prompt = ""
 
     def upload_image(self, path: Path, *, overwrite: bool = True) -> str:
         self.uploaded.append(path.name)
@@ -23,6 +24,7 @@ class FakeH3Client:
 
     def queue_prompt(self, workflow: dict, client_id: str) -> str:
         assert workflow["9"]["class_type"] == "MiniMaxH3ImageToVideo"
+        self.last_prompt = workflow["9"]["inputs"]["prompt"]
         return "prompt-1"
 
     def wait_for_prompt(self, prompt_id: str, timeout_s: float | None = None) -> dict:
@@ -89,5 +91,7 @@ def test_video_worker_writes_mp4(tmp_path, monkeypatch):
         payload = json.loads(job.payload_json)
         assert payload.get("result_path") == shot.video_path
         assert (tmp_path / shot.video_path).is_file()
+        assert "禁止日语" in fake.last_prompt
+        assert "无人声" in fake.last_prompt
     finally:
         db.close()

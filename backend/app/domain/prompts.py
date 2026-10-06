@@ -198,6 +198,45 @@ def compile_first_frame(
     return FirstFramePrompts(zh="".join(parts_zh), en=" ".join(parts_en))
 
 
+H3_MANDARIN_LOCK = (
+    "人声语言锁定：只允许中文普通话口播（简体汉语），"
+    "禁止日语、英语、韩语或其它外语呢喃、歌词、念白。"
+)
+H3_SILENCE_LOCK = (
+    "本镜无人声：不要说话、不要旁白、不要哼唱、不要念白；只保留环境音。"
+    "严禁任何外语人声（尤其禁止日语）。"
+)
+H3_SPEECH_LOCK = (
+    "有人声时必须按引号内中文台词用普通话原样口播，禁止翻译成日语或英语，禁止加戏外人声。"
+)
+
+
+def _h3_has_speech(prompt: str) -> bool:
+    text = prompt or ""
+    if "「" in text and "」" in text:
+        return True
+    if "说道" in text:
+        return True
+    if "旁白（画外音）：" in text:
+        after = text.split("旁白（画外音）：", 1)[-1]
+        first = after.split("画面中可辨认人物", 1)[0].strip()
+        if first and first not in ("无", "无。"):
+            return True
+    return False
+
+
+def ensure_h3_language_lock(prompt: str, *, has_speech: bool | None = None) -> str:
+    """Append Mandarin/silence locks so H3 audio does not drift into Japanese."""
+    text = (prompt or "").strip()
+    if not text:
+        return text
+    if "禁止日语" in text and "普通话" in text:
+        return text
+    spoken = _h3_has_speech(text) if has_speech is None else bool(has_speech)
+    extra = H3_SPEECH_LOCK if spoken else H3_SILENCE_LOCK
+    return f"{text} {extra} {H3_MANDARIN_LOCK}".strip()
+
+
 def compile_h3(
     *,
     camera: str,
@@ -211,6 +250,7 @@ def compile_h3(
         "<Image 1> 为强参考首帧：保持场景、站位、朝向、服装、外貌和人数不变。",
         f"运镜：{camera}。{camera_detail}".strip(),
     ]
+    spoken = False
     for line in lines:
         pos = line.get("position") or "中"
         refer = line.get("refer_as") or "人"
@@ -222,6 +262,7 @@ def compile_h3(
         if action:
             chunk += f"，{action}"
         if dialogue:
+            spoken = True
             voice_bit = f"用{voice}" if voice else "开口"
             chunk += f"，{voice_bit}说道：「{dialogue}」"
         elif voice:
@@ -229,10 +270,15 @@ def compile_h3(
         chunk += "。"
         parts.append(chunk)
     nar = narration.strip() if narration else "无"
+    if nar and nar != "无":
+        spoken = True
     parts.append(f"旁白（画外音）：{nar}")
     if audio_tags:
         parts.extend(audio_tags)
     parts.append(
         f"画面中可辨认人物始终为 {character_count} 人，禁止新增人物、禁止换脸、禁止换装、禁止换景。"
     )
-    return " ".join(p.strip() for p in parts if p and p.strip())
+    return ensure_h3_language_lock(
+        " ".join(p.strip() for p in parts if p and p.strip()),
+        has_speech=spoken,
+    )

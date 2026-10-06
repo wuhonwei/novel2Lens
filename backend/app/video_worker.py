@@ -159,6 +159,9 @@ class VideoWorker:
             return
 
         prompt = (job.prompt or shot.h3_prompt or "").strip()
+        from app.domain.prompts import ensure_h3_language_lock
+
+        prompt = ensure_h3_language_lock(prompt)
         first_rel = (payload.get("first_frame_path") or shot.first_frame_path or "").strip()
         if not first_rel or not prompt:
             job.status = "failed"
