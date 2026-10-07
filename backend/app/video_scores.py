@@ -190,11 +190,18 @@ async def score_shot_video(
     db.refresh(shot)
 
     regen = False
+    audio_hard_fail = any(
+        i in ("unexpected_speech", "possible_foreign_speech", "missing_speech", "dialogue_mismatch")
+        for i in issues
+    )
     if (
         allow_regen
         and settings.video_qa_auto_regen
-        and combined["score"] < int(settings.video_qa_regen_threshold)
         and int(qa["regen_count"]) < int(settings.video_qa_max_regen)
+        and (
+            combined["score"] < int(settings.video_qa_regen_threshold)
+            or audio_hard_fail
+        )
     ):
         from app.video_jobs import enqueue_shot_video
 

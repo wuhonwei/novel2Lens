@@ -203,11 +203,21 @@ H3_MANDARIN_LOCK = (
     "禁止日语、英语、韩语或其它外语呢喃、歌词、念白。"
 )
 H3_SILENCE_LOCK = (
-    "本镜无人声：不要说话、不要旁白、不要哼唱、不要念白；只保留环境音。"
-    "严禁任何外语人声（尤其禁止日语）。"
+    "本镜无人声：禁止任何说话、旁白、哼唱、念白、口播、呢喃、歌词；"
+    "不要出现可听懂的人声或对口型配音；只保留风声、脚步、环境氛围音。"
+    "严禁日语或任何外语人声。"
 )
 H3_SPEECH_LOCK = (
     "有人声时必须按引号内中文台词用普通话原样口播，禁止翻译成日语或英语，禁止加戏外人声。"
+)
+
+# Older lock wording that may still sit on stored h3_prompt rows.
+_H3_AUDIO_LOCK_FRAGMENTS = (
+    H3_SILENCE_LOCK,
+    H3_SPEECH_LOCK,
+    H3_MANDARIN_LOCK,
+    "本镜无人声：不要说话、不要旁白、不要哼唱、不要念白；只保留环境音。严禁任何外语人声（尤其禁止日语）。",
+    "人声语言锁定：只允许中文普通话口播（简体汉语），禁止日语、英语、韩语或其它外语呢喃、歌词、念白。",
 )
 
 
@@ -219,22 +229,31 @@ def _h3_has_speech(prompt: str) -> bool:
         return True
     if "旁白（画外音）：" in text:
         after = text.split("旁白（画外音）：", 1)[-1]
-        first = after.split("画面中可辨认人物", 1)[0].strip()
-        if first and first not in ("无", "无。"):
+        # Cut trailing lock / scene constraints that used to follow narration.
+        for cut in ("画面中可辨认人物", "本镜无人声", "人声语言锁定", "有人声时必须"):
+            after = after.split(cut, 1)[0]
+        first = after.strip().rstrip("。").strip()
+        if first and first not in ("无",):
             return True
     return False
 
 
+def _strip_h3_audio_locks(prompt: str) -> str:
+    text = prompt or ""
+    for frag in _H3_AUDIO_LOCK_FRAGMENTS:
+        text = text.replace(frag, " ")
+    return " ".join(text.split()).strip()
+
+
 def ensure_h3_language_lock(prompt: str, *, has_speech: bool | None = None) -> str:
-    """Append Mandarin/silence locks so H3 audio does not drift into Japanese."""
-    text = (prompt or "").strip()
+    """Apply silence OR Mandarin speech locks (never both — Mandarin 口播 invites gibberish on silent shots)."""
+    text = _strip_h3_audio_locks(prompt or "")
     if not text:
         return text
-    if "禁止日语" in text and "普通话" in text:
-        return text
     spoken = _h3_has_speech(text) if has_speech is None else bool(has_speech)
-    extra = H3_SPEECH_LOCK if spoken else H3_SILENCE_LOCK
-    return f"{text} {extra} {H3_MANDARIN_LOCK}".strip()
+    if spoken:
+        return f"{text} {H3_SPEECH_LOCK} {H3_MANDARIN_LOCK}".strip()
+    return f"{text} {H3_SILENCE_LOCK}".strip()
 
 
 def compile_h3(

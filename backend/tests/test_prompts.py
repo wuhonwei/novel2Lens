@@ -216,8 +216,10 @@ def test_h3_silent_shot_forbids_speech_and_foreign_language():
     )
     assert "旁白（画外音）：无" in text
     assert "无人声" in text
-    assert "禁止日语" in text
-    assert "普通话" in text
+    assert "禁止日语" in text or "严禁日语" in text
+    # Silent shots must NOT invite Mandarin 口播 — that causes gibberish speech.
+    assert "只允许中文普通话口播" not in text
+    assert "人声语言锁定" not in text
 
 
 def test_ensure_h3_language_lock_is_idempotent():
@@ -227,8 +229,13 @@ def test_ensure_h3_language_lock_is_idempotent():
     once = ensure_h3_language_lock(raw)
     twice = ensure_h3_language_lock(once)
     assert once == twice
-    assert "禁止日语" in once
     assert "无人声" in once
+    assert "只允许中文普通话口播" not in once
+    # Upgrades old silent prompts that wrongly carried the Mandarin 口播 lock.
+    legacy = once + " 人声语言锁定：只允许中文普通话口播（简体汉语），禁止日语、英语、韩语或其它外语呢喃、歌词、念白。"
+    fixed = ensure_h3_language_lock(legacy)
+    assert "无人声" in fixed
+    assert "只允许中文普通话口播" not in fixed
     spoken = ensure_h3_language_lock("开口说道：「给我滚。」")
     assert "无人声" not in spoken
     assert "普通话" in spoken

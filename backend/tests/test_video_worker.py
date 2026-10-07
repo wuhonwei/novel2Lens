@@ -96,8 +96,8 @@ def test_video_worker_writes_mp4(tmp_path, monkeypatch):
         payload = json.loads(job.payload_json)
         assert payload.get("result_path") == shot.video_path
         assert (tmp_path / shot.video_path).is_file()
-        assert "禁止日语" in fake.last_prompt
         assert "无人声" in fake.last_prompt
+        assert "只允许中文普通话口播" not in fake.last_prompt
         assert scheduled == [("p1", "s1")]
     finally:
         db.close()
