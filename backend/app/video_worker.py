@@ -264,6 +264,24 @@ class VideoWorker:
         dest_abs.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src_video, dest_abs)
 
+        # H3 still invents babble on silent shots despite prompt locks — strip audio.
+        try:
+            import json as _json
+
+            from app.domain.video_speech import extract_expected_speech, speech_expected
+            from app.video_qa import force_silent_audio
+
+            lines = _json.loads(shot.lines_json or "[]")
+            expected = extract_expected_speech(
+                prompt,
+                lines=lines if isinstance(lines, list) else [],
+                narration=shot.narration or "",
+            )
+            if not speech_expected(expected):
+                force_silent_audio(dest_abs)
+        except Exception:  # noqa: BLE001
+            log.exception("silent-audio postprocess failed for %s", shot.id)
+
         shot.video_path = dest_rel
         payload["result_path"] = dest_rel
         job.payload_json = json.dumps(payload, ensure_ascii=False)

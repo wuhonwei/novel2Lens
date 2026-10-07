@@ -49,9 +49,14 @@ def test_video_worker_writes_mp4(tmp_path, monkeypatch):
     monkeypatch.setattr("app.config.settings.h3_shared_output", str(shared_out))
     reset_engine(f"sqlite:///{tmp_path / 't.sqlite'}")
     scheduled: list[tuple[str, str]] = []
+    muted: list[str] = []
     monkeypatch.setattr(
         "app.video_scores.schedule_score_after_video",
         lambda pid, sid: scheduled.append((pid, sid)),
+    )
+    monkeypatch.setattr(
+        "app.video_qa.force_silent_audio",
+        lambda path: muted.append(str(path)) or path,
     )
 
     frame_rel = "projects/p1/shots/s1/first_frame.png"
@@ -99,6 +104,7 @@ def test_video_worker_writes_mp4(tmp_path, monkeypatch):
         assert "无人声" in fake.last_prompt
         assert "只允许中文普通话口播" not in fake.last_prompt
         assert scheduled == [("p1", "s1")]
+        assert muted and muted[0].endswith("video.mp4")
     finally:
         db.close()
 

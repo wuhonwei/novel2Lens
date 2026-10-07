@@ -30,6 +30,30 @@ def test_extract_keyframes_calls_ffmpeg(tmp_path, monkeypatch):
     assert any("ffmpeg" in c[0] or c[0].endswith("ffmpeg") or c[0].endswith("ffmpeg.exe") for c in calls)
 
 
+def test_force_silent_audio_rewrites_via_ffmpeg(tmp_path, monkeypatch):
+    from app import video_qa
+
+    video = tmp_path / "v.mp4"
+    video.write_bytes(b"fake-mp4")
+    calls: list[list[str]] = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(list(cmd))
+        out = Path(cmd[-1])
+        out.write_bytes(b"muted-mp4")
+        class R:
+            returncode = 0
+            stdout = b""
+            stderr = b""
+        return R()
+
+    monkeypatch.setattr(video_qa, "subprocess", type("S", (), {"run": staticmethod(fake_run)}))
+    out = video_qa.force_silent_audio(video)
+    assert out == video
+    assert video.read_bytes() == b"muted-mp4"
+    assert any("anullsrc" in " ".join(c) for c in calls)
+
+
 def test_extract_wav(tmp_path, monkeypatch):
     video = tmp_path / "v.mp4"
     video.write_bytes(b"fake")

@@ -77,6 +77,39 @@ def extract_keyframes(video: Path, work: Path, count: int | None = None) -> list
     return out
 
 
+def force_silent_audio(video: Path) -> Path:
+    """Replace the video's audio with silence (H3 often invents babble on silent shots)."""
+    if not video.is_file():
+        raise FileNotFoundError(str(video))
+    tmp = video.with_suffix(".silent.tmp.mp4")
+    cmd = [
+        _ffmpeg(),
+        "-y",
+        "-i",
+        str(video),
+        "-f",
+        "lavfi",
+        "-i",
+        "anullsrc=channel_layout=stereo:sample_rate=44100",
+        "-c:v",
+        "copy",
+        "-c:a",
+        "aac",
+        "-shortest",
+        "-map",
+        "0:v:0",
+        "-map",
+        "1:a:0",
+        str(tmp),
+    ]
+    proc = subprocess.run(cmd, capture_output=True, check=False)
+    if proc.returncode != 0 or not tmp.is_file():
+        tmp.unlink(missing_ok=True)
+        raise RuntimeError(f"ffmpeg mute failed: {proc.stderr.decode(errors='replace')[:300]}")
+    tmp.replace(video)
+    return video
+
+
 def extract_wav(video: Path, wav: Path) -> Path:
     if not video.is_file():
         raise FileNotFoundError(str(video))
