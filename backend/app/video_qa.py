@@ -143,10 +143,16 @@ def transcribe_wav(wav: Path) -> str:
     model = _get_whisper_model()
     if model is None:
         return ""
+    global _asr_disabled_reason
     try:
         segments, _info = model.transcribe(str(wav), language="zh", vad_filter=True)
         parts = [seg.text.strip() for seg in segments if (seg.text or "").strip()]
         return "".join(parts).strip()
+    except TypeError as exc:
+        # e.g. PyAV/faster-whisper API mismatch — do not retry every shot
+        _asr_disabled_reason = f"TypeError: {exc}"
+        log.warning("ASR disabled after transcribe incompatibility: %s", _asr_disabled_reason)
+        return ""
     except Exception:
         log.exception("ASR transcribe failed for %s", wav)
         return ""
