@@ -134,6 +134,33 @@ def _get_whisper_model():
         return None
 
 
+def load_wav_mono_f32(wav: Path, sample_rate: int = 16000):
+    """Decode wav to mono float32 via ffmpeg (avoids PyAV API mismatches)."""
+    import numpy as np
+
+    if not wav.is_file():
+        raise FileNotFoundError(str(wav))
+    cmd = [
+        _ffmpeg(),
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-i",
+        str(wav),
+        "-ac",
+        "1",
+        "-ar",
+        str(int(sample_rate)),
+        "-f",
+        "f32le",
+        "-",
+    ]
+    proc = subprocess.run(cmd, capture_output=True, check=False)
+    if proc.returncode != 0 or not proc.stdout:
+        raise RuntimeError(f"ffmpeg pcm failed: {proc.stderr.decode(errors='replace')[:300]}")
+    return np.frombuffer(proc.stdout, dtype=np.float32).copy()
+
+
 def transcribe_wav(wav: Path) -> str:
     """Return ASR text, or empty string if ASR unavailable / fails."""
     if not wav.is_file():
@@ -145,11 +172,15 @@ def transcribe_wav(wav: Path) -> str:
         return ""
     global _asr_disabled_reason
     try:
-        segments, _info = model.transcribe(str(wav), language="zh", vad_filter=True)
+        # Feed numpy audio so faster-whisper does not call av.open (broken on some PyAV builds).
+        audio = load_wav_mono_f32(wav, sample_rate=16000)
+        if audio.size == 0:
+            return ""
+        segments, _info = model.transcribe(audio, language="zh", vad_filter=True)
         parts = [seg.text.strip() for seg in segments if (seg.text or "").strip()]
         return "".join(parts).strip()
     except TypeError as exc:
-        # e.g. PyAV/faster-whisper API mismatch — do not retry every shot
+        # e.g. unexpected API mismatch — do not retry every shot
         _asr_disabled_reason = f"TypeError: {exc}"
         log.warning("ASR disabled after transcribe incompatibility: %s", _asr_disabled_reason)
         return ""

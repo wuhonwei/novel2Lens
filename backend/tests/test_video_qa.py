@@ -57,6 +57,26 @@ def test_transcribe_returns_empty_when_asr_unavailable(tmp_path, monkeypatch):
     assert text == ""
 
 
+def test_transcribe_uses_ffmpeg_pcm_not_path(tmp_path, monkeypatch):
+    import numpy as np
+
+    from app import video_qa
+
+    wav = tmp_path / "a.wav"
+    wav.write_bytes(b"RIFF")
+    monkeypatch.setattr(video_qa, "_asr_disabled_reason", None)
+    monkeypatch.setattr(video_qa, "asr_available", lambda: True)
+    monkeypatch.setattr(video_qa, "load_wav_mono_f32", lambda _p, sample_rate=16000: np.zeros(1600, dtype=np.float32))
+
+    class FakeModel:
+        def transcribe(self, audio, **kwargs):
+            assert hasattr(audio, "dtype")
+            return [type("S", (), {"text": "你好"})()], None
+
+    monkeypatch.setattr(video_qa, "_get_whisper_model", lambda: FakeModel())
+    assert video_qa.transcribe_wav(wav) == "你好"
+
+
 def test_probe_duration_parses_ffprobe(monkeypatch):
     def fake_run(cmd, **kwargs):
         class R:
