@@ -41,6 +41,24 @@ def test_salvage_puts_unregistered_speaker_into_narration():
     assert "画外口播" in nar
 
 
+def test_salvage_does_not_give_crowd_line_to_framed_character():
+    lines = [{"name": "林砚之", "dialogue": "", "voice_direction": ""}]
+    excerpt = "“你干什么！” 渔民们连忙上前扶起他，怒视着随从。"
+    out, nar = salvage_dialogue(lines, source_excerpt=excerpt, narration="")
+    assert out[0]["dialogue"] == ""
+    assert "你干什么" in nar
+    assert "画外口播" in nar
+
+
+def test_salvage_does_not_give_fishermen_line_to_zhao():
+    lines = [{"name": "赵万山", "dialogue": "", "voice_direction": ""}]
+    excerpt = "“我们不造反，我们只是要守住自己的家！”"
+    out, nar = salvage_dialogue(lines, source_excerpt=excerpt, narration="")
+    # No speaker cue tying the line to 赵万山 — keep as off-screen VO.
+    assert out[0]["dialogue"] == ""
+    assert "我们不造反" in nar
+
+
 def test_salvage_empty_cast_uses_narration():
     lines: list[dict] = []
     excerpt = "“赵万山，你身为商人，不思诚信经营，反而欺压百姓，强占民地，目无王法！”"
