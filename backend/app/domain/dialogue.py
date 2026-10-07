@@ -4,10 +4,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
-# Chinese / ASCII quote pairs commonly used in novels.
 _QUOTE_RE = re.compile(r"[「『“\"]([^」』”\"]{2,160})[」』”\"]")
 
-# Short seals / names that look like quotes but are not spoken lines.
 _SKIP_QUOTES = frozenset(
     {
         "忠守",
@@ -23,6 +21,7 @@ _SPEECH_VERB = re.compile(r"(说|道|问|喊|叫|嚷|念|开口|轻声|哽咽)")
 _OFFSCREEN_SPEAKER = re.compile(
     r"(老板娘|随从|渔民|衙役|县令|众人|有人|百姓|旁人|差役|官兵)"
 )
+_ADDRESS_VERB = re.compile(r"(盯着|对着|面向|朝着|望着|护在)")
 
 
 def extract_dialogue_quotes(text: str) -> list[str]:
@@ -33,7 +32,6 @@ def extract_dialogue_quotes(text: str) -> list[str]:
         q = re.sub(r"\s+", "", (raw or "").strip())
         if len(q) < 4 or q in _SKIP_QUOTES or q in seen:
             continue
-        # Skip pure punctuation / ellipsis shards.
         if re.fullmatch(r"[…·\.，,。!！?？\s]+", q):
             continue
         seen.add(q)
@@ -41,26 +39,74 @@ def extract_dialogue_quotes(text: str) -> list[str]:
     return out
 
 
-def _name_near_quote(excerpt: str, quote: str, name: str) -> bool:
-    if not name or not quote or quote not in excerpt:
+def _letter_reading(excerpt: str) -> bool:
+    return any(k in (excerpt or "") for k in ("信上", "信里", "写道", "留下的信", "绝笔"))
+
+
+def _is_offscreen_quote(excerpt: str, quote: str) -> bool:
+    """True when quote is spoken by crowd / unregistered speaker, not cast."""
+    if not quote or quote not in excerpt:
         return False
     idx = excerpt.find(quote)
-    # Prefer text around the opening quote mark.
-    window_start = max(0, idx - 36)
-    window_end = min(len(excerpt), idx + len(quote) + 36)
-    window = excerpt[window_start:window_end]
-    if name not in window:
-        return False
-    # Require a speech cue near the name or quote, or letter-reading cue.
-    if _SPEECH_VERB.search(window):
+    before = excerpt[max(0, idx - 32) : idx]
+    after = excerpt[idx + len(quote) : idx + len(quote) + 28]
+    # 「…」后紧跟群众主语
+    if re.match(
+        r"^[」』”\"]?\s*(老板娘|随从|渔民|衙役|县令|众人|有人|百姓|旁人|差役|官兵)",
+        after,
+    ):
         return True
-    if any(k in excerpt for k in ("信上", "写道", "念道", "念了一句", "读")):
+    # 主语在引号前；「盯着随从：」里的随从是宾语，不算说话人
+    m = _OFFSCREEN_SPEAKER.search(before)
+    if m:
+        chunk = before[max(0, m.start() - 4) : m.end()]
+        if _ADDRESS_VERB.search(chunk):
+            return False
         return True
     return False
 
 
-def _letter_reading(excerpt: str) -> bool:
-    return any(k in (excerpt or "") for k in ("信上", "信里", "写道", "留下的信", "绝笔"))
+def _speaker_for_quote(excerpt: str, quote: str, names: list[str]) -> str | None:
+    """Pick the on-screen name that most likely speaks this quote."""
+    if not quote or quote not in excerpt or not names:
+        return None
+    if _is_offscreen_quote(excerpt, quote):
+        return None
+    idx = excerpt.find(quote)
+    before = excerpt[:idx]
+    after = excerpt[idx + len(quote) : idx + len(quote) + 36]
+
+    # 「…」林砚之轻声开口
+    for name in names:
+        if name and name in after and _SPEECH_VERB.search(after):
+            return name
+
+    # Score cast names before the quote; skip grammatical objects.
+    best_name = None
+    best_score = -10**9
+    for name in names:
+        if not name:
+            continue
+        pos = before.rfind(name)
+        if pos < 0:
+            continue
+        prev = before[max(0, pos - 2) : pos]
+        if prev.endswith("把") or prev.endswith("将"):
+            continue
+        obj_pat = before[max(0, pos - 4) : pos + len(name)]
+        if re.search(rf"(看见|看着|望着|打量){re.escape(name)}", obj_pat):
+            continue
+        # Nearer to quote is better; clause-leading subject gets a bonus.
+        score = pos
+        if pos < 12:
+            score += 80
+        tail = before[pos : pos + 20]
+        if _SPEECH_VERB.search(tail):
+            score += 120
+        if score > best_score:
+            best_score = score
+            best_name = name
+    return best_name
 
 
 def salvage_dialogue(
@@ -74,104 +120,76 @@ def salvage_dialogue(
     - Prefer assigning a quote to the on-screen character named near it.
     - Letter lines with a single on-screen character become that character reading.
     - Quotes from off-screen / unregistered speakers go into narration as 画外口播.
-    Existing non-empty dialogue / narration are left alone.
     """
     lines = [dict(ln) for ln in (lines or [])]
     nar = (narration or "").strip()
     excerpt = (source_excerpt or "").strip()
     quotes = extract_dialogue_quotes(excerpt)
+    names = [(ln.get("name") or "").strip() for ln in lines]
 
-    def _offscreen_around(quote: str) -> bool:
-        if not quote or quote not in excerpt:
-            return False
-        idx = excerpt.find(quote)
-        window = excerpt[max(0, idx - 28) : min(len(excerpt), idx + len(quote) + 28)]
-        if _OFFSCREEN_SPEAKER.search(window):
-            return True
-        after = excerpt[idx + len(quote) : idx + len(quote) + 24]
-        if re.search(r"^[」』”\"]?\s*\S{1,12}(说|道|问|喊|叫)", after):
-            name0 = (lines[0].get("name") or "") if lines else ""
-            if name0 and name0 in after:
-                return False
-            return True
-        return False
-
-    # Drop mis-attributed salvage lines (crowd / off-screen quotes stuck on the framed cast).
+    # Reclaim only salvage artifacts wrongly glued onto cast (轻声/读信 + offscreen).
     for ln in lines:
         d = (ln.get("dialogue") or "").strip()
-        if not d or not excerpt:
+        voice = (ln.get("voice_direction") or "").strip()
+        if not d or voice not in ("轻声", "读信"):
             continue
         name = (ln.get("name") or "").strip()
-        voice = (ln.get("voice_direction") or "").strip()
-        if _name_near_quote(excerpt, d, name):
+        speaker = _speaker_for_quote(excerpt, d, names) if excerpt else None
+        if speaker == name:
             continue
         if _letter_reading(excerpt) and len(lines) == 1 and d in quotes:
             continue
-        reclaim = _offscreen_around(d) or (
-            voice in ("轻声", "读信")
-            and d in quotes
-            and not _name_near_quote(excerpt, d, name)
-            and not _letter_reading(excerpt)
-        )
-        if reclaim:
+        if _is_offscreen_quote(excerpt, d) or (d in quotes and speaker not in (None, name)):
             ln["dialogue"] = ""
-            if voice in ("轻声", "读信"):
-                ln["voice_direction"] = ""
+            ln["voice_direction"] = ""
 
     if nar.startswith("画外口播"):
-        # Allow re-salvage after reclaiming bad character dialogue.
         nar = ""
 
     if any((ln.get("dialogue") or "").strip() for ln in lines):
-        keep_nar = (narration or "").strip()
-        if keep_nar.startswith("画外口播"):
-            keep_nar = nar
-        return lines, keep_nar
+        keep = (narration or "").strip()
+        if keep.startswith("画外口播"):
+            keep = nar
+        return lines, keep
 
     if not quotes:
         return lines, nar if nar else (narration or "").strip()
 
     assigned: set[str] = set()
-    # 1) Attribute quotes to named on-screen speakers.
-    for ln in lines:
-        name = (ln.get("name") or "").strip()
-        if not name or (ln.get("dialogue") or "").strip():
-            continue
-        for q in quotes:
-            if q in assigned:
-                continue
-            if _name_near_quote(excerpt, q, name):
-                ln["dialogue"] = q
-                if not (ln.get("voice_direction") or "").strip():
-                    if _letter_reading(excerpt):
-                        ln["voice_direction"] = "读信"
-                    elif "轻声" in excerpt:
-                        ln["voice_direction"] = "轻声"
-                assigned.add(q)
-                break
+    by_name = {(ln.get("name") or "").strip(): ln for ln in lines}
 
-    # 2) Single cast + letter line → character reads aloud.
-    #    Do NOT auto-claim crowd / off-screen lines just because one person is framed.
+    for q in quotes:
+        speaker = _speaker_for_quote(excerpt, q, names)
+        if not speaker:
+            continue
+        ln = by_name.get(speaker)
+        if not ln or (ln.get("dialogue") or "").strip():
+            continue
+        ln["dialogue"] = q
+        if not (ln.get("voice_direction") or "").strip():
+            if _letter_reading(excerpt):
+                ln["voice_direction"] = "读信"
+            elif "轻声" in excerpt:
+                ln["voice_direction"] = "轻声"
+        assigned.add(q)
+
+    # Single cast reading a letter.
     if (
         len(lines) == 1
         and not (lines[0].get("dialogue") or "").strip()
         and quotes
         and _letter_reading(excerpt)
+        and not _is_offscreen_quote(excerpt, quotes[0])
     ):
-        q = quotes[0]
-        if not _offscreen_around(q):
-            lines[0]["dialogue"] = q
-            if not (lines[0].get("voice_direction") or "").strip():
-                lines[0]["voice_direction"] = "读信"
-            assigned.add(q)
+        lines[0]["dialogue"] = quotes[0]
+        if not (lines[0].get("voice_direction") or "").strip():
+            lines[0]["voice_direction"] = "读信"
+        assigned.add(quotes[0])
 
-    # 3) Leftover spoken quotes → narration VO (off-screen / crowd / official).
     leftover = [q for q in quotes if q not in assigned]
     if leftover and (not nar or nar == "无"):
-        joined = "；".join(f"「{q}」" for q in leftover[:3])
-        nar = f"画外口播：{joined}"
+        nar = "画外口播：" + "；".join(f"「{q}」" for q in leftover[:3])
     elif leftover and nar and "画外口播" not in nar:
-        joined = "；".join(f"「{q}」" for q in leftover[:2])
-        nar = f"{nar} 画外口播：{joined}"
+        nar = f"{nar} 画外口播：" + "；".join(f"「{q}」" for q in leftover[:2])
 
     return lines, nar

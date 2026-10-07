@@ -59,6 +59,21 @@ def test_salvage_does_not_give_fishermen_line_to_zhao():
     assert "我们不造反" in nar
 
 
+def test_salvage_assigns_chen_when_staring_at_follower():
+    lines = [
+        {"name": "林砚之", "dialogue": "", "voice_direction": ""},
+        {"name": "陈守义", "dialogue": "", "voice_direction": ""},
+    ]
+    excerpt = (
+        "陈守义撑着船过来了。他看见林砚之摔倒在地，脸色瞬间冷了下来，"
+        "快步走上前，把林砚之护在身后，盯着随从：“他还是个孩子，你动手干什么？”"
+    )
+    out, nar = salvage_dialogue(lines, source_excerpt=excerpt, narration="")
+    chen = next(ln for ln in out if ln["name"] == "陈守义")
+    assert chen["dialogue"] == "他还是个孩子，你动手干什么？"
+    assert "画外口播" not in nar
+
+
 def test_salvage_empty_cast_uses_narration():
     lines: list[dict] = []
     excerpt = "“赵万山，你身为商人，不思诚信经营，反而欺压百姓，强占民地，目无王法！”"
