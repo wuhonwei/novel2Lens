@@ -11,6 +11,8 @@ from app.config import settings
 log = logging.getLogger(__name__)
 
 _DEFAULT_FRACS = (0.10, 0.35, 0.60, 0.85)
+_whisper_model = None
+_asr_disabled_reason: str | None = None
 
 
 def _ffmpeg() -> str:
@@ -100,6 +102,8 @@ def extract_wav(video: Path, wav: Path) -> Path:
 
 
 def asr_available() -> bool:
+    if _asr_disabled_reason:
+        return False
     try:
         import faster_whisper  # noqa: F401
 
@@ -108,20 +112,38 @@ def asr_available() -> bool:
         return False
 
 
+def _get_whisper_model():
+    """Load Whisper once; on failure disable ASR for the process (avoid Hub retry storms)."""
+    global _whisper_model, _asr_disabled_reason
+    if _asr_disabled_reason:
+        return None
+    if _whisper_model is not None:
+        return _whisper_model
+    try:
+        from faster_whisper import WhisperModel
+
+        _whisper_model = WhisperModel(
+            settings.video_qa_asr_model,
+            device=settings.video_qa_asr_device,
+            compute_type="int8" if settings.video_qa_asr_device == "cpu" else "default",
+        )
+        return _whisper_model
+    except Exception as exc:
+        _asr_disabled_reason = f"{type(exc).__name__}: {exc}"
+        log.warning("ASR disabled for this process: %s", _asr_disabled_reason)
+        return None
+
+
 def transcribe_wav(wav: Path) -> str:
     """Return ASR text, or empty string if ASR unavailable / fails."""
     if not wav.is_file():
         return ""
     if not asr_available():
         return ""
+    model = _get_whisper_model()
+    if model is None:
+        return ""
     try:
-        from faster_whisper import WhisperModel
-
-        model = WhisperModel(
-            settings.video_qa_asr_model,
-            device=settings.video_qa_asr_device,
-            compute_type="int8" if settings.video_qa_asr_device == "cpu" else "default",
-        )
         segments, _info = model.transcribe(str(wav), language="zh", vad_filter=True)
         parts = [seg.text.strip() for seg in segments if (seg.text or "").strip()]
         return "".join(parts).strip()

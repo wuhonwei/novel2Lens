@@ -147,9 +147,13 @@ async def score_shot_video(
         wav = extract_wav(video, work / "audio.wav")
         if asr_available():
             transcript = transcribe_wav(wav)
-            audio_out = score_transcript(expected, transcript)
-            audio_score = int(audio_out["score"])
-            audio_issues = list(audio_out.get("issues") or [])
+            # Model load may have failed mid-call and disabled ASR; treat as skip.
+            if not asr_available() and not transcript:
+                audio_skipped = True
+            else:
+                audio_out = score_transcript(expected, transcript)
+                audio_score = int(audio_out["score"])
+                audio_issues = list(audio_out.get("issues") or [])
         else:
             audio_skipped = True
     except Exception as exc:
