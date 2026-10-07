@@ -117,8 +117,10 @@ export function ShotCard({
   videoJob,
   regenDisabled,
   videoDisabled,
+  scoreVideoDisabled,
   onRegen,
   onGenerateVideo,
+  onScoreVideo,
   onChange,
 }: {
   shot: Shot;
@@ -127,8 +129,10 @@ export function ShotCard({
   videoJob?: VideoJob | null;
   regenDisabled?: boolean;
   videoDisabled?: boolean;
+  scoreVideoDisabled?: boolean;
   onRegen?: () => void;
   onGenerateVideo?: () => void;
+  onScoreVideo?: () => void;
   onChange: (patch: Partial<Shot> & { recompile?: boolean }) => Promise<void>;
 }) {
   const [local, setLocal] = useState(shot);
@@ -190,6 +194,18 @@ export function ShotCard({
             {shot.video_path ? "重新生成视频" : "生成视频"}
           </button>
         ) : null}
+        {onScoreVideo && shot.video_path ? (
+          <button
+            type="button"
+            className="compact"
+            data-testid={`btn-shot-score-video-${shot.order_index}`}
+            disabled={scoreVideoDisabled}
+            title="用关键帧视觉 + 听写比对 H3 提示词"
+            onClick={onScoreVideo}
+          >
+            评估视频
+          </button>
+        ) : null}
       </div>
 
       {shot.first_frame_path ? (
@@ -207,13 +223,16 @@ export function ShotCard({
 
       {shot.video_path ? (
         <div className="shot-video">
-          <video
-            key={`${shot.id}-${shot.video_version || 0}-${shot.video_path}`}
-            src={mediaUrl(shot.video_path, shot.video_version)}
-            controls
-            playsInline
-            preload="metadata"
-          />
+          <div className="thumb-with-score">
+            <video
+              key={`${shot.id}-${shot.video_version || 0}-${shot.video_path}`}
+              src={mediaUrl(shot.video_path, shot.video_version)}
+              controls
+              playsInline
+              preload="metadata"
+            />
+            <ScoreBadge score={shot.video_score} comment={shot.video_score_comment} />
+          </div>
         </div>
       ) : null}
 

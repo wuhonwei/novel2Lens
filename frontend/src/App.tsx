@@ -80,6 +80,15 @@ function countShotScores(shots: Shot[]): ScoreCounts {
   return counts;
 }
 
+function countVideoScores(shots: Shot[]): ScoreCounts {
+  const counts = emptyScoreCounts();
+  for (const s of shots) {
+    if (!s.video_path) continue;
+    counts[scoreBand(s.video_score)] += 1;
+  }
+  return counts;
+}
+
 function ScoreSummary({ counts }: { counts: ScoreCounts }) {
   return (
     <div className="score-summary" data-testid="score-summary">
@@ -812,8 +821,9 @@ export default function App() {
                     <section className="panel score-panel-head-wrap">
                       <div className="panel-head score-panel-head">
                         <div>
-                          <h2>本章首帧评分</h2>
+                          <h2>本章首帧 / 视频评分</h2>
                           <ScoreSummary counts={countShotScores(chapterShots)} />
+                          <ScoreSummary counts={countVideoScores(chapterShots)} />
                         </div>
                         <div className="row">
                           <button
@@ -872,6 +882,41 @@ export default function App() {
                           >
                             评估图片
                           </button>
+                          <button
+                            type="button"
+                            className="primary"
+                            data-testid="btn-score-chapter-videos"
+                            disabled={
+                              !!busy ||
+                              llmBlocked ||
+                              !chapterShots.some((s) => s.video_path && (s.h3_prompt || "").trim())
+                            }
+                            title={
+                              llmBlocked
+                                ? LLM_BUSY_TITLE
+                                : "关键帧视觉 + 本地听写，对照 H3 提示词评估本章视频"
+                            }
+                            onClick={() =>
+                              run("评估本章视频", async (signal) => {
+                                const next = await api.scoreVideos(
+                                  p.id,
+                                  { scope: "chapter", chapter_id: chapter!.id },
+                                  { signal },
+                                );
+                                setBundle(next);
+                                if (next.cancelled) return;
+                                if (next.errors?.length) {
+                                  alert(
+                                    `评估完成 ${next.scored ?? 0} 条；部分失败：\n${next.errors.slice(0, 5).join("\n")}`,
+                                  );
+                                } else {
+                                  setNotice(`已评估 ${next.scored ?? 0} 条视频`);
+                                }
+                              })
+                            }
+                          >
+                            评估本章视频
+                          </button>
                         </div>
                       </div>
                     </section>
@@ -918,6 +963,17 @@ export default function App() {
                               pollVideoJobsRef.current?.();
                             }
                             setBundle(next);
+                          })
+                        }
+                        scoreVideoDisabled={!!busy || llmBlocked}
+                        onScoreVideo={() =>
+                          run(`评估镜${shot.order_index}视频`, async (signal) => {
+                            const next = await api.scoreShotVideo(p.id, shot.id, { signal });
+                            setBundle(next);
+                            if (next.cancelled) return;
+                            if (next.errors?.length) {
+                              alert(next.errors.slice(0, 3).join("\n"));
+                            }
                           })
                         }
                         onChange={async (next) => {

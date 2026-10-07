@@ -142,6 +142,9 @@ export type Shot = {
   first_frame_score_comment?: string;
   video_path?: string;
   video_version?: number;
+  video_score?: number | null;
+  video_score_comment?: string;
+  video_qa?: Record<string, unknown>;
   prompt_zh: string;
   prompt_en: string;
   h3_prompt: string;
@@ -436,6 +439,38 @@ export const api = {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
+      signal: opts?.signal,
+    }),
+  scoreVideos: (
+    pid: string,
+    body: { scope?: "shot" | "chapter" | "project"; shot_id?: string; chapter_id?: string },
+    opts?: ReqSignal,
+  ) =>
+    req<
+      Bundle & {
+        ok?: boolean;
+        cancelled?: boolean;
+        scored?: number;
+        errors?: string[];
+        skipped?: Array<{ shot_id: string; reason: string }>;
+        summary?: { good: number; ok: number; bad: number; none: number };
+      }
+    >(`/api/projects/${pid}/score-videos`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: opts?.signal,
+    }),
+  scoreShotVideo: (pid: string, sid: string, opts?: ReqSignal) =>
+    req<
+      Bundle & {
+        ok?: boolean;
+        cancelled?: boolean;
+        scored?: number;
+        errors?: string[];
+      }
+    >(`/api/projects/${pid}/shots/${sid}/score-video`, {
+      method: "POST",
       signal: opts?.signal,
     }),
   editAssetImage: (pid: string, aid: string, form: FormData, opts?: ReqSignal) =>

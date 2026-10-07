@@ -271,6 +271,12 @@ class VideoWorker:
         job.phase = ""
         job.error = ""
         self._save(db, job)
+        try:
+            from app.video_scores import schedule_score_after_video
+
+            schedule_score_after_video(job.project_id, shot.id)
+        except Exception:  # noqa: BLE001
+            log.exception("schedule video QA failed for %s", shot.id)
         # Unload H3 weights so a later first-frame/image job does not OOM.
         try:
             client.free_memory()

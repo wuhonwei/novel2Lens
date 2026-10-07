@@ -137,6 +137,11 @@ def enqueue_shot_video(
     if existing:
         raise ValueError("本镜视频任务进行中")
 
+    from app.video_scores import clear_shot_video_score
+
+    clear_shot_video_score(shot)
+    db.add(shot)
+
     duration = float(shot.duration_s or 6.0)
     payload = {
         "shot_id": shot.id,

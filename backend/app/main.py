@@ -288,6 +288,12 @@ class ScoreImagesIn(BaseModel):
     kind: str | None = None  # character | scene | prop
 
 
+class ScoreVideosIn(BaseModel):
+    scope: str = "chapter"  # shot | chapter | project
+    shot_id: str | None = None
+    chapter_id: str | None = None
+
+
 def _require_style(style: str | None) -> str:
     s = (style or "").strip()
     if not s:
@@ -981,6 +987,65 @@ async def api_score_images(project_id: str, request: Request, body: ScoreImagesI
                 kind=kind,
                 is_cancelled=lambda: _request_cancelled(request),
             )
+        except OperationCancelled:
+            return {"ok": False, "cancelled": True, **_bundle(db, project)}
+        return {**result, **_bundle(db, project)}
+    finally:
+        db.close()
+
+
+@app.post("/api/projects/{project_id}/score-videos")
+async def api_score_videos(project_id: str, request: Request, body: ScoreVideosIn = ScoreVideosIn()):
+    from app.llm import OperationCancelled
+    from app.video_scores import score_project_videos
+
+    db = db_session()
+    try:
+        project = get_project(db, project_id)
+        _prepare_llm(db, project)
+        scope = (body.scope or "chapter").strip().lower()
+        if scope not in ("shot", "chapter", "project"):
+            raise HTTPException(400, "scope 必须是 shot、chapter 或 project")
+        try:
+            result = await score_project_videos(
+                db,
+                project,
+                scope=scope,
+                chapter_id=(body.chapter_id or "").strip() or None,
+                shot_id=(body.shot_id or "").strip() or None,
+                is_cancelled=lambda: _request_cancelled(request),
+            )
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except OperationCancelled:
+            return {"ok": False, "cancelled": True, **_bundle(db, project)}
+        return {**result, **_bundle(db, project)}
+    finally:
+        db.close()
+
+
+@app.post("/api/projects/{project_id}/shots/{shot_id}/score-video")
+async def api_score_shot_video(project_id: str, shot_id: str, request: Request):
+    from app.llm import OperationCancelled
+    from app.video_scores import score_project_videos
+
+    db = db_session()
+    try:
+        project = get_project(db, project_id)
+        shot = db.get(Shot, shot_id)
+        if not shot or shot.project_id != project_id:
+            raise HTTPException(404, "分镜不存在")
+        _prepare_llm(db, project)
+        try:
+            result = await score_project_videos(
+                db,
+                project,
+                scope="shot",
+                shot_id=shot_id,
+                is_cancelled=lambda: _request_cancelled(request),
+            )
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
         except OperationCancelled:
             return {"ok": False, "cancelled": True, **_bundle(db, project)}
         return {**result, **_bundle(db, project)}

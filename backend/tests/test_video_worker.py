@@ -48,6 +48,11 @@ def test_video_worker_writes_mp4(tmp_path, monkeypatch):
     shared_out.mkdir()
     monkeypatch.setattr("app.config.settings.h3_shared_output", str(shared_out))
     reset_engine(f"sqlite:///{tmp_path / 't.sqlite'}")
+    scheduled: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        "app.video_scores.schedule_score_after_video",
+        lambda pid, sid: scheduled.append((pid, sid)),
+    )
 
     frame_rel = "projects/p1/shots/s1/first_frame.png"
     frame_abs = tmp_path / frame_rel
@@ -93,5 +98,28 @@ def test_video_worker_writes_mp4(tmp_path, monkeypatch):
         assert (tmp_path / shot.video_path).is_file()
         assert "禁止日语" in fake.last_prompt
         assert "无人声" in fake.last_prompt
+        assert scheduled == [("p1", "s1")]
     finally:
         db.close()
+
+
+def test_schedule_score_after_video_respects_flag(monkeypatch):
+    from app.video_scores import schedule_score_after_video
+
+    monkeypatch.setattr("app.config.settings.video_qa_auto_after_video", False)
+    called: list[str] = []
+
+    class FakeThread:
+        def __init__(self, *a, **k):
+            called.append("thread")
+
+        def start(self):
+            called.append("start")
+
+    monkeypatch.setattr("threading.Thread", FakeThread)
+    schedule_score_after_video("p1", "s1")
+    assert called == []
+
+    monkeypatch.setattr("app.config.settings.video_qa_auto_after_video", True)
+    schedule_score_after_video("p1", "s1")
+    assert called == ["thread", "start"]

@@ -147,6 +147,9 @@ class Shot(Base):
     first_frame_score: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)
     first_frame_score_comment: Mapped[str] = mapped_column(Text, default="")
     video_path: Mapped[str] = mapped_column(String(400), default="")
+    video_score: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)
+    video_score_comment: Mapped[str] = mapped_column(Text, default="")
+    video_qa_json: Mapped[str] = mapped_column(Text, default="{}")
 
     project: Mapped[Project] = relationship(back_populates="shots")
 
@@ -236,6 +239,12 @@ def ensure_schema() -> None:
             conn.execute(text("ALTER TABLE shots ADD COLUMN first_frame_score_comment TEXT DEFAULT ''"))
         if "video_path" not in shot_cols:
             conn.execute(text("ALTER TABLE shots ADD COLUMN video_path VARCHAR(400) DEFAULT ''"))
+        if "video_score" not in shot_cols:
+            conn.execute(text("ALTER TABLE shots ADD COLUMN video_score INTEGER"))
+        if "video_score_comment" not in shot_cols:
+            conn.execute(text("ALTER TABLE shots ADD COLUMN video_score_comment TEXT DEFAULT ''"))
+        if "video_qa_json" not in shot_cols:
+            conn.execute(text("ALTER TABLE shots ADD COLUMN video_qa_json TEXT DEFAULT '{}'"))
         job_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(image_jobs)")).fetchall()}
         if "shot_id" not in job_cols:
             conn.execute(text("ALTER TABLE image_jobs ADD COLUMN shot_id VARCHAR(36) DEFAULT ''"))

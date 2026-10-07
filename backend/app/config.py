@@ -67,6 +67,15 @@ class Settings(BaseSettings):
     # does not compete with H3 UNet + Qwen3-VL for VRAM (OOM freezes the machine).
     h3_stop_for_image: bool = True
 
+    # Post-hoc video QA (keyframe VL + optional local ASR).
+    video_qa_frame_count: int = 4
+    video_qa_asr_model: str = "base"
+    video_qa_asr_device: str = "cpu"
+    video_qa_auto_after_video: bool = True
+    video_qa_auto_regen: bool = False
+    video_qa_regen_threshold: int = 60
+    video_qa_max_regen: int = 1
+
     @property
     def h3_comfy_base_url(self) -> str:
         return f"http://{self.h3_comfy_host}:{self.h3_comfy_port}"
