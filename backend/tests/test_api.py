@@ -179,6 +179,7 @@ def test_full_planner_pipeline(tmp_path, monkeypatch):
         )
         assert "<Image 1>" in shot["h3_prompt"]
         assert "左一的少年" in shot["h3_prompt"]
+        assert "我母亲叫苏晚卿" in shot["h3_prompt"] or "说道" in shot["h3_prompt"]
         assert shot["character_count"] == 2
         kinds = [s.get("kind") for s in shot["slots"]]
         assert "character" in kinds

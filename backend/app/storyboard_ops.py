@@ -340,9 +340,18 @@ def _scrub_deleted_names(text: str, deleted_names: list[str]) -> str:
 
 
 def compile_shot_prompts(project: Project, shot: Shot, assets: list[Asset]) -> None:
+    from app.domain.dialogue import salvage_dialogue
+
     by_id = {a.id: a for a in assets}
     scene = by_id.get(shot.scene_asset_id) if shot.scene_asset_id else None
     lines = _load(shot.lines_json, [])
+    lines, salvaged_nar = salvage_dialogue(
+        lines,
+        source_excerpt=shot.source_excerpt or "",
+        narration=shot.narration or "",
+    )
+    if salvaged_nar != (shot.narration or "").strip():
+        shot.narration = salvaged_nar
     prop_ids = _load(getattr(shot, "prop_asset_ids_json", None) or "[]", [])
     prop_assets = [by_id[pid] for pid in prop_ids if pid in by_id]
     chars: list[SlotSubject] = []
